@@ -93,6 +93,16 @@ class MockCollection:
                 self.inserted_id = inserted_id
         return InsertResult(item_copy.get("id"))
 
+    async def insert_many(self, docs):
+        items = self._get_items()
+        docs_copy = [dict(d) for d in docs]
+        items.extend(docs_copy)
+        self._save()
+        class InsertManyResult:
+            def __init__(self, inserted_ids):
+                self.inserted_ids = inserted_ids
+        return InsertManyResult([d.get("id") for d in docs_copy])
+
     async def update_one(self, filter_query, update_query):
         items = self._get_items()
         modified_count = 0

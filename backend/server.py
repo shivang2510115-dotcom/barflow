@@ -54,6 +54,10 @@ async def seed_data():
     await db.tables.create_index("label")
     await db.reservations.create_index("date")
     await db.menu.create_index("category")
+    await db.guests.create_index("phone", unique=True)
+    await db.bookings.create_index([("room_type_id", 1), ("check_in", 1), ("check_out", 1), ("status", 1)])
+    await db.bookings.create_index("reference", unique=True)
+    await db.rooms.create_index("room_type_id")
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
@@ -169,6 +173,25 @@ async def seed_data():
         for i in inv:
             item = InventoryItem(**i).model_dump()
             await db.inventory.insert_one(item)
+
+    # Room GST bands. Editable, because these change by statute.
+    if await db.tax_slabs.count_documents({}) == 0:
+        await db.tax_slabs.insert_many([
+            {"id": str(uuid.uuid4()), "min_tariff": 0.0, "max_tariff": 7500.0,
+             "rate_percent": 12.0, "active": True},
+            {"id": str(uuid.uuid4()), "min_tariff": 7500.0, "max_tariff": None,
+             "rate_percent": 18.0, "active": True},
+        ])
+
+    if await db.meal_plans.count_documents({}) == 0:
+        await db.meal_plans.insert_many([
+            {"id": str(uuid.uuid4()), "code": "EP", "name": "Room only",
+             "price_per_adult_per_night": 0.0, "price_per_child_per_night": 0.0, "active": True},
+            {"id": str(uuid.uuid4()), "code": "CP", "name": "With breakfast",
+             "price_per_adult_per_night": 500.0, "price_per_child_per_night": 250.0, "active": True},
+            {"id": str(uuid.uuid4()), "code": "MAP", "name": "Half board",
+             "price_per_adult_per_night": 1200.0, "price_per_child_per_night": 600.0, "active": True},
+        ])
 
 
 # ----------------- Startup -----------------
