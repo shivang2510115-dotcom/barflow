@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import db, client
 from security import hash_password
-from routers import auth, tables, menu, orders, inventory, reports, payments
+from routers import auth, tables, menu, orders, inventory, reports, payments, guests
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -27,7 +27,7 @@ from routers.reports import daily_brief_scheduler
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, tables, menu, orders, inventory, reports, payments):
+for module in (auth, tables, menu, orders, inventory, reports, payments, guests):
     api_router.include_router(module.router)
 
 

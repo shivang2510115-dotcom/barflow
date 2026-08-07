@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import asyncio
 
 class MockCursor:
@@ -33,6 +34,31 @@ class MockCollection:
     def _save(self):
         self.db.save()
 
+    def _field_matches(self, field_val, condition):
+        """Handle a Mongo-style operator dict for a single field, e.g. {"$ne": x}."""
+        for op, opval in condition.items():
+            if op == "$ne":
+                if field_val == opval:
+                    return False
+            elif op == "$in":
+                if field_val not in opval:
+                    return False
+            elif op == "$nin":
+                if field_val in opval:
+                    return False
+            elif op == "$exists":
+                if (field_val is not None) != bool(opval):
+                    return False
+            elif op == "$regex":
+                flags = re.IGNORECASE if condition.get("$options") == "i" else 0
+                if not re.search(opval, field_val if isinstance(field_val, str) else "", flags):
+                    return False
+            elif op == "$options":
+                continue  # handled alongside $regex
+            else:
+                return False
+        return True
+
     def _match(self, doc, filter_query):
         if not filter_query:
             return True
@@ -50,6 +76,9 @@ class MockCollection:
                             return False
                     except Exception:
                         return False
+            elif isinstance(v, dict) and v and all(str(op).startswith("$") for op in v):
+                if not self._field_matches(doc.get(k), v):
+                    return False
             else:
                 if doc.get(k) != v:
                     return False
@@ -105,20 +134,25 @@ class MockCollection:
 
     async def update_one(self, filter_query, update_query):
         items = self._get_items()
+        matched_count = 0
         modified_count = 0
         for item in items:
             if self._match(item, filter_query):
+                matched_count = 1
                 if "$set" in update_query:
+                    changed = any(item.get(uk) != uv for uk, uv in update_query["$set"].items())
                     for uk, uv in update_query["$set"].items():
                         item[uk] = uv
-                    modified_count = 1
-                    break
+                    if changed:
+                        modified_count = 1
+                break
         if modified_count > 0:
             self._save()
         class UpdateResult:
-            def __init__(self, count):
-                self.modified_count = count
-        return UpdateResult(modified_count)
+            def __init__(self, matched, modified):
+                self.matched_count = matched
+                self.modified_count = modified
+        return UpdateResult(matched_count, modified_count)
 
     async def delete_one(self, filter_query):
         items = self._get_items()
