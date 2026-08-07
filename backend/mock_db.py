@@ -145,6 +145,11 @@ class MockCollection:
                         item[uk] = uv
                     if changed:
                         modified_count = 1
+                if "$push" in update_query:
+                    for uk, uv in update_query["$push"].items():
+                        item.setdefault(uk, [])
+                        item[uk].append(uv)
+                    modified_count = 1
                 break
         if modified_count > 0:
             self._save()
