@@ -12,7 +12,7 @@ from db import db
 JWT_ALGORITHM = "HS256"
 JWT_SECRET = os.environ.get("JWT_SECRET", "supersecret-key-123456789")
 
-Role = Literal["admin", "manager", "waiter", "kitchen"]
+Role = Literal["admin", "manager", "waiter", "kitchen", "front_desk"]
 
 
 def hash_password(password: str) -> str:

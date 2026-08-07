@@ -71,6 +71,7 @@ async def seed_data():
             {"email": "manager@barflow.io", "name": "Jamie Rowe", "role": "manager", "password": "manager123"},
             {"email": "waiter@barflow.io", "name": "Riley Cole", "role": "waiter", "password": "waiter123"},
             {"email": "kitchen@barflow.io", "name": "Sam Ash", "role": "kitchen", "password": "kitchen123"},
+            {"email": "frontdesk@barflow.io", "name": "Nina Patel", "role": "front_desk", "password": "desk123"},
         ]
 
     for u in default_users:
