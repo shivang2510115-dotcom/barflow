@@ -32,14 +32,20 @@ def daterange(check_in: str, check_out: str) -> list[str]:
 
 
 def _period_for(day: str, periods: list[dict]) -> Optional[dict]:
-    """Highest-priority active period covering `day`. Ties break on most recent."""
+    """Highest-priority active period covering `day`. Ties break on most recently created
+    (missing `created_at` sorts as if it were the empty string, i.e. oldest); any remaining
+    tie breaks on `id` (ascending). The `id` tie-break is total, so the result never depends
+    on the order periods were passed in."""
     matches = [
         p for p in periods
         if p.get("active", True) and p["start_date"] <= day < p["end_date"]
     ]
     if not matches:
         return None
-    return sorted(matches, key=lambda p: (p.get("priority", 0), p.get("created_at", "")))[-1]
+    return sorted(
+        matches,
+        key=lambda p: (p.get("priority", 0), p.get("created_at", ""), p["id"]),
+    )[-1]
 
 
 def resolve_rate(day: str, room_type_id: str, rates: list[dict], periods: list[dict]) -> dict:

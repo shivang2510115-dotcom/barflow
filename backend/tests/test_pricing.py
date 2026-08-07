@@ -2,7 +2,7 @@
 import pytest
 
 from services.pricing import (
-    daterange, resolve_rate, gst_for, quote_stay, MissingRateError,
+    daterange, resolve_rate, gst_for, quote_stay, MissingRateError, _period_for,
 )
 
 RT = "type-deluxe"
@@ -110,3 +110,26 @@ def test_quote_raises_on_any_uncovered_night():
                    base_occupancy=2, meal_plan=EP,
                    rates=[PEAK_RATE], periods=[PEAK], slabs=SLABS)
     assert e.value.dates == ["2026-12-19"]
+
+
+def test_period_tie_break_is_deterministic_regardless_of_input_order():
+    # Same priority, neither has created_at: the tie must not depend on list order.
+    season_a = {"id": "season-a", "name": "A", "start_date": "2026-08-01",
+                "end_date": "2026-08-10", "priority": 5, "active": True}
+    season_b = {"id": "season-b", "name": "B", "start_date": "2026-08-01",
+                "end_date": "2026-08-10", "priority": 5, "active": True}
+
+    forward = _period_for("2026-08-05", [season_a, season_b])
+    reversed_order = _period_for("2026-08-05", [season_b, season_a])
+
+    assert forward == reversed_order
+    assert forward["id"] == "season-b"  # id tie-break resolves it, deterministically
+
+
+def test_quote_raises_with_every_uncovered_night_in_order():
+    with pytest.raises(MissingRateError) as e:
+        quote_stay("2026-08-03", "2026-08-06", RT, adults=2, children=0,
+                   base_occupancy=2, meal_plan=EP,
+                   rates=[], periods=[], slabs=SLABS)
+    # Three nights (3rd, 4th, 5th) all lack a rate; the error must list all of them, in order.
+    assert e.value.dates == ["2026-08-03", "2026-08-04", "2026-08-05"]
