@@ -1,0 +1,36 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+build/
+dist/
+*.egg-info/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+venv/
+.venv/
+
+# secrets — never commit these
+.env
+.env.*
+!.env.example
+
+# local mock datastore: holds password hashes and throwaway demo trade
+backend/db.json
+
+# os / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# logs
+*.log
+npm-debug.log*
+yarn-error.log*

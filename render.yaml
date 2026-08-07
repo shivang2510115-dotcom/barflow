@@ -1,0 +1,72 @@
+services:
+  # ---------------------------------------------------------------- API
+  - type: web
+    name: barflow-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: singapore
+    healthCheckPath: /api/
+    envVars:
+      # Mongo Atlas connection string. Paste in the Render dashboard, never commit it.
+      # Leave it unset and the app silently falls back to the mock JSON store, which is
+      # wiped on every restart and every redeploy.
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: barflow
+      # Generated once by Render. Rotating it invalidates every issued login token.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      # Required. Leave this blank and the app seeds the published default "admin123".
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Suppresses the manager/waiter/kitchen demo logins, whose passwords are in the
+      # repo. Must stay "false" on anything reachable from the internet.
+      - key: DEMO_LOGINS
+        value: "false"
+      - key: CURRENCY_SYMBOL
+        value: "₹"
+      # Full origin WITH scheme, e.g. https://barflow-web.onrender.com
+      # Set by hand after the first deploy, once the site's real URL exists.
+      # Do not widen to "*" — allow_credentials is on, so a wildcard origin would let
+      # any website call this API with a logged-in user's token.
+      - key: CORS_ORIGINS
+        sync: false
+      - key: DAILY_BRIEF_ENABLED
+        value: "false"
+      - key: OWNER_BRIEF_TIME
+        value: "23:00"
+      - key: OWNER_PHONE
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_ID
+        sync: false
+      - key: STRIPE_API_KEY
+        sync: false
+
+  # ---------------------------------------------------------------- Web
+  - type: web
+    name: barflow-web
+    runtime: static
+    rootDir: ./frontend
+    plan: free
+    buildCommand: npm ci && CI=false npm run build
+    staticPublishPath: ./build
+    envVars:
+      # Full origin WITH scheme, e.g. https://barflow-api.onrender.com
+      # This is COMPILE-time, not runtime: changing it needs a rebuild, not a restart.
+      - key: REACT_APP_BACKEND_URL
+        sync: false
+      - key: NODE_VERSION
+        value: "20"
+    routes:
+      # React Router owns the paths; hand every unknown URL to index.html
+      # or a refresh on /app/reports returns 404.
+      - type: rewrite
+        source: /*
+        destination: /index.html

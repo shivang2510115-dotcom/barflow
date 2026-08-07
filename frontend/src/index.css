@@ -1,0 +1,163 @@
+@import url("https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=jetbrains-mono@400,500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --bg: #0c0a09;
+    --surface: #1c1917;
+    --border: #292524;
+    --primary: #ea580c;
+    --primary-hover: #c2410c;
+    --text: #f5f5f4;
+    --muted: #a8a29e;
+    --success: #16a34a;
+    --danger: #dc2626;
+    --warning: #eab308;
+}
+
+html,
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+}
+
+body {
+    background-image:
+        radial-gradient(1200px 600px at 100% -10%, rgba(234, 88, 12, 0.08), transparent 60%),
+        radial-gradient(900px 500px at -10% 110%, rgba(234, 88, 12, 0.06), transparent 60%);
+    background-attachment: fixed;
+}
+
+.font-display {
+    font-family: "Clash Display", "Manrope", sans-serif;
+    letter-spacing: -0.02em;
+}
+.font-mono {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+::selection {
+    background: rgba(234, 88, 12, 0.35);
+    color: #fff;
+}
+
+/* Grain overlay */
+.grain::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.06;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* Tailwind base tokens (shadcn variables) - dark, sharp */
+@layer base {
+    :root {
+        --background: 20 14% 4%;
+        --foreground: 60 9% 96%;
+        --card: 24 10% 10%;
+        --card-foreground: 60 9% 96%;
+        --popover: 24 10% 10%;
+        --popover-foreground: 60 9% 96%;
+        --primary: 21 90% 48%;
+        --primary-foreground: 60 9% 98%;
+        --secondary: 24 6% 15%;
+        --secondary-foreground: 60 9% 96%;
+        --muted: 24 6% 15%;
+        --muted-foreground: 24 5% 64%;
+        --accent: 21 90% 48%;
+        --accent-foreground: 60 9% 98%;
+        --destructive: 0 74% 42%;
+        --destructive-foreground: 60 9% 98%;
+        --border: 24 6% 15%;
+        --input: 24 6% 15%;
+        --ring: 21 90% 48%;
+        --radius: 0px;
+    }
+    * {
+        border-color: hsl(var(--border));
+    }
+    body {
+        background-color: hsl(var(--background));
+        color: hsl(var(--foreground));
+    }
+}
+
+/* Utility scroll */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Neon focus */
+.focus-neon:focus {
+    outline: none;
+    box-shadow: 0 0 0 1px rgba(234, 88, 12, 0.8);
+}
+
+/* Pulse for active */
+@keyframes neonPulse {
+    0%,
+    100% {
+        box-shadow: 0 0 0 rgba(234, 88, 12, 0);
+    }
+    50% {
+        box-shadow: 0 0 24px rgba(234, 88, 12, 0.35);
+    }
+}
+.neon-pulse {
+    animation: neonPulse 2.4s ease-in-out infinite;
+}
+
+/* Shimmer for billed tables */
+@keyframes shimmer {
+    0%,
+    100% {
+        box-shadow: 0 0 0 rgba(250, 204, 21, 0);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(250, 204, 21, 0.35);
+    }
+}
+.shimmer {
+    animation: shimmer 3s ease-in-out infinite;
+}
+
+/* Breathe for reserved */
+@keyframes breathe {
+    0%,
+    100% {
+        box-shadow: 0 0 0 rgba(59, 130, 246, 0);
+    }
+    50% {
+        box-shadow: 0 0 18px rgba(59, 130, 246, 0.3);
+    }
+}
+.breathe {
+    animation: breathe 4s ease-in-out infinite;
+}
+
+/* Slow gradient drift for landing hero highlights */
+@keyframes drift {
+    0%,
+    100% { background-position: 0% 0%; }
+    50% { background-position: 100% 100%; }
+}
+.drift {
+    background-size: 200% 200%;
+    animation: drift 18s ease-in-out infinite;
+}

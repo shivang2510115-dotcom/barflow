@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BarFlow — Pitch Deck</title>
+<style>
+  :root{ --orange:#f97316; --orange2:#fb923c; --bg:#0c0a09; --panel:#1c1917; --line:#292524; --ink:#f5f5f4; --mut:#a8a29e; --dim:#78716c; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; background:var(--bg); color:var(--ink);
+    font-family:"Manrope","Segoe UI",system-ui,sans-serif; -webkit-font-smoothing:antialiased; }
+  .deck{ height:100vh; overflow:hidden; }
+  .slide{ height:100vh; width:100%; display:none; flex-direction:column; justify-content:center;
+    padding:6vh 8vw; position:relative; }
+  .slide.active{ display:flex; animation:fade .4s ease; }
+  @keyframes fade{ from{opacity:0; transform:translateY(12px);} to{opacity:1; transform:none;} }
+  .eyebrow{ font-size:12px; letter-spacing:.4em; text-transform:uppercase; color:var(--orange);
+    font-family:ui-monospace,monospace; margin-bottom:18px; }
+  h1{ font-size:clamp(38px,7vw,86px); line-height:.98; letter-spacing:-.02em; text-transform:uppercase; font-weight:800; }
+  h2{ font-size:clamp(28px,4.4vw,52px); line-height:1.03; letter-spacing:-.01em; text-transform:uppercase; font-weight:800; margin-bottom:26px; }
+  .lead{ font-size:clamp(17px,2vw,24px); color:var(--mut); max-width:60ch; line-height:1.5; margin-top:18px; }
+  .accent{ color:var(--orange); }
+  .grid{ display:grid; gap:16px; margin-top:14px; }
+  .g2{ grid-template-columns:repeat(2,1fr);} .g3{ grid-template-columns:repeat(3,1fr);} .g4{ grid-template-columns:repeat(4,1fr);}
+  .card{ border:1px solid var(--line); background:var(--panel); padding:22px; border-radius:4px; }
+  .card h3{ font-size:19px; margin-bottom:8px; letter-spacing:-.01em; }
+  .card p{ font-size:14.5px; color:var(--mut); line-height:1.5; }
+  .card .ic{ display:none; }
+  .big{ font-size:clamp(34px,5vw,60px); font-weight:800; color:var(--orange); letter-spacing:-.02em; }
+  .kpi{ border:1px solid var(--line); background:var(--panel); padding:20px 22px; border-radius:4px; }
+  .kpi .n{ font-size:clamp(30px,4vw,46px); font-weight:800; letter-spacing:-.02em; }
+  .kpi .l{ font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--dim); font-family:ui-monospace,monospace; margin-top:6px; }
+  table{ width:100%; border-collapse:collapse; margin-top:10px; font-size:15px; }
+  th,td{ text-align:left; padding:13px 14px; border-bottom:1px solid var(--line); }
+  thead th{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--dim); font-family:ui-monospace,monospace; }
+  td.win{ color:var(--orange2); font-weight:700; } td.no{ color:var(--dim); }
+  .pill{ display:inline-block; border:1px solid var(--orange); color:var(--orange); font-size:11px;
+    letter-spacing:.2em; text-transform:uppercase; font-family:ui-monospace,monospace; padding:5px 12px; border-radius:999px; }
+  ul.clean{ list-style:none; margin-top:12px; } ul.clean li{ padding:9px 0 9px 26px; position:relative; font-size:17px; color:var(--mut); line-height:1.45; }
+  ul.clean li::before{ content:"▸"; color:var(--orange); position:absolute; left:0; }
+  .wa{ background:#0b141a; border:1px solid var(--line); border-radius:10px; padding:16px; max-width:420px; }
+  .wa .bub{ background:#005c4b; color:#eafff7; border-radius:10px 10px 10px 2px; padding:14px 16px; font-size:14px; line-height:1.55; white-space:pre-wrap; }
+  .foot{ position:absolute; bottom:26px; left:8vw; right:8vw; display:flex; justify-content:space-between;
+    align-items:center; font-family:ui-monospace,monospace; font-size:11px; color:var(--dim); letter-spacing:.15em; }
+  .logo{ font-weight:800; letter-spacing:-.01em; } .logo .dot{ color:var(--orange); }
+  .nav{ position:fixed; bottom:20px; right:22px; z-index:20; display:flex; gap:8px; }
+  .nav button{ background:var(--panel); color:var(--ink); border:1px solid var(--line); width:38px; height:38px;
+    border-radius:6px; cursor:pointer; font-size:16px; } .nav button:hover{ border-color:var(--orange); color:var(--orange); }
+  .barcount{ position:fixed; top:0; left:0; height:3px; background:var(--orange); z-index:20; transition:width .3s; }
+  .two{ display:grid; grid-template-columns:1.1fr .9fr; gap:38px; align-items:center; }
+  .hint{ position:fixed; bottom:22px; left:22px; z-index:20; font-family:ui-monospace,monospace; font-size:11px; color:var(--dim); }
+  @media print{
+    .nav,.hint,.barcount{ display:none; }
+    .slide{ display:flex !important; height:100vh; page-break-after:always; }
+    html,body,.deck{ height:auto; overflow:visible; }
+  }
+  /* screenshot render override */
+  html,body,.deck{ height:auto !important; overflow:visible !important; }
+  .deck{ width:1280px; }
+  .slide{ display:flex !important; height:720px !important; width:1280px !important;
+    padding:48px 96px !important; border-bottom:1px solid var(--line); }
+  .slide .foot{ left:96px; right:96px; bottom:32px; }
+  .nav,.hint,.barcount{ display:none !important; }
+</style>
+</head>
+<body>
+<div class="barcount" id="bar"></div>
+<div class="deck" id="deck">
+
+  <!-- 1 TITLE -->
+  <section class="slide active">
+    <div class="eyebrow">Restaurant Operating System</div>
+    <h1>Bar<span class="accent">Flow</span></h1>
+    <p class="lead">The menu, the billing, and the marketing — one screen. Take orders by QR, know your bestsellers and best customers, and bring guests back on WhatsApp. Automatically.</p>
+    <div class="grid g4" style="margin-top:40px;max-width:900px">
+      <div class="kpi"><div class="n">QR</div><div class="l">Guest ordering</div></div>
+      <div class="kpi"><div class="n">Auto</div><div class="l">WhatsApp reach</div></div>
+      <div class="kpi"><div class="n">Live</div><div class="l">Sales brain</div></div>
+      <div class="kpi"><div class="n">1</div><div class="l">Screen, no bloat</div></div>
+    </div>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>Bill it · understand it · act on it</span></div>
+  </section>
+
+  <!-- 2 PROBLEM -->
+  <section class="slide">
+    <div class="eyebrow">The problem</div>
+    <h2>Small bars run <span class="accent">blind</span>.</h2>
+    <div class="grid g3">
+      <div class="card"><span class="ic">🧾</span><h3>Billing only</h3><p>Most tools just print a bill. The data walks out the door with the customer.</p></div>
+      <div class="card"><span class="ic">🤷</span><h3>No customer memory</h3><p>Who are your regulars? What sells on a Tuesday? Nobody knows.</p></div>
+      <div class="card"><span class="ic">🧩</span><h3>Heavy &amp; complex</h3><p>Big POS suites take a week to learn and bury the numbers that matter.</p></div>
+    </div>
+    <p class="lead">Owners lose repeat customers they never knew they had.</p>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>02</span></div>
+  </section>
+
+  <!-- 3 SOLUTION -->
+  <section class="slide">
+    <div class="eyebrow">The solution</div>
+    <h2>Bill it. Understand it. <span class="accent">Act on it.</span></h2>
+    <p class="lead">BarFlow is one lightweight cloud app that runs the floor and grows the business — no hardware lock-in, works on any phone or laptop.</p>
+    <div class="grid g4" style="margin-top:26px">
+      <div class="card"><span class="ic">📱</span><h3>QR Ordering</h3><p>Guest scans, orders, pays.</p></div>
+      <div class="card"><span class="ic">🍸</span><h3>POS + KOT</h3><p>Bills, kitchen tickets, tables.</p></div>
+      <div class="card"><span class="ic">📊</span><h3>Sales Brain</h3><p>Bestsellers, top customers.</p></div>
+      <div class="card"><span class="ic">💬</span><h3>WhatsApp</h3><p>Auto reach &amp; win-back.</p></div>
+    </div>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>03</span></div>
+  </section>
+
+  <!-- 4 WOW HEADER -->
+  <section class="slide" style="align-items:flex-start;justify-content:center;text-align:left">
+    <div class="pill">The Wow</div>
+    <h1 style="margin-top:22px">5 features<br>that <span class="accent">make money</span>.</h1>
+    <p class="lead">Not features that record the past. Features that change tonight’s revenue.</p>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>04</span></div>
+  </section>
+
+  <!-- 5 WOW: WhatsApp nightly brief -->
+  <section class="slide">
+    <div class="eyebrow">Wow 01 · Built & live</div>
+    <div class="two">
+      <div>
+        <h2>The bar reports to <span class="accent">you</span> — on WhatsApp.</h2>
+        <ul class="clean">
+          <li>Every night at close, a WhatsApp lands on your phone.</li>
+          <li>Revenue, bills, top items, <b>best customer of the day</b>, low-stock alerts.</li>
+          <li>Zero login. Run the business from your pocket.</li>
+        </ul>
+      </div>
+      <div class="wa">
+        <div class="bub"><b>BarFlow — Daily Brief</b>  (Today)
+
+Revenue: <b>₹42,800</b>
+Bills: 78 · Items sold: 214
+Cash ₹18,200 · Card ₹15,400 · Online ₹9,200
+Top: Old Fashioned ×31, Negroni ×22, Sour ×18
+Best customer: Rahul (₹3,150)
+Low stock: Gin, Aperol, Stout Keg
+
+— sent automatically by BarFlow</div>
+        <div style="font-size:10px;color:var(--dim);text-align:right;margin-top:8px;font-family:ui-monospace,monospace">preview · WhatsApp</div>
+      </div>
+    </div>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>05</span></div>
+  </section>
+
+  <!-- 6 WOW: Win-back -->
+  <section class="slide">
+    <div class="eyebrow">Wow 02</div>
+    <h2>Auto <span class="accent">win-back</span> your best customers.</h2>
+    <p class="lead">A regular hasn’t visited in 30 days? BarFlow spots it and sends a personal WhatsApp — before you lose them for good.</p>
+    <div class="grid g3" style="margin-top:20px">
+      <div class="card"><span class="ic">🎯</span><h3>Detect</h3><p>System flags lapsed regulars from real spend history.</p></div>
+      <div class="card"><span class="ic">💬</span><h3>Message</h3><p>“Miss you, Rahul — your Old Fashioned on us tonight.”</p></div>
+      <div class="card"><span class="ic">📈</span><h3>Return</h3><p>Dead customers walk back in. Owner sees it in the numbers.</p></div>
+    </div>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>06</span></div>
+  </section>
+
+  <!-- 7 WOW: Sales brain + QR upsell -->
+  <section class="slide">
+    <div class="eyebrow">Wow 03 & 04</div>
+    <h2>Know what sells. <span class="accent">Sell more of it.</span></h2>
+    <div class="grid g2" style="margin-top:8px">
+      <div class="card"><span class="ic">🧠</span><h3>Sales Brain</h3><p>Bestseller by month, peak days, top-10 customers, payment mix — a live dashboard, not a spreadsheet.</p></div>
+      <div class="card"><span class="ic">🛒</span><h3>Smart QR Upsell</h3><p>When a guest orders, the app suggests the right pairing from real bestseller combos. Bigger average bill.</p></div>
+    </div>
+    <div class="grid g4" style="margin-top:18px;max-width:900px">
+      <div class="kpi"><div class="n">Bigger</div><div class="l">Avg ticket</div></div>
+      <div class="kpi"><div class="n">Top 10</div><div class="l">Customers ranked</div></div>
+      <div class="kpi"><div class="n">Monthly</div><div class="l">Bestseller trend</div></div>
+      <div class="kpi"><div class="n">Live</div><div class="l">Every bill</div></div>
+    </div>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>07</span></div>
+  </section>
+
+  <!-- 8 WOW: Review funnel + loyalty -->
+  <section class="slide">
+    <div class="eyebrow">Wow 05</div>
+    <h2>Protect your <span class="accent">reputation</span>. Grow reviews.</h2>
+    <div class="grid g2" style="margin-top:8px">
+      <div class="card"><span class="ic">⭐</span><h3>Feedback → Google</h3><p>After the bill, a WhatsApp asks for a rating. Unhappy? It alerts <b>you privately</b> — kill the bad review before it goes public. Happy? One tap to a Google review. More stars = more footfall.</p></div>
+      <div class="card"><span class="ic">🎟️</span><h3>Phone = Loyalty</h3><p>No card, no app. The phone number is the loyalty account — points and reward messages happen automatically.</p></div>
+    </div>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>08</span></div>
+  </section>
+
+  <!-- 9 VS PETPOOJA -->
+  <section class="slide">
+    <div class="eyebrow">Why us</div>
+    <h2>PetPooja bills. <span class="accent">BarFlow brings customers back.</span></h2>
+    <table>
+      <thead><tr><th>Capability</th><th>BarFlow</th><th>Typical POS</th></tr></thead>
+      <tbody>
+        <tr><td>QR guest self-ordering</td><td class="win">Built-in</td><td class="no">Paid add-on</td></tr>
+        <tr><td>WhatsApp win-back + nightly brief</td><td class="win">Native, automatic</td><td class="no">Basic CRM, manual</td></tr>
+        <tr><td>Bestseller + best-customer brain</td><td class="win">Live + acts on it</td><td class="no">Reports only</td></tr>
+        <tr><td>Learning curve</td><td class="win">Minutes</td><td class="no">Days</td></tr>
+      </tbody>
+    </table>
+    <p class="lead" style="font-size:16px">Honest: for aggregator-heavy, high-compliance outlets, keep the big suite. BarFlow wins for direct-service bars &amp; cafés who want sharper and customer-driven.</p>
+    <div class="foot"><span class="logo">Bar<span class="dot">Flow</span></span><span>09</span></div>
+  </section>
+
+  <!-- 10 CLOSE -->
+  <section class="slide" style="text-align:center;align-items:center">
+    <div class="eyebrow">Let’s go</div>
+    <h1>Fuller tables.<br><span class="accent">Fewer lost regulars.</span></h1>
+    <p class="lead" style="margin-left:auto;margin-right:auto">Start with a free 2-week pilot. Load your menu, print the table QRs, switch on the nightly WhatsApp brief. See the numbers move — then decide.</p>
+    <div style="margin-top:34px" class="pill">Live demo available now</div>
+    <div class="foot" style="justify-content:center"><span class="logo">Bar<span class="dot">Flow</span> — bill it, understand it, act on it.</span></div>
+  </section>
+
+</div>
+
+<div class="hint">← → or click to move · press <b>P</b> then Print → Save as PDF</div>
+<div class="nav"><button onclick="go(-1)">‹</button><button onclick="go(1)">›</button></div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')]; let i=0;
+  const bar=document.getElementById('bar');
+  function show(n){ slides[i].classList.remove('active'); i=(n+slides.length)%slides.length;
+    slides[i].classList.add('active'); bar.style.width=((i+1)/slides.length*100)+'%'; }
+  function go(d){ show(i+d); }
+  show(0);
+  document.addEventListener('keydown',e=>{
+    if(e.key==='ArrowRight'||e.key===' ') go(1);
+    else if(e.key==='ArrowLeft') go(-1);
+    else if(e.key==='Home') show(0);
+    else if(e.key.toLowerCase()==='p'){ /* let user Ctrl/Cmd+P */ }
+  });
+  document.getElementById('deck').addEventListener('click',e=>{
+    if(e.target.closest('.nav')) return;
+    go(e.clientX > window.innerWidth/2 ? 1 : -1);
+  });
+</script>
+</body>
+</html>
