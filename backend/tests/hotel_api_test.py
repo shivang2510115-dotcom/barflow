@@ -389,3 +389,251 @@ def test_put_tax_slabs_replaces_whole_table(admin):
 def test_put_tax_slabs_rejects_empty_list(admin):
     r = admin.put(f"{API}/tax-slabs", json=[])
     assert r.status_code == 400, r.text
+
+
+# ------------------------ availability & bookings ------------------------
+# Every test below builds its own room type, rooms, rate and guest, in its own
+# date window — nothing here is shared, so each test must pass alone or in any
+# order under `-n 2 --dist loadscope`.
+def _new_room_type(admin, **overrides):
+    code = f"T{uuid.uuid4().hex[:6].upper()}"
+    payload = {
+        "name": "Booking Test Type", "code": code,
+        "base_occupancy": 2, "max_occupancy": 3, "max_extra_beds": 1,
+    }
+    payload.update(overrides)
+    r = admin.post(f"{API}/room-types", json=payload)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _add_rooms(admin, room_type_id, count=1):
+    rooms = []
+    for _ in range(count):
+        r = admin.post(f"{API}/rooms", json={
+            "number": f"R{uuid.uuid4().hex[:5]}", "room_type_id": room_type_id})
+        assert r.status_code == 200, r.text
+        rooms.append(r.json())
+    return rooms
+
+
+def _add_default_rate(admin, room_type_id, base_rate=5000.0,
+                      extra_adult_rate=1000.0, extra_child_rate=500.0):
+    r = admin.post(f"{API}/rates", json={
+        "room_type_id": room_type_id, "period_id": None,
+        "base_rate": base_rate, "extra_adult_rate": extra_adult_rate,
+        "extra_child_rate": extra_child_rate,
+    })
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def _reset_default_tax_slabs(admin):
+    """Tax slabs are a single global table (PUT replaces it wholesale), and
+    `test_put_tax_slabs_replaces_whole_table` above overwrites it. Reset to the
+    canonical 12%/18% @ 7500 bands here so a test asserting an exact GST total
+    is correct regardless of what ran before it."""
+    r = admin.put(f"{API}/tax-slabs", json=[
+        {"min_tariff": 0.0, "max_tariff": 7500.0, "rate_percent": 12.0, "active": True},
+        {"min_tariff": 7500.0, "max_tariff": None, "rate_percent": 18.0, "active": True},
+    ])
+    assert r.status_code == 200, r.text
+
+
+def _new_guest(admin):
+    phone = f"9{uuid.uuid4().int % 1000000000:09d}"
+    r = admin.post(f"{API}/guests", json={"name": "Booking Guest", "phone": phone})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.fixture(scope="module")
+def ep_plan(admin):
+    """Read-only lookup of the seeded EP meal plan — safe to share across tests
+    since nothing here mutates it."""
+    plans = admin.get(f"{API}/meal-plans").json()
+    return next(p for p in plans if p["code"] == "EP")
+
+
+def test_availability_returns_priced_quote(admin, ep_plan):
+    _reset_default_tax_slabs(admin)
+    rt = _new_room_type(admin)
+    _add_rooms(admin, rt["id"], 2)
+    _add_default_rate(admin, rt["id"])
+
+    r = admin.get(f"{API}/availability", params={
+        "check_in": "2027-03-01", "check_out": "2027-03-03", "adults": 2, "children": 0})
+    assert r.status_code == 200, r.text
+    row = next(x for x in r.json() if x["room_type"]["id"] == rt["id"])
+    assert row["available"] == 2
+    quote = next(q for q in row["quotes"] if q["meal_plan"]["code"] == "EP")
+    assert quote["room_subtotal"] == 10000.0
+    assert quote["tax_total"] == 1200.0
+    assert quote["total"] == 11200.0
+
+
+def test_create_booking_consumes_inventory(admin, ep_plan):
+    _reset_default_tax_slabs(admin)
+    rt = _new_room_type(admin)
+    _add_rooms(admin, rt["id"], 2)
+    _add_default_rate(admin, rt["id"])
+    guest = _new_guest(admin)
+
+    body = {
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-04-01",
+        "check_out": "2027-04-03", "adults": 2, "children": 0,
+    }
+    r = admin.post(f"{API}/bookings", json=body)
+    assert r.status_code == 200, r.text
+    assert r.json()["quote"]["total"] == 11200.0
+    assert r.json()["reference"].startswith("BF-")
+
+    avail = admin.get(f"{API}/availability", params={
+        "check_in": "2027-04-01", "check_out": "2027-04-03", "adults": 2, "children": 0})
+    row = next(x for x in avail.json() if x["room_type"]["id"] == rt["id"])
+    assert row["available"] == 1
+
+
+def test_checkout_day_does_not_block_next_arrival(admin, ep_plan):
+    rt = _new_room_type(admin)
+    _add_rooms(admin, rt["id"], 2)
+    _add_default_rate(admin, rt["id"])
+    guest = _new_guest(admin)
+
+    body = {
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2028-01-01",
+        "check_out": "2028-01-03", "adults": 2, "children": 0,
+    }
+    created = admin.post(f"{API}/bookings", json=body)
+    assert created.status_code == 200, created.text
+
+    # Existing stay is 2028-01-01 → 2028-01-03, so the 3rd must be fully free.
+    avail = admin.get(f"{API}/availability", params={
+        "check_in": "2028-01-03", "check_out": "2028-01-04", "adults": 2, "children": 0})
+    row = next(x for x in avail.json() if x["room_type"]["id"] == rt["id"])
+    assert row["available"] == 2
+
+
+def test_overbooking_is_refused(admin, ep_plan):
+    rt = _new_room_type(admin)
+    _add_rooms(admin, rt["id"], 2)
+    _add_default_rate(admin, rt["id"])
+    guest = _new_guest(admin)
+
+    body = {
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-05-01",
+        "check_out": "2027-05-02", "adults": 2, "children": 0,
+    }
+    assert admin.post(f"{API}/bookings", json=body).status_code == 200
+    assert admin.post(f"{API}/bookings", json=body).status_code == 200
+    third = admin.post(f"{API}/bookings", json=body)
+    assert third.status_code == 409, third.text
+
+
+def test_missing_rate_refuses_rather_than_pricing_zero(admin, ep_plan):
+    bare = _new_room_type(admin, name="Unpriced")
+    _add_rooms(admin, bare["id"], 1)
+    guest = _new_guest(admin)
+
+    r = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": bare["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-06-01",
+        "check_out": "2027-06-02", "adults": 2, "children": 0})
+    assert r.status_code == 422, r.text
+    assert "2027-06-01" in str(r.json()["detail"])
+
+
+def test_checkout_before_checkin_is_rejected(admin, ep_plan):
+    rt = _new_room_type(admin)
+    guest = _new_guest(admin)
+    r = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-07-05",
+        "check_out": "2027-07-05", "adults": 2, "children": 0})
+    assert r.status_code == 400, r.text
+
+
+def test_occupancy_above_ceiling_is_rejected(admin, ep_plan):
+    # base 2, max_occupancy 3, max_extra_beds 1 → ceiling of 4
+    rt = _new_room_type(admin)
+    _add_rooms(admin, rt["id"], 1)
+    _add_default_rate(admin, rt["id"])
+    guest = _new_guest(admin)
+
+    r = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-08-01",
+        "check_out": "2027-08-02", "adults": 9, "children": 0})
+    assert r.status_code == 400, r.text
+
+
+def test_cancel_releases_inventory(admin, ep_plan):
+    rt = _new_room_type(admin)
+    _add_rooms(admin, rt["id"], 2)
+    _add_default_rate(admin, rt["id"])
+    guest = _new_guest(admin)
+
+    body = {
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-09-01",
+        "check_out": "2027-09-02", "adults": 2, "children": 0,
+    }
+    booking = admin.post(f"{API}/bookings", json=body).json()
+
+    before = admin.get(f"{API}/availability", params={
+        "check_in": "2027-09-01", "check_out": "2027-09-02", "adults": 2, "children": 0})
+    assert next(x for x in before.json()
+                if x["room_type"]["id"] == rt["id"])["available"] == 1
+
+    assert admin.post(f"{API}/bookings/{booking['id']}/cancel",
+                      json={"reason": "Guest called"}).status_code == 200
+
+    after = admin.get(f"{API}/availability", params={
+        "check_in": "2027-09-01", "check_out": "2027-09-02", "adults": 2, "children": 0})
+    assert next(x for x in after.json()
+                if x["room_type"]["id"] == rt["id"])["available"] == 2
+
+
+# ------------------ 409 refusals that needed a bookings endpoint ------------------
+def test_delete_room_type_with_live_booking_is_blocked(admin, ep_plan):
+    """Task 7 built this refusal path but could not test it — no bookings endpoint
+    existed yet. Now one does."""
+    rt = _new_room_type(admin, name="Live Booking Type")
+    _add_rooms(admin, rt["id"], 1)
+    _add_default_rate(admin, rt["id"], base_rate=4000.0)
+    guest = _new_guest(admin)
+
+    booking = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"], "meal_plan_id": ep_plan["id"],
+        "check_in": "2027-10-01", "check_out": "2027-10-02", "adults": 2, "children": 0,
+    })
+    assert booking.status_code == 200, booking.text
+
+    r = admin.delete(f"{API}/room-types/{rt['id']}")
+    assert r.status_code == 409, r.text
+
+
+def test_delete_room_assigned_to_live_booking_is_blocked(admin, ep_plan):
+    """Same as above for the room-level refusal in delete_room: a room actually
+    assigned to a live booking (via POST /bookings/{id}/assign-room) cannot be
+    deleted."""
+    rt = _new_room_type(admin, name="Assigned Room Type")
+    room = _add_rooms(admin, rt["id"], 1)[0]
+    _add_default_rate(admin, rt["id"], base_rate=4000.0)
+    guest = _new_guest(admin)
+
+    booking = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"], "meal_plan_id": ep_plan["id"],
+        "check_in": "2027-11-05", "check_out": "2027-11-06", "adults": 2, "children": 0,
+    }).json()
+
+    assigned = admin.post(f"{API}/bookings/{booking['id']}/assign-room",
+                          json={"room_id": room["id"]})
+    assert assigned.status_code == 200, assigned.text
+    assert assigned.json()["assigned_room_id"] == room["id"]
+
+    r = admin.delete(f"{API}/rooms/{room['id']}")
+    assert r.status_code == 409, r.text
