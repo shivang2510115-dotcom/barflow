@@ -1,6 +1,8 @@
 """Hotel API integration tests. Requires a running server (see backend_test.py)."""
 import os
+import random
 import uuid
+from datetime import date, timedelta
 
 import pytest
 import requests
@@ -272,18 +274,41 @@ def test_rate_period_end_date_must_be_after_start_date(admin):
     assert r.status_code == 400, r.text
 
 
+def _random_window(span_days: int, offset_days: int = 0):
+    """A start/end date pair inside a large pseudo-random future range — so repeated
+    runs of the same test never land on the same window as a period left over in
+    db.json from a prior run against this same mock database."""
+    base = date(2030, 1, 1) + timedelta(days=random.randint(0, 36500))
+    start = base + timedelta(days=offset_days)
+    end = start + timedelta(days=span_days)
+    return start.isoformat(), end.isoformat()
+
+
+def _random_priority() -> int:
+    """A priority far outside the small fixed values other tests use (0, 1, 2, 5, 9),
+    and randomised so reruns don't collide with a prior run's leftover periods."""
+    return random.randint(10_000, 999_999)
+
+
 def test_create_rate_period_overlap_same_priority_warns(admin):
     tag = uuid.uuid4().hex[:6]
+    priority = _random_priority()
+    start1, end1 = _random_window(span_days=14)
+    # Overlaps the first window by 5 nights, same relationship the original fixed
+    # dates had.
+    start2 = (date.fromisoformat(start1) + timedelta(days=9)).isoformat()
+    end2 = (date.fromisoformat(start1) + timedelta(days=19)).isoformat()
+
     first = admin.post(f"{API}/rate-periods", json={
-        "name": f"Diwali {tag}", "start_date": "2026-11-01", "end_date": "2026-11-15",
-        "priority": 5,
+        "name": f"Diwali {tag}", "start_date": start1, "end_date": end1,
+        "priority": priority,
     })
     assert first.status_code == 200, first.text
     assert first.json()["overlap_warning"] is None
 
     second = admin.post(f"{API}/rate-periods", json={
-        "name": f"Xmas {tag}", "start_date": "2026-11-10", "end_date": "2026-11-20",
-        "priority": 5,
+        "name": f"Xmas {tag}", "start_date": start2, "end_date": end2,
+        "priority": priority,
     })
     assert second.status_code == 200, second.text
     assert second.json()["overlap_warning"] is not None
@@ -292,15 +317,22 @@ def test_create_rate_period_overlap_same_priority_warns(admin):
 
 def test_create_rate_period_overlap_different_priority_no_warning(admin):
     tag = uuid.uuid4().hex[:6]
+    start1, end1 = _random_window(span_days=19)
+    start2 = (date.fromisoformat(start1) + timedelta(days=9)).isoformat()
+    end2 = (date.fromisoformat(start1) + timedelta(days=15)).isoformat()
+
+    priority1 = _random_priority()
+    priority2 = priority1 + 1  # guaranteed distinct from priority1, still unique per run
+
     first = admin.post(f"{API}/rate-periods", json={
-        "name": f"Base Season {tag}", "start_date": "2027-02-01", "end_date": "2027-02-20",
-        "priority": 1,
+        "name": f"Base Season {tag}", "start_date": start1, "end_date": end1,
+        "priority": priority1,
     })
     assert first.status_code == 200, first.text
 
     second = admin.post(f"{API}/rate-periods", json={
-        "name": f"Valentine Special {tag}", "start_date": "2027-02-10", "end_date": "2027-02-16",
-        "priority": 9,
+        "name": f"Valentine Special {tag}", "start_date": start2, "end_date": end2,
+        "priority": priority2,
     })
     assert second.status_code == 200, second.text
     assert second.json()["overlap_warning"] is None

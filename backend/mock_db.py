@@ -1,7 +1,15 @@
 import json
+import operator
 import os
 import re
 import asyncio
+
+_COMPARISON_OPS = {
+    "$gt": operator.gt,
+    "$gte": operator.ge,
+    "$lt": operator.lt,
+    "$lte": operator.le,
+}
 
 class MockCursor:
     def __init__(self, items):
@@ -55,8 +63,18 @@ class MockCollection:
                     return False
             elif op == "$options":
                 continue  # handled alongside $regex
+            elif op in _COMPARISON_OPS:
+                # Values here are usually YYYY-MM-DD strings, but keep this generic —
+                # Python's ordering operators work for strings and numbers alike. A
+                # document missing the field (None) or holding an incomparable type
+                # must simply not match rather than raise.
+                try:
+                    if not _COMPARISON_OPS[op](field_val, opval):
+                        return False
+                except TypeError:
+                    return False
             else:
-                return False
+                raise ValueError(f"mock_db: unsupported operator {op}")
         return True
 
     def _match(self, doc, filter_query):

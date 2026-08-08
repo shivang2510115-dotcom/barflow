@@ -5,8 +5,19 @@ import { toast } from "sonner";
 const addDays = (iso, n) =>
   new Date(new Date(iso).getTime() + n * 86400000).toISOString().slice(0, 10);
 
+// Check-in/check-out are calendar dates, never instants — toISOString() converts to
+// UTC, which for a user east of UTC between midnight and their UTC offset would make
+// "today" resolve to yesterday's date. Build the initial value from local getters
+// instead; addDays above operates on an explicit YYYY-MM-DD string and is unaffected.
+const toLocalISODate = (d) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export default function Calendar() {
-  const [start, setStart] = useState(new Date().toISOString().slice(0, 10));
+  const [start, setStart] = useState(toLocalISODate(new Date()));
   const [grid, setGrid] = useState([]);
   const [loading, setLoading] = useState(true);
 

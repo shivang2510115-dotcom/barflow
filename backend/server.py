@@ -23,6 +23,7 @@ from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
 from routers.reports import daily_brief_scheduler
+from models.hotel import Rate, Room, RoomType
 
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
@@ -192,6 +193,51 @@ async def seed_data():
             {"id": str(uuid.uuid4()), "code": "MAP", "name": "Half board",
              "price_per_adult_per_night": 1200.0, "price_per_child_per_night": 600.0, "active": True},
         ])
+
+    # Room types, rooms and a default rate for each — without this a fresh deploy has
+    # zero hotel inventory, availability returns nothing, and no booking can be made
+    # until someone creates it over the API by hand. Rates use period_id=None (the
+    # year-round default) so every type is immediately bookable; a type with no rate
+    # is refused rather than priced at zero (see services/pricing.py).
+    if await db.room_types.count_documents({}) == 0:
+        room_type_specs = [
+            {"name": "Deluxe Room", "code": "DLX", "block": "Main",
+             "base_occupancy": 2, "max_occupancy": 3, "max_extra_beds": 1,
+             "room_count": 6, "base_rate": 4500.0,
+             "extra_adult_rate": 800.0, "extra_child_rate": 400.0},
+            {"name": "Executive Suite", "code": "EXE", "block": "Main",
+             "base_occupancy": 2, "max_occupancy": 4, "max_extra_beds": 2,
+             "room_count": 4, "base_rate": 7500.0,
+             "extra_adult_rate": 1200.0, "extra_child_rate": 600.0},
+            {"name": "Garden Cottage", "code": "GDN", "block": "Garden",
+             "base_occupancy": 2, "max_occupancy": 3, "max_extra_beds": 1,
+             "room_count": 3, "base_rate": 5500.0,
+             "extra_adult_rate": 900.0, "extra_child_rate": 450.0},
+        ]
+        for floor, spec in enumerate(room_type_specs, start=1):
+            spec = dict(spec)
+            room_count = spec.pop("room_count")
+            base_rate = spec.pop("base_rate")
+            extra_adult_rate = spec.pop("extra_adult_rate")
+            extra_child_rate = spec.pop("extra_child_rate")
+
+            room_type = RoomType(**spec).model_dump()
+            await db.room_types.insert_one(room_type)
+
+            for i in range(1, room_count + 1):
+                room = Room(
+                    number=f"{room_type['code']}-{i:02d}",
+                    room_type_id=room_type["id"],
+                    floor=str(floor),
+                ).model_dump()
+                await db.rooms.insert_one(room)
+
+            rate = Rate(
+                room_type_id=room_type["id"], period_id=None,
+                base_rate=base_rate, extra_adult_rate=extra_adult_rate,
+                extra_child_rate=extra_child_rate,
+            ).model_dump()
+            await db.rates.insert_one(rate)
 
 
 # ----------------- Startup -----------------

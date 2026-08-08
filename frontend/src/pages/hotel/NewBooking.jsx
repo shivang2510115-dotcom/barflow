@@ -3,9 +3,18 @@ import { useNavigate } from "react-router-dom";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 
-const today = () => new Date().toISOString().slice(0, 10);
-const tomorrow = () =>
-  new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+// Check-in/check-out are calendar dates, never instants — toISOString() converts to
+// UTC, which for a user east of UTC between midnight and their UTC offset would make
+// "today" resolve to yesterday's date. Build the string from local getters instead.
+const toLocalISODate = (d) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const today = () => toLocalISODate(new Date());
+const tomorrow = () => toLocalISODate(new Date(Date.now() + 86400000));
 
 export default function NewBooking() {
   const nav = useNavigate();
