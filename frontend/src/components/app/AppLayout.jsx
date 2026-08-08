@@ -16,6 +16,8 @@ import {
   CalendarPlus,
   CalendarRange,
   ClipboardList,
+  Tags,
+  Users,
 } from "lucide-react";
 
 const NAV = [
@@ -34,6 +36,8 @@ const NAV = [
   // /app/hotel/bookings) — exclude that sibling so the two links don't both light up.
   { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], exclude: ["/app/hotel/bookings/new"] },
   { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"] },
+  { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"] },
+  { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"] },
 ];
 
 function isNavItemActive(item, pathname) {
