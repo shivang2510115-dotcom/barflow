@@ -21,7 +21,13 @@ export default function NewBooking() {
   const [guest, setGuest] = useState({ name: "", phone: "" });
   const [saving, setSaving] = useState(false);
 
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const set = (k, v) => {
+    setForm((f) => ({ ...f, [k]: v }));
+    // Any change to the search params invalidates prior results/quotes — they were
+    // priced for the old values, so force a fresh search before booking again.
+    setResults(null);
+    setChoice(null);
+  };
 
   const search = async () => {
     if (form.check_out <= form.check_in) {
@@ -43,6 +49,10 @@ export default function NewBooking() {
   const book = async () => {
     if (!guest.name.trim() || !guest.phone.trim()) {
       toast.error("Guest name and phone are required");
+      return;
+    }
+    if (form.check_out <= form.check_in) {
+      toast.error("Check-out must be after check-in");
       return;
     }
     setSaving(true);
