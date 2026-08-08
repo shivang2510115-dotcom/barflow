@@ -75,7 +75,7 @@ export default function BookingDetail() {
       </button>
       <div className="flex items-center gap-3 mb-3">
         <span className={`text-[10px] tracking-widest uppercase border rounded-full px-2 py-1 ${STATUS_STYLE[b.status] || ""}`}>
-          {b.status.replace("_", " ")}
+          {(b.status || "").replace("_", " ")}
         </span>
         {expired && (
           <span className="text-[10px] tracking-widest uppercase text-red-400 font-semibold">

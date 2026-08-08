@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import axios from "axios";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -19,17 +20,30 @@ function isExpiredHold(b) {
 export default function Bookings() {
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     api
-      .get("/bookings", { params: { q, status } })
+      .get("/bookings", { params: { q: debouncedQ, status }, signal: controller.signal })
       .then((r) => setRows(r.data))
-      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
-      .finally(() => setLoading(false));
-  }, [q, status]);
+      .catch((e) => {
+        if (axios.isCancel(e) || e.code === "ERR_CANCELED") return;
+        toast.error(formatApiErrorDetail(e.response?.data?.detail));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [debouncedQ, status]);
 
   return (
     <div className="p-6 md:p-10">
@@ -100,7 +114,7 @@ export default function Bookings() {
                     </td>
                     <td className="py-3 px-3 border-b border-stone-800">
                       <span className={`text-[10px] tracking-widest uppercase border rounded-full px-2 py-1 ${STATUS_STYLE[b.status] || ""}`}>
-                        {b.status.replace("_", " ")}
+                        {(b.status || "").replace("_", " ")}
                       </span>
                       {b.status === "tentative" && b.hold_expires_at && (
                         expired ? (
