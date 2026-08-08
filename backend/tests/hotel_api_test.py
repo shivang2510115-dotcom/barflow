@@ -614,26 +614,3 @@ def test_delete_room_type_with_live_booking_is_blocked(admin, ep_plan):
 
     r = admin.delete(f"{API}/room-types/{rt['id']}")
     assert r.status_code == 409, r.text
-
-
-def test_delete_room_assigned_to_live_booking_is_blocked(admin, ep_plan):
-    """Same as above for the room-level refusal in delete_room: a room actually
-    assigned to a live booking (via POST /bookings/{id}/assign-room) cannot be
-    deleted."""
-    rt = _new_room_type(admin, name="Assigned Room Type")
-    room = _add_rooms(admin, rt["id"], 1)[0]
-    _add_default_rate(admin, rt["id"], base_rate=4000.0)
-    guest = _new_guest(admin)
-
-    booking = admin.post(f"{API}/bookings", json={
-        "guest_id": guest["id"], "room_type_id": rt["id"], "meal_plan_id": ep_plan["id"],
-        "check_in": "2027-11-05", "check_out": "2027-11-06", "adults": 2, "children": 0,
-    }).json()
-
-    assigned = admin.post(f"{API}/bookings/{booking['id']}/assign-room",
-                          json={"room_id": room["id"]})
-    assert assigned.status_code == 200, assigned.text
-    assert assigned.json()["assigned_room_id"] == room["id"]
-
-    r = admin.delete(f"{API}/rooms/{room['id']}")
-    assert r.status_code == 409, r.text

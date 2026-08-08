@@ -6,7 +6,6 @@ and for the documented double-booking window this design accepts.
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 
 from db import db
 from models.hotel import Booking, BookingIn, BookingUpdateIn, CancelIn
@@ -18,13 +17,6 @@ router = APIRouter()
 
 BOOK = require_roles("admin", "manager", "front_desk")
 LIVE = list(CONSUMING_STATUSES)
-
-
-class RoomAssignIn(BaseModel):
-    """Assign a specific physical room to an existing (type-level) booking. Not part
-    of check-in/check-out — that is out of scope here — just a plain room-of-this-type
-    pin the front desk can set ahead of arrival."""
-    room_id: str
 
 
 async def _load_pricing_context() -> tuple[list, list, list]:
@@ -257,28 +249,6 @@ async def update_booking(booking_id: str, payload: BookingUpdateIn, user: dict =
             merged["adults"], merged["children"], meal_plan)
 
     await db.bookings.update_one({"id": booking_id}, {"$set": changes})
-    return await db.bookings.find_one({"id": booking_id}, {"_id": 0})
-
-
-@router.post("/bookings/{booking_id}/assign-room")
-async def assign_room(booking_id: str, payload: RoomAssignIn, user: dict = Depends(BOOK)):
-    """Pin a specific physical room to a booking that so far only holds a room type.
-    This is what makes the room-level "delete a room that's in use" refusal in
-    routers/rooms.py reachable — without an assignment, bookings only ever consume
-    type-level inventory."""
-    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
-    if not booking:
-        raise HTTPException(404, "Booking not found")
-    if booking["status"] not in LIVE:
-        raise HTTPException(409, f"A {booking['status']} booking cannot be assigned a room")
-
-    room = await db.rooms.find_one({"id": payload.room_id}, {"_id": 0})
-    if not room:
-        raise HTTPException(400, "Unknown room_id")
-    if room["room_type_id"] != booking["room_type_id"]:
-        raise HTTPException(400, "Room does not belong to this booking's room type")
-
-    await db.bookings.update_one({"id": booking_id}, {"$set": {"assigned_room_id": payload.room_id}})
     return await db.bookings.find_one({"id": booking_id}, {"_id": 0})
 
 
