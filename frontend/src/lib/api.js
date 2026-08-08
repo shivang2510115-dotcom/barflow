@@ -26,5 +26,8 @@ export function formatApiErrorDetail(detail) {
 }
 
 export function currency(v) {
-  return `$${Number(v || 0).toFixed(2)}`;
+  return `₹${Number(v || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }

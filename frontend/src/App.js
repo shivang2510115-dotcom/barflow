@@ -20,6 +20,7 @@ import KOT from "@/pages/KOT";
 import Inventory from "@/pages/Inventory";
 import MenuManage from "@/pages/MenuManage";
 import Reports from "@/pages/Reports";
+import Rooms from "@/pages/hotel/Rooms";
 import CustomerMenu from "@/pages/CustomerMenu";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
@@ -50,6 +51,7 @@ function AppShell() {
         <Route path="/inventory" element={<Protected roles={["admin", "manager", "kitchen"]}><Inventory /></Protected>} />
         <Route path="/menu" element={<Protected roles={["admin", "manager"]}><MenuManage /></Protected>} />
         <Route path="/reports" element={<Protected roles={["admin", "manager"]}><Reports /></Protected>} />
+        <Route path="/hotel/rooms" element={<Protected roles={["admin", "manager"]}><Rooms /></Protected>} />
       </Routes>
     </AppLayout>
   );
