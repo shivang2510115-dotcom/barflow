@@ -14,6 +14,8 @@ import {
   Wine,
   BedDouble,
   CalendarPlus,
+  CalendarRange,
+  ClipboardList,
 } from "lucide-react";
 
 const NAV = [
@@ -28,7 +30,17 @@ const NAV = [
   { section: "Hotel", roles: ["admin", "manager", "front_desk"] },
   { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"] },
   { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"] },
+  // "Bookings" is a path-prefix of "New booking" (/app/hotel/bookings/new starts with
+  // /app/hotel/bookings) — exclude that sibling so the two links don't both light up.
+  { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], exclude: ["/app/hotel/bookings/new"] },
+  { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"] },
 ];
+
+function isNavItemActive(item, pathname) {
+  const matches = item.end ? pathname === item.to : pathname.startsWith(item.to);
+  if (!matches) return false;
+  return !(item.exclude || []).some((p) => pathname.startsWith(p));
+}
 
 export default function AppLayout({ children }) {
   const { user, logout } = useAuth();
@@ -63,15 +75,16 @@ export default function AppLayout({ children }) {
               );
             }
             const { to, label, icon: Icon, end } = item;
+            const active = isNavItemActive(item, loc.pathname);
             return (
               <NavLink
                 key={to}
                 to={to}
                 end={end}
                 data-testid={`nav-${label.toLowerCase().replace(/[^a-z]/g, "-")}`}
-                className={({ isActive }) =>
+                className={() =>
                   `flex items-center gap-3 px-6 py-3 text-sm border-l-2 transition-colors ${
-                    isActive
+                    active
                       ? "border-orange-500 bg-stone-900 text-orange-400"
                       : "border-transparent text-stone-400 hover:text-stone-100 hover:bg-stone-900/50"
                   }`
@@ -121,9 +134,9 @@ export default function AppLayout({ children }) {
           </button>
         </div>
         <div className="flex overflow-x-auto no-scrollbar border-t border-stone-800">
-          {items.filter((item) => item.to).map(({ to, label, end }) => {
-            const active =
-              (end && loc.pathname === to) || (!end && loc.pathname.startsWith(to));
+          {items.filter((item) => item.to).map((item) => {
+            const { to, label, end } = item;
+            const active = isNavItemActive(item, loc.pathname);
             return (
               <NavLink
                 key={to}

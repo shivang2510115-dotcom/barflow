@@ -22,6 +22,9 @@ import MenuManage from "@/pages/MenuManage";
 import Reports from "@/pages/Reports";
 import Rooms from "@/pages/hotel/Rooms";
 import NewBooking from "@/pages/hotel/NewBooking";
+import Bookings from "@/pages/hotel/Bookings";
+import BookingDetail from "@/pages/hotel/BookingDetail";
+import Calendar from "@/pages/hotel/Calendar";
 import CustomerMenu from "@/pages/CustomerMenu";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
@@ -53,7 +56,12 @@ function AppShell() {
         <Route path="/menu" element={<Protected roles={["admin", "manager"]}><MenuManage /></Protected>} />
         <Route path="/reports" element={<Protected roles={["admin", "manager"]}><Reports /></Protected>} />
         <Route path="/hotel/rooms" element={<Protected roles={["admin", "manager"]}><Rooms /></Protected>} />
+        <Route path="/hotel/bookings" element={<Protected roles={["admin", "manager", "front_desk"]}><Bookings /></Protected>} />
+        {/* /new must stay declared before the /:id route below, or react-router
+            would otherwise be at risk of treating "new" as a booking id. */}
         <Route path="/hotel/bookings/new" element={<Protected roles={["admin", "manager", "front_desk"]}><NewBooking /></Protected>} />
+        <Route path="/hotel/bookings/:id" element={<Protected roles={["admin", "manager", "front_desk"]}><BookingDetail /></Protected>} />
+        <Route path="/hotel/calendar" element={<Protected roles={["admin", "manager", "front_desk"]}><Calendar /></Protected>} />
       </Routes>
     </AppLayout>
   );
