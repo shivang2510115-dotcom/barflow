@@ -217,3 +217,175 @@ def test_delete_room_succeeds_when_unassigned(admin):
 
     listing = admin.get(f"{API}/rooms").json()
     assert not any(x["id"] == room["id"] for x in listing)
+
+
+# --------------------- meal plans, rates, tax slabs ---------------------
+def test_seeded_meal_plans_and_tax_slabs(admin):
+    plans = admin.get(f"{API}/meal-plans")
+    assert plans.status_code == 200, plans.text
+    assert {p["code"] for p in plans.json()} >= {"EP", "CP", "MAP"}
+
+    slabs = admin.get(f"{API}/tax-slabs")
+    assert slabs.status_code == 200
+    assert len(slabs.json()) >= 2
+
+
+def test_create_rate_for_room_type(admin, room_type):
+    r = admin.post(f"{API}/rates", json={
+        "room_type_id": room_type["id"], "period_id": None,
+        "base_rate": 5000.0, "extra_adult_rate": 1000.0, "extra_child_rate": 500.0,
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["base_rate"] == 5000.0
+
+
+def test_create_and_update_meal_plan(admin):
+    code = f"MP{uuid.uuid4().hex[:6].upper()}"
+    created = admin.post(f"{API}/meal-plans", json={
+        "code": code, "name": "All inclusive",
+        "price_per_adult_per_night": 2000.0, "price_per_child_per_night": 1000.0,
+    })
+    assert created.status_code == 200, created.text
+    plan_id = created.json()["id"]
+
+    updated = admin.put(f"{API}/meal-plans/{plan_id}", json={
+        "code": code, "name": "All inclusive (renamed)",
+        "price_per_adult_per_night": 2200.0, "price_per_child_per_night": 1100.0,
+    })
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["name"] == "All inclusive (renamed)"
+    assert updated.json()["price_per_adult_per_night"] == 2200.0
+
+
+def test_update_meal_plan_not_found_returns_404(admin):
+    r = admin.put(f"{API}/meal-plans/does-not-exist-{uuid.uuid4().hex[:8]}", json={
+        "code": "ZZ", "name": "Ghost plan",
+    })
+    assert r.status_code == 404, r.text
+
+
+def test_rate_period_end_date_must_be_after_start_date(admin):
+    r = admin.post(f"{API}/rate-periods", json={
+        "name": f"Bad Period {uuid.uuid4().hex[:6]}",
+        "start_date": "2026-12-10", "end_date": "2026-12-10",
+    })
+    assert r.status_code == 400, r.text
+
+
+def test_create_rate_period_overlap_same_priority_warns(admin):
+    tag = uuid.uuid4().hex[:6]
+    first = admin.post(f"{API}/rate-periods", json={
+        "name": f"Diwali {tag}", "start_date": "2026-11-01", "end_date": "2026-11-15",
+        "priority": 5,
+    })
+    assert first.status_code == 200, first.text
+    assert first.json()["overlap_warning"] is None
+
+    second = admin.post(f"{API}/rate-periods", json={
+        "name": f"Xmas {tag}", "start_date": "2026-11-10", "end_date": "2026-11-20",
+        "priority": 5,
+    })
+    assert second.status_code == 200, second.text
+    assert second.json()["overlap_warning"] is not None
+    assert first.json()["name"] in second.json()["overlap_warning"]
+
+
+def test_create_rate_period_overlap_different_priority_no_warning(admin):
+    tag = uuid.uuid4().hex[:6]
+    first = admin.post(f"{API}/rate-periods", json={
+        "name": f"Base Season {tag}", "start_date": "2027-02-01", "end_date": "2027-02-20",
+        "priority": 1,
+    })
+    assert first.status_code == 200, first.text
+
+    second = admin.post(f"{API}/rate-periods", json={
+        "name": f"Valentine Special {tag}", "start_date": "2027-02-10", "end_date": "2027-02-16",
+        "priority": 9,
+    })
+    assert second.status_code == 200, second.text
+    assert second.json()["overlap_warning"] is None
+
+
+def test_post_rates_replaces_existing_rate_for_same_pair(admin, room_type):
+    period = admin.post(f"{API}/rate-periods", json={
+        "name": f"Replace Test {uuid.uuid4().hex[:6]}",
+        "start_date": "2027-03-01", "end_date": "2027-03-10", "priority": 2,
+    })
+    assert period.status_code == 200, period.text
+    period_id = period.json()["id"]
+
+    first = admin.post(f"{API}/rates", json={
+        "room_type_id": room_type["id"], "period_id": period_id,
+        "base_rate": 4000.0, "extra_adult_rate": 500.0, "extra_child_rate": 250.0,
+    })
+    assert first.status_code == 200, first.text
+
+    second = admin.post(f"{API}/rates", json={
+        "room_type_id": room_type["id"], "period_id": period_id,
+        "base_rate": 4500.0, "extra_adult_rate": 600.0, "extra_child_rate": 300.0,
+    })
+    assert second.status_code == 200, second.text
+    assert second.json()["id"] == first.json()["id"]
+    assert second.json()["base_rate"] == 4500.0
+
+    listing = admin.get(f"{API}/rates").json()
+    matches = [
+        r for r in listing
+        if r["room_type_id"] == room_type["id"] and r["period_id"] == period_id
+    ]
+    assert len(matches) == 1
+    assert matches[0]["base_rate"] == 4500.0
+
+
+def test_post_rates_rejects_unknown_room_type_and_period(admin, room_type):
+    bad_room_type = admin.post(f"{API}/rates", json={
+        "room_type_id": f"missing-{uuid.uuid4().hex[:8]}", "period_id": None,
+        "base_rate": 3000.0,
+    })
+    assert bad_room_type.status_code == 400, bad_room_type.text
+
+    bad_period = admin.post(f"{API}/rates", json={
+        "room_type_id": room_type["id"], "period_id": f"missing-{uuid.uuid4().hex[:8]}",
+        "base_rate": 3000.0,
+    })
+    assert bad_period.status_code == 400, bad_period.text
+
+
+def test_delete_rate_period_removes_orphaned_rates(admin, room_type):
+    period = admin.post(f"{API}/rate-periods", json={
+        "name": f"To Delete {uuid.uuid4().hex[:6]}",
+        "start_date": "2027-04-01", "end_date": "2027-04-10", "priority": 1,
+    })
+    assert period.status_code == 200, period.text
+    period_id = period.json()["id"]
+
+    rate = admin.post(f"{API}/rates", json={
+        "room_type_id": room_type["id"], "period_id": period_id, "base_rate": 3500.0,
+    })
+    assert rate.status_code == 200, rate.text
+
+    deleted = admin.delete(f"{API}/rate-periods/{period_id}")
+    assert deleted.status_code == 200, deleted.text
+
+    periods_listing = admin.get(f"{API}/rate-periods").json()
+    assert not any(p["id"] == period_id for p in periods_listing)
+
+    rates_listing = admin.get(f"{API}/rates").json()
+    assert not any(r["period_id"] == period_id for r in rates_listing)
+
+
+def test_put_tax_slabs_replaces_whole_table(admin):
+    new_slabs = [
+        {"min_tariff": 0.0, "max_tariff": 6000.0, "rate_percent": 5.0, "active": True},
+        {"min_tariff": 6000.0, "max_tariff": None, "rate_percent": 18.0, "active": True},
+    ]
+    r = admin.put(f"{API}/tax-slabs", json=new_slabs)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body) == 2
+    assert sorted(s["rate_percent"] for s in body) == [5.0, 18.0]
+
+
+def test_put_tax_slabs_rejects_empty_list(admin):
+    r = admin.put(f"{API}/tax-slabs", json=[])
+    assert r.status_code == 400, r.text

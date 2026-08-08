@@ -174,6 +174,18 @@ class MockCollection:
                 self.deleted_count = count
         return DeleteResult(deleted_count)
 
+    async def delete_many(self, filter_query):
+        items = self._get_items()
+        kept = [item for item in items if not self._match(item, filter_query)]
+        deleted_count = len(items) - len(kept)
+        if deleted_count > 0:
+            items[:] = kept
+            self._save()
+        class DeleteResult:
+            def __init__(self, count):
+                self.deleted_count = count
+        return DeleteResult(deleted_count)
+
     async def count_documents(self, filter_query):
         items = self._get_items()
         count = 0
