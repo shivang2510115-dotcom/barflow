@@ -13,6 +13,7 @@ import {
   LogOut,
   Wine,
   BedDouble,
+  CalendarPlus,
 } from "lucide-react";
 
 const NAV = [
@@ -24,8 +25,9 @@ const NAV = [
   { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"] },
   { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"] },
   { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"] },
-  { section: "Hotel", roles: ["admin", "manager"] },
+  { section: "Hotel", roles: ["admin", "manager", "front_desk"] },
   { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"] },
+  { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"] },
 ];
 
 export default function AppLayout({ children }) {
