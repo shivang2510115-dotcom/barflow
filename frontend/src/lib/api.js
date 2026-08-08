@@ -22,9 +22,18 @@ export function formatApiErrorDetail(detail) {
       .filter(Boolean)
       .join(" ");
   if (detail && typeof detail.msg === "string") return detail.msg;
+  if (detail && typeof detail.message === "string") {
+    const dates = Array.isArray(detail.dates) && detail.dates.length
+      ? ` (${detail.dates.join(", ")})`
+      : "";
+    return detail.message + dates;
+  }
   return String(detail);
 }
 
 export function currency(v) {
-  return `$${Number(v || 0).toFixed(2)}`;
+  return `₹${Number(v || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }

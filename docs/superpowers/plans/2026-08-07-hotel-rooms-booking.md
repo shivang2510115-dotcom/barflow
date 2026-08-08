@@ -317,7 +317,7 @@ print('\n'.join(routes))
 " | head -5
 ```
 
-Expected: first line `41`. Every path still begins `/api/`.
+Expected: first line `40`. Every path still begins `/api/`. The stronger check is that the route table is identical to the pre-refactor one — compare it against the same command run at the previous commit.
 
 - [ ] **Step 11: Commit**
 

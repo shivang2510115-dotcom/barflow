@@ -34,3 +34,4 @@ backend/db.json
 *.log
 npm-debug.log*
 yarn-error.log*
+.superpowers/

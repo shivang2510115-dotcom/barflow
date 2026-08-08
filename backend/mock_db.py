@@ -1,6 +1,15 @@
 import json
+import operator
 import os
+import re
 import asyncio
+
+_COMPARISON_OPS = {
+    "$gt": operator.gt,
+    "$gte": operator.ge,
+    "$lt": operator.lt,
+    "$lte": operator.le,
+}
 
 class MockCursor:
     def __init__(self, items):
@@ -33,6 +42,41 @@ class MockCollection:
     def _save(self):
         self.db.save()
 
+    def _field_matches(self, field_val, condition):
+        """Handle a Mongo-style operator dict for a single field, e.g. {"$ne": x}."""
+        for op, opval in condition.items():
+            if op == "$ne":
+                if field_val == opval:
+                    return False
+            elif op == "$in":
+                if field_val not in opval:
+                    return False
+            elif op == "$nin":
+                if field_val in opval:
+                    return False
+            elif op == "$exists":
+                if (field_val is not None) != bool(opval):
+                    return False
+            elif op == "$regex":
+                flags = re.IGNORECASE if condition.get("$options") == "i" else 0
+                if not re.search(opval, field_val if isinstance(field_val, str) else "", flags):
+                    return False
+            elif op == "$options":
+                continue  # handled alongside $regex
+            elif op in _COMPARISON_OPS:
+                # Values here are usually YYYY-MM-DD strings, but keep this generic —
+                # Python's ordering operators work for strings and numbers alike. A
+                # document missing the field (None) or holding an incomparable type
+                # must simply not match rather than raise.
+                try:
+                    if not _COMPARISON_OPS[op](field_val, opval):
+                        return False
+                except TypeError:
+                    return False
+            else:
+                raise ValueError(f"mock_db: unsupported operator {op}")
+        return True
+
     def _match(self, doc, filter_query):
         if not filter_query:
             return True
@@ -50,6 +94,9 @@ class MockCollection:
                             return False
                     except Exception:
                         return False
+            elif isinstance(v, dict) and v and all(str(op).startswith("$") for op in v):
+                if not self._field_matches(doc.get(k), v):
+                    return False
             else:
                 if doc.get(k) != v:
                     return False
@@ -93,22 +140,42 @@ class MockCollection:
                 self.inserted_id = inserted_id
         return InsertResult(item_copy.get("id"))
 
+    async def insert_many(self, docs):
+        items = self._get_items()
+        docs_copy = [dict(d) for d in docs]
+        items.extend(docs_copy)
+        self._save()
+        class InsertManyResult:
+            def __init__(self, inserted_ids):
+                self.inserted_ids = inserted_ids
+        return InsertManyResult([d.get("id") for d in docs_copy])
+
     async def update_one(self, filter_query, update_query):
         items = self._get_items()
+        matched_count = 0
         modified_count = 0
         for item in items:
             if self._match(item, filter_query):
+                matched_count = 1
                 if "$set" in update_query:
+                    changed = any(item.get(uk) != uv for uk, uv in update_query["$set"].items())
                     for uk, uv in update_query["$set"].items():
                         item[uk] = uv
+                    if changed:
+                        modified_count = 1
+                if "$push" in update_query:
+                    for uk, uv in update_query["$push"].items():
+                        item.setdefault(uk, [])
+                        item[uk].append(uv)
                     modified_count = 1
-                    break
+                break
         if modified_count > 0:
             self._save()
         class UpdateResult:
-            def __init__(self, count):
-                self.modified_count = count
-        return UpdateResult(modified_count)
+            def __init__(self, matched, modified):
+                self.matched_count = matched
+                self.modified_count = modified
+        return UpdateResult(matched_count, modified_count)
 
     async def delete_one(self, filter_query):
         items = self._get_items()
@@ -119,6 +186,18 @@ class MockCollection:
                 deleted_count = 1
                 break
         if deleted_count > 0:
+            self._save()
+        class DeleteResult:
+            def __init__(self, count):
+                self.deleted_count = count
+        return DeleteResult(deleted_count)
+
+    async def delete_many(self, filter_query):
+        items = self._get_items()
+        kept = [item for item in items if not self._match(item, filter_query)]
+        deleted_count = len(items) - len(kept)
+        if deleted_count > 0:
+            items[:] = kept
             self._save()
         class DeleteResult:
             def __init__(self, count):
