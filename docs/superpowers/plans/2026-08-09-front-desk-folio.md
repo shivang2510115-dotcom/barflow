@@ -603,7 +603,7 @@ def test_front_desk_groups_arrivals_departures_and_in_house(admin):
 
 def test_room_nights_post_lazily_and_only_once(admin):
     # Stay already in the past, so every night is due the moment the folio is read.
-    s = _checked_in(admin, "2027-01-05", "2027-01-08")
+    s = _checked_in(admin, "2024-01-05", "2024-01-08")
     first = admin.get(f"{API}/folios/{s['folio_id']}").json()
     nights = [e for e in first["entries"] if e["kind"] == "room_night"]
     assert len(nights) == 3, first
@@ -615,7 +615,7 @@ def test_room_nights_post_lazily_and_only_once(admin):
 
 
 def test_room_night_amounts_come_from_the_booking_quote(admin):
-    s = _checked_in(admin, "2027-02-05", "2027-02-08")
+    s = _checked_in(admin, "2024-02-05", "2024-02-08")
     folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
     booked = admin.get(f"{API}/bookings/{s['booking']['id']}").json()
     quoted = {n["date"]: round(n["tariff"] + n["gst_amount"], 2)
@@ -689,7 +689,8 @@ async def post_due_nights(folio_id: str) -> int:
     """Post every room night due but not yet posted. Called on every folio read.
 
     Lazy rather than scheduled: a server that slept cannot silently skip a night, and
-    the unique index on (folio_id, kind, charge_date) makes a double read harmless.
+    under real MongoDB the unique index on (folio_id, kind, charge_date) also guards
+    this, but mock_db's create_index is a no-op, so unposted_nights is the real protection.
     Amounts come from the booking's quote snapshot so the folio agrees with the price
     the guest was actually quoted, even if rates have changed since.
     """

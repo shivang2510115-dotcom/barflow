@@ -646,3 +646,474 @@ def test_delete_room_type_with_live_booking_is_blocked(admin, ep_plan):
 
     r = admin.delete(f"{API}/room-types/{rt['id']}")
     assert r.status_code == 409, r.text
+
+
+# ------------------------- Task 3: check-in and folio -------------------------
+def _stay(admin, ci, co, adults=2):
+    """Create a bookable room type with 1 room, a rate, a guest and a confirmed booking."""
+    code = f"F{uuid.uuid4().hex[:6].upper()}"
+    rt = admin.post(f"{API}/room-types", json={
+        "name": f"Folio {code}", "code": code,
+        "base_occupancy": 2, "max_occupancy": 3, "max_extra_beds": 1}).json()
+    room = admin.post(f"{API}/rooms", json={
+        "number": f"F{uuid.uuid4().hex[:5]}", "room_type_id": rt["id"]}).json()
+    admin.post(f"{API}/rates", json={
+        "room_type_id": rt["id"], "period_id": None, "base_rate": 5000.0,
+        "extra_adult_rate": 1000.0, "extra_child_rate": 500.0})
+    ep = next(p for p in admin.get(f"{API}/meal-plans").json() if p["code"] == "EP")
+    guest = admin.post(f"{API}/guests", json={
+        "name": "Folio Guest", "phone": f"96{uuid.uuid4().int % 100000000:08d}"}).json()
+    booking = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"], "meal_plan_id": ep["id"],
+        "check_in": ci, "check_out": co, "adults": adults, "children": 0}).json()
+    return {"room_type": rt, "room": room, "guest": guest, "booking": booking}
+
+
+def _checked_in(admin, ci, co):
+    """A stay that has been checked in, with its folio id attached."""
+    s = _stay(admin, ci, co)
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "9090-8080-7070"})
+    assert r.status_code == 200, r.text
+    s["folio_id"] = r.json()["folio"]["id"]
+    return s
+
+
+def test_check_in_assigns_room_and_opens_folio(admin):
+    s = _stay(admin, "2029-01-05", "2029-01-08")
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1234-5678-9012"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["booking"]["status"] == "checked_in"
+    assert body["booking"]["assigned_room_id"] == s["room"]["id"]
+    assert body["folio"]["status"] == "open"
+
+
+def test_check_in_requires_id_proof(admin):
+    s = _stay(admin, "2029-02-05", "2029-02-08")
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "", "id_proof_number": ""})
+    assert r.status_code == 400, r.text
+
+
+def test_double_check_in_is_refused(admin):
+    s = _checked_in(admin, "2029-03-05", "2029-03-08")
+    again = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1111-2222-3333"})
+    assert again.status_code == 409, again.text
+
+
+def test_check_in_refuses_a_room_of_the_wrong_type(admin):
+    s = _stay(admin, "2029-04-05", "2029-04-08")
+    other = _stay(admin, "2029-04-05", "2029-04-08")
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": other["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "4444-5555-6666"})
+    assert r.status_code == 409, r.text
+
+
+def test_in_house_lists_checked_in_guests_only(admin):
+    s = _stay(admin, "2029-05-05", "2029-05-08")
+    before = admin.get(f"{API}/in-house").json()
+    assert all(x["booking"]["id"] != s["booking"]["id"] for x in before)
+
+    admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "7777-8888-9999"})
+    after = admin.get(f"{API}/in-house").json()
+    assert any(x["booking"]["id"] == s["booking"]["id"] for x in after)
+
+
+def test_front_desk_groups_arrivals_departures_and_in_house(admin):
+    r = admin.get(f"{API}/front-desk")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    for key in ("date", "arrivals", "departures", "in_house"):
+        assert key in body, body
+
+
+def test_room_nights_post_lazily_and_only_once(admin):
+    # Stay already in the past, so every night is due the moment the folio is read.
+    s = _checked_in(admin, "2024-01-05", "2024-01-08")
+    first = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    nights = [e for e in first["entries"] if e["kind"] == "room_night"]
+    assert len(nights) == 3, first
+    assert first["balance"] == round(sum(n["amount"] for n in nights), 2)
+
+    second = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert len([e for e in second["entries"] if e["kind"] == "room_night"]) == 3
+    assert second["balance"] == first["balance"]
+
+
+def test_room_night_amounts_come_from_the_booking_quote(admin):
+    s = _checked_in(admin, "2024-02-05", "2024-02-08")
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    booked = admin.get(f"{API}/bookings/{s['booking']['id']}").json()
+    quoted = {n["date"]: round(n["tariff"] + n["gst_amount"], 2)
+              for n in booked["quote"]["nights"]}
+    posted = [e for e in folio["entries"] if e["kind"] == "room_night"]
+    assert posted, folio
+    for entry in posted:
+        assert entry["amount"] == quoted[entry["charge_date"]]
+
+
+def test_future_stay_posts_no_nights_yet(admin):
+    s = _checked_in(admin, "2031-01-05", "2031-01-08")
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert [e for e in folio["entries"] if e["kind"] == "room_night"] == []
+    assert folio["balance"] == 0.0
+
+
+# ------------------------- Task 4: charges, payments, check-out -------------------------
+def test_charge_and_payment_move_the_balance(admin):
+    s = _checked_in(admin, "2029-08-05", "2029-08-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1500.0, "description": "Spa"})
+    after_charge = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after_charge["balance"] == 1500.0
+
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 500.0, "method": "cash", "kind": "payment"})
+    after_payment = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after_payment["balance"] == 1000.0
+
+
+def test_refund_increases_the_balance(admin):
+    s = _checked_in(admin, "2029-09-05", "2029-09-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1000.0, "description": "Minibar"})
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 1000.0, "method": "cash", "kind": "payment"})
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 400.0, "method": "cash", "kind": "refund"})
+    assert admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"] == 400.0
+
+
+def test_negative_or_zero_amounts_are_refused(admin):
+    s = _checked_in(admin, "2029-10-05", "2029-10-08")
+    bad = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                     json={"amount": 0, "description": "Nothing"})
+    assert bad.status_code == 400, bad.text
+    worse = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                       json={"amount": -50, "description": "Negative"})
+    assert worse.status_code == 400, worse.text
+
+
+def test_check_out_blocked_while_balance_outstanding(admin):
+    s = _checked_in(admin, "2029-06-05", "2029-06-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 900.0, "description": "Laundry"})
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out", json={})
+    assert r.status_code == 409, r.text
+
+
+def test_force_check_out_requires_a_reason_and_closes_unpaid(admin):
+    s = _checked_in(admin, "2029-07-05", "2029-07-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 700.0, "description": "Minibar"})
+
+    no_reason = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+                           json={"force": True})
+    assert no_reason.status_code == 400, no_reason.text
+
+    forced = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+                        json={"force": True, "reason": "Company will settle"})
+    assert forced.status_code == 200, forced.text
+    assert forced.json()["folio"]["status"] == "closed_unpaid"
+
+
+def test_check_out_settles_when_the_balance_is_paid(admin):
+    s = _checked_in(admin, "2031-03-05", "2031-03-08")   # future stay: no nights due yet
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 600.0, "description": "Laundry"})
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 600.0, "method": "card", "kind": "payment"})
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out", json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["folio"]["status"] == "settled"
+    assert r.json()["booking"]["status"] == "checked_out"
+
+
+def test_charging_a_closed_folio_is_refused(admin):
+    s = _checked_in(admin, "2029-11-05", "2029-11-08")
+    admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+               json={"force": True, "reason": "test"})
+    r = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                   json={"amount": 100.0, "description": "Too late"})
+    assert r.status_code == 409, r.text
+
+
+# ------------------------- Task 5: voids -------------------------
+def test_void_credits_the_folio_and_zeroes_the_balance(admin):
+    s = _checked_in(admin, "2029-12-05", "2029-12-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 800.0, "description": "Spa"}).json()
+    before = admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"]
+
+    r = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void",
+        json={"reason": "Guest disputed"})
+    assert r.status_code == 200, r.text
+
+    after = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after["balance"] == round(before - 800.0, 2)
+    voids = [e for e in after["entries"] if e["kind"] == "void"]
+    assert len(voids) == 1
+    assert voids[0]["direction"] == "credit"
+    assert voids[0]["ref_entry_id"] == charge["entry"]["id"]
+
+
+def test_voiding_a_payment_debits_the_folio(admin):
+    s = _checked_in(admin, "2030-01-05", "2030-01-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1000.0, "description": "Spa"})
+    pay = admin.post(f"{API}/folios/{s['folio_id']}/payments",
+                     json={"amount": 1000.0, "method": "cash", "kind": "payment"}).json()
+    assert admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"] == 0.0
+
+    admin.post(f"{API}/folios/{s['folio_id']}/entries/{pay['entry']['id']}/void",
+               json={"reason": "Payment reversed by bank"})
+    after = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after["balance"] == 1000.0
+    assert next(e for e in after["entries"] if e["kind"] == "void")["direction"] == "debit"
+
+
+def test_voiding_twice_is_refused(admin):
+    s = _checked_in(admin, "2030-02-05", "2030-02-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 300.0, "description": "Laundry"}).json()
+    body = {"reason": "Duplicate"}
+    first = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void", json=body)
+    assert first.status_code == 200
+    second = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void", json=body)
+    assert second.status_code == 409, second.text
+
+
+def test_void_requires_a_reason(admin):
+    s = _checked_in(admin, "2030-03-05", "2030-03-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 200.0, "description": "Laundry"}).json()
+    r = admin.post(f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void",
+                   json={"reason": "   "})
+    assert r.status_code == 400, r.text
+
+
+# ------------------------- Task 6: charge to room at the POS -------------------------
+def _open_order(admin):
+    """Open a bar order on a free table and return it."""
+    tables = admin.get(f"{API}/tables").json()
+    table = next(t for t in tables if t["status"] == "free")
+    menu = admin.get(f"{API}/menu").json()
+    return admin.post(f"{API}/orders/table/{table['id']}/items", json={
+        "items": [{"menu_item_id": menu[0]["id"], "quantity": 2}], "source": "pos"}).json()
+
+
+def test_settle_to_room_posts_an_outlet_debit(admin):
+    s = _checked_in(admin, "2030-04-05", "2030-04-08")
+    before = admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"]
+    order = _open_order(admin)
+
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "settled"
+    assert r.json()["payment_method"] == "room"
+
+    after = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    outlet = [e for e in after["entries"] if e["kind"] == "outlet"]
+    assert len(outlet) == 1
+    assert outlet[0]["direction"] == "debit"
+    assert outlet[0]["ref_order_id"] == order["id"]
+    assert after["balance"] == round(before + order["total"], 2)
+
+
+def test_settle_to_room_still_counts_as_outlet_revenue(admin):
+    """A room-settled order is an ordinary settled order — reports must not special-case it."""
+    s = _checked_in(admin, "2030-05-05", "2030-05-08")
+    before = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+    order = _open_order(admin)
+    admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    after = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+    assert round(after - before, 2) == round(order["total"], 2)
+
+
+def test_settle_to_room_requires_a_folio_id(admin):
+    order = _open_order(admin)
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "room"})
+    assert r.status_code == 400, r.text
+
+
+def test_settle_to_a_closed_folio_is_refused(admin):
+    s = _checked_in(admin, "2030-06-05", "2030-06-08")
+    admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+               json={"force": True, "reason": "test"})
+    order = _open_order(admin)
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    assert r.status_code == 409, r.text
+
+
+def test_cash_settle_is_unchanged(admin):
+    """Regression guard: the existing settle path must behave exactly as before."""
+    order = _open_order(admin)
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "cash", "customer_name": "Walk In", "customer_phone": "9000000001"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "settled"
+    assert body["payment_method"] == "cash"
+    assert body["customer_name"] == "Walk In"
+
+
+def test_voiding_a_room_settled_order_reverses_both_the_folio_and_the_revenue(admin):
+    """Task 5 built the void path that reverses an outlet entry and voids the underlying
+    order, but nothing could create an outlet entry until Task 6. Exercise it end to end."""
+    s = _checked_in(admin, "2030-07-05", "2030-07-08")
+    before_balance = admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"]
+    before_revenue = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]}).json()
+
+    folio_after_bill = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    outlet_entry = next(e for e in folio_after_bill["entries"] if e["kind"] == "outlet")
+
+    r = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{outlet_entry['id']}/void",
+        json={"reason": "Bill voided by manager"})
+    assert r.status_code == 200, r.text
+    assert r.json()["voided_order_id"] == order["id"]
+    assert r.json()["entry"]["ref_entry_id"] == outlet_entry["id"]
+
+    folio_after_void = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert folio_after_void["balance"] == before_balance
+
+    voided_order = admin.get(f"{API}/orders/{order['id']}").json()
+    assert voided_order["status"] == "voided"
+
+    after_revenue = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+    assert round(after_revenue - before_revenue, 2) == 0.0
+
+
+# ------------------------- Pre-merge review fixes -------------------------
+@pytest.fixture(scope="module")
+def waiter():
+    """Demo waiter login (DEMO_LOGINS defaults to true locally)."""
+    s = requests.Session()
+    r = s.post(f"{API}/auth/login", json={"email": "waiter@barflow.io", "password": "waiter123"})
+    assert r.status_code == 200, r.text
+    s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    return s
+
+
+@pytest.fixture(scope="module")
+def front_desk():
+    """Demo front-desk login (DEMO_LOGINS defaults to true locally)."""
+    s = requests.Session()
+    r = s.post(f"{API}/auth/login", json={"email": "frontdesk@barflow.io", "password": "desk123"})
+    assert r.status_code == 200, r.text
+    s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    return s
+
+
+def test_waiter_can_look_up_in_house_guests_but_not_the_front_desk_board(admin, waiter):
+    """FIX 1: a waiter runs the POS and must be able to find the room to charge, but
+    nothing more of front desk's screens."""
+    s = _checked_in(admin, "2032-01-05", "2032-01-08")
+    lookup = waiter.get(f"{API}/in-house")
+    assert lookup.status_code == 200, lookup.text
+    assert any(x["booking"]["id"] == s["booking"]["id"] for x in lookup.json())
+
+    board = waiter.get(f"{API}/front-desk")
+    assert board.status_code == 403, board.text
+
+
+def test_in_house_guest_is_projected_to_only_name_and_phone(admin, waiter):
+    """A waiter can look up an in-house guest to charge a bar bill to their room, but
+    the POS only needs the room, the guest's name/phone and the folio id — the full
+    guest document (id proof, address, email, notes) must never reach the POS."""
+    s = _checked_in(admin, "2032-06-05", "2032-06-08")
+    lookup = waiter.get(f"{API}/in-house")
+    assert lookup.status_code == 200, lookup.text
+
+    row = next(x for x in lookup.json() if x["booking"]["id"] == s["booking"]["id"])
+    guest = row["guest"]
+    assert set(guest.keys()) == {"id", "name", "phone"}
+    assert guest["id"] == s["guest"]["id"]
+    assert guest["name"] == s["guest"]["name"]
+    assert guest["phone"] == s["guest"]["phone"]
+    assert "id_proof_number" not in guest
+    assert "address" not in guest
+
+
+def test_settling_an_already_settled_order_is_refused(admin):
+    """FIX 3: a double-tap or retry must not debit the folio/till twice."""
+    order = _open_order(admin)
+    first = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "cash"})
+    assert first.status_code == 200, first.text
+    second = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "cash"})
+    assert second.status_code == 409, second.text
+
+
+def test_settling_a_voided_order_is_refused(admin):
+    """FIX 3: a voided order was deliberately reversed and must not be re-settled."""
+    s = _checked_in(admin, "2032-02-05", "2032-02-08")
+    order = _open_order(admin)
+    admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    outlet_entry = next(e for e in folio["entries"] if e["kind"] == "outlet")
+    admin.post(f"{API}/folios/{s['folio_id']}/entries/{outlet_entry['id']}/void",
+               json={"reason": "Bill voided by manager"})
+
+    again = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "cash"})
+    assert again.status_code == 409, again.text
+
+
+def test_front_desk_discount_refused_but_ordinary_payment_allowed(admin, front_desk):
+    """FIX 4: a discount is a credit like a refund, so it must be manager-only, or
+    front desk could write a balance down to zero and check out normally."""
+    s = _checked_in(admin, "2032-03-05", "2032-03-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1000.0, "description": "Minibar"})
+
+    discount = front_desk.post(
+        f"{API}/folios/{s['folio_id']}/payments",
+        json={"amount": 1000.0, "method": "cash", "kind": "discount"})
+    assert discount.status_code == 403, discount.text
+
+    payment = front_desk.post(
+        f"{API}/folios/{s['folio_id']}/payments",
+        json={"amount": 400.0, "method": "cash", "kind": "payment"})
+    assert payment.status_code == 200, payment.text
+    assert admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"] == 600.0
+
+
+def test_front_desk_cannot_void_an_entry(admin, front_desk):
+    """FIX 5: voiding is a manager action; front desk only has payments."""
+    s = _checked_in(admin, "2032-04-05", "2032-04-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 500.0, "description": "Laundry"}).json()
+    r = front_desk.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void",
+        json={"reason": "Guest disputed"})
+    assert r.status_code == 403, r.text
+
+
+def test_front_desk_cannot_force_check_out(admin, front_desk):
+    """FIX 5: forcing a check-out with a balance is a manager action."""
+    s = _checked_in(admin, "2032-05-05", "2032-05-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 300.0, "description": "Minibar"})
+    r = front_desk.post(
+        f"{API}/bookings/{s['booking']['id']}/check-out",
+        json={"force": True, "reason": "Company will settle"})
+    assert r.status_code == 403, r.text

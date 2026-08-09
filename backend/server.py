@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import db, client
 from security import hash_password
-from routers import auth, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings
+from routers import auth, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -28,7 +28,7 @@ from models.hotel import Rate, Room, RoomType
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings):
+for module in (auth, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios):
     api_router.include_router(module.router)
 
 
@@ -59,6 +59,18 @@ async def seed_data():
     await db.bookings.create_index([("room_type_id", 1), ("check_in", 1), ("check_out", 1), ("status", 1)])
     await db.bookings.create_index("reference", unique=True)
     await db.rooms.create_index("room_type_id")
+    await db.folios.create_index("booking_id", unique=True)
+    await db.folio_entries.create_index("folio_id")
+    # Unique against real MongoDB; mocked create_index is a no-op.
+    # Actual idempotency comes from services/folio.py::unposted_nights.
+    # Partial, not sparse: a compound sparse index only skips a document missing ALL of
+    # its keys, and folio_id/kind are always present, so a plain sparse index would still
+    # cover every payment/misc_charge/outlet/void entry (all with charge_date: null) and
+    # the second such entry on a folio would raise a duplicate-key error. The partial
+    # filter limits uniqueness to the room-night rows that actually need it.
+    await db.folio_entries.create_index(
+        [("folio_id", 1), ("charge_date", 1)], unique=True,
+        partialFilterExpression={"kind": "room_night"})
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()

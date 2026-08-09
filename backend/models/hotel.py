@@ -163,6 +163,8 @@ class Booking(BookingIn):
     id: str = Field(default_factory=_uuid)
     reference: str
     assigned_room_id: Optional[str] = None
+    checked_in_at: Optional[str] = None
+    checked_out_at: Optional[str] = None
     quote: dict = {}
     created_by: Optional[str] = None
     created_at: str = Field(default_factory=_now)
