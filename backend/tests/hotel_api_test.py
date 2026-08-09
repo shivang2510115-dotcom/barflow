@@ -845,3 +845,60 @@ def test_charging_a_closed_folio_is_refused(admin):
     r = admin.post(f"{API}/folios/{s['folio_id']}/charges",
                    json={"amount": 100.0, "description": "Too late"})
     assert r.status_code == 409, r.text
+
+
+# ------------------------- Task 5: voids -------------------------
+def test_void_credits_the_folio_and_zeroes_the_balance(admin):
+    s = _checked_in(admin, "2029-12-05", "2029-12-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 800.0, "description": "Spa"}).json()
+    before = admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"]
+
+    r = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void",
+        json={"reason": "Guest disputed"})
+    assert r.status_code == 200, r.text
+
+    after = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after["balance"] == round(before - 800.0, 2)
+    voids = [e for e in after["entries"] if e["kind"] == "void"]
+    assert len(voids) == 1
+    assert voids[0]["direction"] == "credit"
+    assert voids[0]["ref_entry_id"] == charge["entry"]["id"]
+
+
+def test_voiding_a_payment_debits_the_folio(admin):
+    s = _checked_in(admin, "2030-01-05", "2030-01-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1000.0, "description": "Spa"})
+    pay = admin.post(f"{API}/folios/{s['folio_id']}/payments",
+                     json={"amount": 1000.0, "method": "cash", "kind": "payment"}).json()
+    assert admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"] == 0.0
+
+    admin.post(f"{API}/folios/{s['folio_id']}/entries/{pay['entry']['id']}/void",
+               json={"reason": "Payment reversed by bank"})
+    after = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after["balance"] == 1000.0
+    assert next(e for e in after["entries"] if e["kind"] == "void")["direction"] == "debit"
+
+
+def test_voiding_twice_is_refused(admin):
+    s = _checked_in(admin, "2030-02-05", "2030-02-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 300.0, "description": "Laundry"}).json()
+    body = {"reason": "Duplicate"}
+    first = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void", json=body)
+    assert first.status_code == 200
+    second = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void", json=body)
+    assert second.status_code == 409, second.text
+
+
+def test_void_requires_a_reason(admin):
+    s = _checked_in(admin, "2030-03-05", "2030-03-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 200.0, "description": "Laundry"}).json()
+    r = admin.post(f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void",
+                   json={"reason": "   "})
+    assert r.status_code == 400, r.text

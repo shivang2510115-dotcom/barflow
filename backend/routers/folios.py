@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
-from models.folio import ChargeIn, FolioEntry, PaymentIn
+from models.folio import ChargeIn, FolioEntry, PaymentIn, VoidIn
 from security import require_roles
-from services.folio import direction_for, folio_balance, unposted_nights
+from services.folio import direction_for, folio_balance, unposted_nights, void_direction
 
 router = APIRouter()
 
@@ -150,3 +150,49 @@ async def add_payment(folio_id: str, payload: PaymentIn, user: dict = Depends(DE
     await db.folio_entries.insert_one(entry)
     entry.pop("_id", None)
     return {"entry": entry, "balance": await _sync_balance(folio_id)}
+
+
+@router.post("/folios/{folio_id}/entries/{entry_id}/void")
+async def void_entry(folio_id: str, entry_id: str, payload: VoidIn,
+                     user: dict = Depends(MANAGER)):
+    """Reverse an entry by writing a compensating one. Nothing is ever deleted, so a
+    disputed bill keeps its audit trail.
+
+    An outlet entry also voids the underlying order: outlet revenue was recognised when
+    the bill was served, so leaving the order settled would permanently overstate it.
+    """
+    await _require_open(folio_id)
+
+    original = await db.folio_entries.find_one(
+        {"id": entry_id, "folio_id": folio_id}, {"_id": 0})
+    if not original:
+        raise HTTPException(404, "Entry not found on this folio")
+    if original["kind"] == "void":
+        raise HTTPException(409, "A void cannot itself be voided")
+    if not payload.reason.strip():
+        raise HTTPException(400, "A reason is required to void an entry")
+
+    already = await db.folio_entries.find_one({"kind": "void", "ref_entry_id": entry_id})
+    if already:
+        raise HTTPException(409, "That entry has already been voided")
+
+    entry = FolioEntry(
+        folio_id=folio_id, kind="void",
+        direction=void_direction(original["direction"]),
+        amount=original["amount"],
+        description=f"Void: {original['description']} — {payload.reason.strip()}",
+        ref_entry_id=entry_id, posted_by=user.get("id")).model_dump()
+    await db.folio_entries.insert_one(entry)
+    entry.pop("_id", None)
+
+    voided_order = None
+    if original["kind"] == "outlet" and original.get("ref_order_id"):
+        await db.orders.update_one({"id": original["ref_order_id"]}, {"$set": {
+            "status": "voided",
+            "voided_at": datetime.now(timezone.utc).isoformat(),
+            "void_reason": payload.reason.strip()}})
+        voided_order = original["ref_order_id"]
+
+    return {"entry": entry,
+            "balance": await _sync_balance(folio_id),
+            "voided_order_id": voided_order}
