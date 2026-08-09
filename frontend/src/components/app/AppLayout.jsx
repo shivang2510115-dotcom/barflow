@@ -13,6 +13,7 @@ import {
   LogOut,
   Wine,
   BedDouble,
+  UserCheck,
   CalendarPlus,
   CalendarRange,
   ClipboardList,
@@ -30,6 +31,7 @@ const NAV = [
   { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"] },
   { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"] },
   { section: "Hotel", roles: ["admin", "manager", "front_desk"] },
+  { to: "/app/hotel/front-desk", label: "Front desk", icon: UserCheck, roles: ["admin", "manager", "front_desk"] },
   { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"] },
   { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"] },
   // "Bookings" is a path-prefix of "New booking" (/app/hotel/bookings/new starts with

@@ -24,6 +24,7 @@ import Rooms from "@/pages/hotel/Rooms";
 import NewBooking from "@/pages/hotel/NewBooking";
 import Bookings from "@/pages/hotel/Bookings";
 import BookingDetail from "@/pages/hotel/BookingDetail";
+import FrontDesk from "@/pages/hotel/FrontDesk";
 import Calendar from "@/pages/hotel/Calendar";
 import Rates from "@/pages/hotel/Rates";
 import Guests from "@/pages/hotel/Guests";
@@ -58,6 +59,7 @@ function AppShell() {
         <Route path="/menu" element={<Protected roles={["admin", "manager"]}><MenuManage /></Protected>} />
         <Route path="/reports" element={<Protected roles={["admin", "manager"]}><Reports /></Protected>} />
         <Route path="/hotel/rooms" element={<Protected roles={["admin", "manager"]}><Rooms /></Protected>} />
+        <Route path="/hotel/front-desk" element={<Protected roles={["admin", "manager", "front_desk"]}><FrontDesk /></Protected>} />
         <Route path="/hotel/bookings" element={<Protected roles={["admin", "manager", "front_desk"]}><Bookings /></Protected>} />
         {/* /new must stay declared before the /:id route below, or react-router
             would otherwise be at risk of treating "new" as a booking id. */}
