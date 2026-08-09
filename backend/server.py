@@ -61,7 +61,8 @@ async def seed_data():
     await db.rooms.create_index("room_type_id")
     await db.folios.create_index("booking_id", unique=True)
     await db.folio_entries.create_index("folio_id")
-    # Makes lazy night-posting idempotent at the store, not just in application code.
+    # Unique against real MongoDB; mocked create_index is a no-op.
+    # Actual idempotency comes from services/folio.py::unposted_nights.
     await db.folio_entries.create_index(
         [("folio_id", 1), ("kind", 1), ("charge_date", 1)], unique=True, sparse=True)
 
