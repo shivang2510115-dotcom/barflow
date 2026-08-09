@@ -132,10 +132,10 @@ export default function POS() {
       setRoomQuery("");
       api.get("/tables").then((r) => setTables(r.data));
     } catch (e) {
-      if (e.response?.status === 409) {
+      if (pay === "room" && e.response?.status === 409) {
         toast.error("That folio is no longer open — pick another guest");
       } else {
-        toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not settle bill");
+        toast.error("Could not settle bill");
       }
     }
   };
