@@ -3,6 +3,19 @@ import { Link, useNavigate } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 
+const Row = ({ b, action }) => (
+  <li className="flex items-center justify-between gap-4 py-3 border-b border-stone-800">
+    <div className="min-w-0">
+      <div className="truncate">{b.guest?.name || "—"}</div>
+      <div className="text-xs text-stone-500 font-mono">
+        {b.reference} · {b.check_in} → {b.check_out}
+        {b.room ? ` · room ${b.room.number}` : ""}
+      </div>
+    </div>
+    {action}
+  </li>
+);
+
 export default function FrontDesk() {
   const nav = useNavigate();
   const [data, setData] = useState(null);
@@ -57,21 +70,14 @@ export default function FrontDesk() {
 
   if (!data) return <div className="p-6 md:p-10 text-stone-400">Loading front desk…</div>;
 
-  const freeRooms = rooms.filter(
-    (r) => r.active !== false && r.room_type_id === checkingIn?.room_type_id,
+  const occupiedRoomIds = new Set(
+    data.in_house.map((b) => b.assigned_room_id).filter(Boolean),
   );
-
-  const Row = ({ b, action }) => (
-    <li className="flex items-center justify-between gap-4 py-3 border-b border-stone-800">
-      <div className="min-w-0">
-        <div className="truncate">{b.guest?.name || "—"}</div>
-        <div className="text-xs text-stone-500 font-mono">
-          {b.reference} · {b.check_in} → {b.check_out}
-          {b.room ? ` · room ${b.room.number}` : ""}
-        </div>
-      </div>
-      {action}
-    </li>
+  const freeRooms = rooms.filter(
+    (r) =>
+      r.active !== false &&
+      r.room_type_id === checkingIn?.room_type_id &&
+      !occupiedRoomIds.has(r.id),
   );
 
   return (
@@ -180,11 +186,17 @@ export default function FrontDesk() {
                 className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
               >
                 <option value="">Choose…</option>
-                {freeRooms.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.number}
+                {freeRooms.length === 0 ? (
+                  <option value="" disabled>
+                    No free rooms of this type
                   </option>
-                ))}
+                ) : (
+                  freeRooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.number}
+                    </option>
+                  ))
+                )}
               </select>
             </label>
             <label className="text-xs tracking-widest uppercase text-stone-500">
