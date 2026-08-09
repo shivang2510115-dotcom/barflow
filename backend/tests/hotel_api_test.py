@@ -646,3 +646,123 @@ def test_delete_room_type_with_live_booking_is_blocked(admin, ep_plan):
 
     r = admin.delete(f"{API}/room-types/{rt['id']}")
     assert r.status_code == 409, r.text
+
+
+# ------------------------- Task 3: check-in and folio -------------------------
+def _stay(admin, ci, co, adults=2):
+    """Create a bookable room type with 1 room, a rate, a guest and a confirmed booking."""
+    code = f"F{uuid.uuid4().hex[:6].upper()}"
+    rt = admin.post(f"{API}/room-types", json={
+        "name": f"Folio {code}", "code": code,
+        "base_occupancy": 2, "max_occupancy": 3, "max_extra_beds": 1}).json()
+    room = admin.post(f"{API}/rooms", json={
+        "number": f"F{uuid.uuid4().hex[:5]}", "room_type_id": rt["id"]}).json()
+    admin.post(f"{API}/rates", json={
+        "room_type_id": rt["id"], "period_id": None, "base_rate": 5000.0,
+        "extra_adult_rate": 1000.0, "extra_child_rate": 500.0})
+    ep = next(p for p in admin.get(f"{API}/meal-plans").json() if p["code"] == "EP")
+    guest = admin.post(f"{API}/guests", json={
+        "name": "Folio Guest", "phone": f"96{uuid.uuid4().int % 100000000:08d}"}).json()
+    booking = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"], "meal_plan_id": ep["id"],
+        "check_in": ci, "check_out": co, "adults": adults, "children": 0}).json()
+    return {"room_type": rt, "room": room, "guest": guest, "booking": booking}
+
+
+def _checked_in(admin, ci, co):
+    """A stay that has been checked in, with its folio id attached."""
+    s = _stay(admin, ci, co)
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "9090-8080-7070"})
+    assert r.status_code == 200, r.text
+    s["folio_id"] = r.json()["folio"]["id"]
+    return s
+
+
+def test_check_in_assigns_room_and_opens_folio(admin):
+    s = _stay(admin, "2029-01-05", "2029-01-08")
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1234-5678-9012"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["booking"]["status"] == "checked_in"
+    assert body["booking"]["assigned_room_id"] == s["room"]["id"]
+    assert body["folio"]["status"] == "open"
+
+
+def test_check_in_requires_id_proof(admin):
+    s = _stay(admin, "2029-02-05", "2029-02-08")
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "", "id_proof_number": ""})
+    assert r.status_code == 400, r.text
+
+
+def test_double_check_in_is_refused(admin):
+    s = _checked_in(admin, "2029-03-05", "2029-03-08")
+    again = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1111-2222-3333"})
+    assert again.status_code == 409, again.text
+
+
+def test_check_in_refuses_a_room_of_the_wrong_type(admin):
+    s = _stay(admin, "2029-04-05", "2029-04-08")
+    other = _stay(admin, "2029-04-05", "2029-04-08")
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": other["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "4444-5555-6666"})
+    assert r.status_code == 409, r.text
+
+
+def test_in_house_lists_checked_in_guests_only(admin):
+    s = _stay(admin, "2029-05-05", "2029-05-08")
+    before = admin.get(f"{API}/in-house").json()
+    assert all(x["booking"]["id"] != s["booking"]["id"] for x in before)
+
+    admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
+        "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "7777-8888-9999"})
+    after = admin.get(f"{API}/in-house").json()
+    assert any(x["booking"]["id"] == s["booking"]["id"] for x in after)
+
+
+def test_front_desk_groups_arrivals_departures_and_in_house(admin):
+    r = admin.get(f"{API}/front-desk")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    for key in ("date", "arrivals", "departures", "in_house"):
+        assert key in body, body
+
+
+def test_room_nights_post_lazily_and_only_once(admin):
+    # Stay already in the past, so every night is due the moment the folio is read.
+    s = _checked_in(admin, "2024-01-05", "2024-01-08")
+    first = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    nights = [e for e in first["entries"] if e["kind"] == "room_night"]
+    assert len(nights) == 3, first
+    assert first["balance"] == round(sum(n["amount"] for n in nights), 2)
+
+    second = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert len([e for e in second["entries"] if e["kind"] == "room_night"]) == 3
+    assert second["balance"] == first["balance"]
+
+
+def test_room_night_amounts_come_from_the_booking_quote(admin):
+    s = _checked_in(admin, "2024-02-05", "2024-02-08")
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    booked = admin.get(f"{API}/bookings/{s['booking']['id']}").json()
+    quoted = {n["date"]: round(n["tariff"] + n["gst_amount"], 2)
+              for n in booked["quote"]["nights"]}
+    posted = [e for e in folio["entries"] if e["kind"] == "room_night"]
+    assert posted, folio
+    for entry in posted:
+        assert entry["amount"] == quoted[entry["charge_date"]]
+
+
+def test_future_stay_posts_no_nights_yet(admin):
+    s = _checked_in(admin, "2031-01-05", "2031-01-08")
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert [e for e in folio["entries"] if e["kind"] == "room_night"] == []
+    assert folio["balance"] == 0.0
