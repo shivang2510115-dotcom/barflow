@@ -902,3 +902,102 @@ def test_void_requires_a_reason(admin):
     r = admin.post(f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void",
                    json={"reason": "   "})
     assert r.status_code == 400, r.text
+
+
+# ------------------------- Task 6: charge to room at the POS -------------------------
+def _open_order(admin):
+    """Open a bar order on a free table and return it."""
+    tables = admin.get(f"{API}/tables").json()
+    table = next(t for t in tables if t["status"] == "free")
+    menu = admin.get(f"{API}/menu").json()
+    return admin.post(f"{API}/orders/table/{table['id']}/items", json={
+        "items": [{"menu_item_id": menu[0]["id"], "quantity": 2}], "source": "pos"}).json()
+
+
+def test_settle_to_room_posts_an_outlet_debit(admin):
+    s = _checked_in(admin, "2030-04-05", "2030-04-08")
+    before = admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"]
+    order = _open_order(admin)
+
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "settled"
+    assert r.json()["payment_method"] == "room"
+
+    after = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    outlet = [e for e in after["entries"] if e["kind"] == "outlet"]
+    assert len(outlet) == 1
+    assert outlet[0]["direction"] == "debit"
+    assert outlet[0]["ref_order_id"] == order["id"]
+    assert after["balance"] == round(before + order["total"], 2)
+
+
+def test_settle_to_room_still_counts_as_outlet_revenue(admin):
+    """A room-settled order is an ordinary settled order — reports must not special-case it."""
+    s = _checked_in(admin, "2030-05-05", "2030-05-08")
+    before = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+    order = _open_order(admin)
+    admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    after = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+    assert round(after - before, 2) == round(order["total"], 2)
+
+
+def test_settle_to_room_requires_a_folio_id(admin):
+    order = _open_order(admin)
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "room"})
+    assert r.status_code == 400, r.text
+
+
+def test_settle_to_a_closed_folio_is_refused(admin):
+    s = _checked_in(admin, "2030-06-05", "2030-06-08")
+    admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+               json={"force": True, "reason": "test"})
+    order = _open_order(admin)
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    assert r.status_code == 409, r.text
+
+
+def test_cash_settle_is_unchanged(admin):
+    """Regression guard: the existing settle path must behave exactly as before."""
+    order = _open_order(admin)
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "cash", "customer_name": "Walk In", "customer_phone": "9000000001"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "settled"
+    assert body["payment_method"] == "cash"
+    assert body["customer_name"] == "Walk In"
+
+
+def test_voiding_a_room_settled_order_reverses_both_the_folio_and_the_revenue(admin):
+    """Task 5 built the void path that reverses an outlet entry and voids the underlying
+    order, but nothing could create an outlet entry until Task 6. Exercise it end to end."""
+    s = _checked_in(admin, "2030-07-05", "2030-07-08")
+    before_balance = admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"]
+    before_revenue = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]}).json()
+
+    folio_after_bill = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    outlet_entry = next(e for e in folio_after_bill["entries"] if e["kind"] == "outlet")
+
+    r = admin.post(
+        f"{API}/folios/{s['folio_id']}/entries/{outlet_entry['id']}/void",
+        json={"reason": "Bill voided by manager"})
+    assert r.status_code == 200, r.text
+    assert r.json()["voided_order_id"] == order["id"]
+    assert r.json()["entry"]["ref_entry_id"] == outlet_entry["id"]
+
+    folio_after_void = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert folio_after_void["balance"] == before_balance
+
+    voided_order = admin.get(f"{API}/orders/{order['id']}").json()
+    assert voided_order["status"] == "voided"
+
+    after_revenue = admin.get(f"{API}/reports/summary").json()["revenue_today"]
+    assert round(after_revenue - before_revenue, 2) == 0.0

@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 
 from db import db
 from security import get_current_user, require_roles
+from models.folio import FolioEntry
+from services.folio import direction_for, folio_balance
 
 router = APIRouter()
 
@@ -54,10 +56,12 @@ class AddItemsIn(BaseModel):
 
 
 class SettleIn(BaseModel):
-    payment_method: Literal["cash", "card", "online"] = "cash"
+    payment_method: Literal["cash", "card", "online", "room"] = "cash"
     discount: float = 0.0
     customer_name: Optional[str] = None
     customer_phone: Optional[str] = None
+    # Required when payment_method is "room".
+    folio_id: Optional[str] = None
 
 
 # ----------------- Helpers -----------------
@@ -156,6 +160,14 @@ async def update_item_status(order_id: str, item_id: str, payload: UpdateItemSta
     return order
 
 
+@router.get("/orders/{order_id}")
+async def get_order(order_id: str, user: dict = Depends(get_current_user)):
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    return order
+
+
 @router.post("/orders/{order_id}/settle")
 async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(require_roles("admin", "manager", "waiter"))):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
@@ -163,6 +175,18 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(re
         raise HTTPException(404, "Order not found")
     order["discount"] = payload.discount
     order = compute_totals(order)
+
+    # --- validation, before anything is written ---
+    folio = None
+    if payload.payment_method == "room":
+        if not payload.folio_id:
+            raise HTTPException(400, "folio_id is required when charging to a room")
+        folio = await db.folios.find_one({"id": payload.folio_id}, {"_id": 0})
+        if not folio:
+            raise HTTPException(404, "Folio not found")
+        if folio["status"] != "open":
+            raise HTTPException(409, f"That folio is {folio['status']} and cannot be charged")
+
     order["status"] = "settled"
     order["payment_method"] = payload.payment_method
     order["customer_name"] = (payload.customer_name or "").strip() or None
@@ -170,6 +194,20 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(re
     order["settled_at"] = datetime.now(timezone.utc).isoformat()
     await db.orders.update_one({"id": order_id}, {"$set": order})
     await db.tables.update_one({"id": order["table_id"]}, {"$set": {"status": "free", "current_order_id": None}})
+
+    # --- after the table is freed: post the receivable ---
+    if folio is not None:
+        entry = FolioEntry(
+            folio_id=folio["id"], kind="outlet", direction=direction_for("outlet"),
+            amount=round(order["total"], 2),
+            description=f"{order['table_label']} · bill {order['id'][:8]}",
+            ref_order_id=order["id"], posted_by=user.get("id")).model_dump()
+        await db.folio_entries.insert_one(entry)
+        entries = await db.folio_entries.find(
+            {"folio_id": folio["id"]}, {"_id": 0}).to_list(5000)
+        await db.folios.update_one({"id": folio["id"]}, {"$set": {
+            "balance": folio_balance(entries)}})
+
     return order
 
 
