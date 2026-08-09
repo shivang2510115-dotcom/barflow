@@ -54,7 +54,7 @@ services:
     name: barflow-web
     runtime: static
     rootDir: ./frontend
-    plan: free
+    # No `plan` here: Render static sites have no plan tier and reject the field.
     buildCommand: npm ci && CI=false npm run build
     staticPublishPath: ./build
     envVars:
