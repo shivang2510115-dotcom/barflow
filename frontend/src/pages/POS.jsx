@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { api, currency } from "@/lib/api";
+import axios from "axios";
+import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { Plus, Minus, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,10 +22,42 @@ export default function POS() {
   const [custPhone, setCustPhone] = useState("");
   const [celebrateAmount, setCelebrateAmount] = useState(null);
 
+  // Charge-to-room: pick an in-house guest to bill the order to their folio.
+  const [inHouse, setInHouse] = useState([]);
+  const [roomQuery, setRoomQuery] = useState("");
+  const [debouncedRoomQuery, setDebouncedRoomQuery] = useState("");
+  const [chosenFolio, setChosenFolio] = useState(null);
+
   useEffect(() => {
     api.get("/tables").then((r) => setTables(r.data));
     api.get("/menu").then((r) => setMenu(r.data));
   }, []);
+
+  // Debounce the in-house search input, mirroring Bookings.jsx.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedRoomQuery(roomQuery), 300);
+    return () => clearTimeout(t);
+  }, [roomQuery]);
+
+  useEffect(() => {
+    if (pay !== "room") return;
+    const controller = new AbortController();
+    api
+      .get("/in-house", { params: { q: debouncedRoomQuery }, signal: controller.signal })
+      .then((r) => setInHouse(r.data))
+      .catch((e) => {
+        if (axios.isCancel(e) || e.code === "ERR_CANCELED") return;
+        toast.error(formatApiErrorDetail(e.response?.data?.detail));
+      });
+    return () => controller.abort();
+  }, [pay, debouncedRoomQuery]);
+
+  useEffect(() => {
+    if (pay !== "room") {
+      setChosenFolio(null);
+      setRoomQuery("");
+    }
+  }, [pay]);
 
   const loadOrder = (id) => {
     if (!id) return setOrder(null);
@@ -74,6 +107,12 @@ export default function POS() {
 
   const settle = async () => {
     if (!order) return;
+    // The server 400s on payment_method "room" without a folio_id, but that error
+    // isn't self-explanatory mid-service — catch it here instead.
+    if (pay === "room" && !chosenFolio) {
+      toast.error("Pick the in-house guest to charge");
+      return;
+    }
     try {
       const finalTotal = (order.subtotal || 0) + (order.tax || 0) - Number(discount || 0);
       await api.post(`/orders/${order.id}/settle`, {
@@ -81,6 +120,7 @@ export default function POS() {
         discount: Number(discount) || 0,
         customer_name: custName.trim() || null,
         customer_phone: custPhone.trim() || null,
+        folio_id: pay === "room" ? chosenFolio.folio.id : undefined,
       });
       toast.success(`Bill settled · ${pay.toUpperCase()}`);
       setCelebrateAmount(Math.max(0, finalTotal));
@@ -88,9 +128,15 @@ export default function POS() {
       setDiscount(0);
       setCustName("");
       setCustPhone("");
+      setChosenFolio(null);
+      setRoomQuery("");
       api.get("/tables").then((r) => setTables(r.data));
-    } catch {
-      toast.error("Could not settle bill");
+    } catch (e) {
+      if (e.response?.status === 409) {
+        toast.error("That folio is no longer open — pick another guest");
+      } else {
+        toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not settle bill");
+      }
     }
   };
 
@@ -279,8 +325,8 @@ export default function POS() {
 
         <div className="mt-4">
           <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">Payment</div>
-          <div className="grid grid-cols-3 gap-2">
-            {["cash", "card", "online"].map((p) => (
+          <div className="grid grid-cols-4 gap-2">
+            {["cash", "card", "online", "room"].map((p) => (
               <button
                 key={p}
                 onClick={() => setPay(p)}
@@ -293,6 +339,60 @@ export default function POS() {
               </button>
             ))}
           </div>
+
+          {pay === "room" && (
+            <div className="mt-3">
+              {chosenFolio ? (
+                <div className="flex items-center justify-between border border-orange-500/50 bg-orange-500/10 rounded px-3 py-2">
+                  <div>
+                    <div className="text-sm text-orange-400">
+                      Room {chosenFolio.room?.number} · {chosenFolio.guest?.name}
+                    </div>
+                    <div className="text-[10px] font-mono text-stone-500">{chosenFolio.guest?.phone}</div>
+                  </div>
+                  <button
+                    onClick={() => setChosenFolio(null)}
+                    className="text-[10px] font-mono uppercase tracking-widest text-stone-500 hover:text-red-400"
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center border border-stone-800 px-3">
+                    <Search size={14} className="text-stone-500" />
+                    <input
+                      data-testid="room-search"
+                      value={roomQuery}
+                      onChange={(e) => setRoomQuery(e.target.value)}
+                      placeholder="Room number, guest name or phone"
+                      className="bg-transparent px-3 py-2 flex-1 text-sm focus:outline-none"
+                    />
+                  </div>
+                  <ul className="mt-2 max-h-40 overflow-y-auto divide-y divide-stone-800">
+                    {inHouse.length === 0 && (
+                      <li className="py-2 text-xs text-stone-500 font-mono uppercase tracking-widest">
+                        No in-house guest matches.
+                      </li>
+                    )}
+                    {inHouse.map((x) => (
+                      <li key={x.folio.id}>
+                        <button
+                          onClick={() => setChosenFolio(x)}
+                          className="w-full text-left py-2 text-sm text-stone-300 hover:text-orange-400"
+                        >
+                          Room {x.room?.number} · {x.guest?.name}
+                          <span className="block text-[10px] font-mono text-stone-500">
+                            {x.guest?.phone}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <button

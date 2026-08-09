@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 const STATUS_STYLE = {
@@ -19,10 +20,20 @@ function isExpiredHold(b) {
 export default function BookingDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const { user } = useAuth();
+  const isManager = user?.role === "admin" || user?.role === "manager";
   const [b, setB] = useState(null);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [reason, setReason] = useState("");
+
+  // Check-out: same inline confirm pattern as cancel above and the void panel in
+  // Folio.jsx. window.prompt is deliberately avoided — unstyleable, blocked by
+  // some browsers, and unusable on the tablet this runs on.
+  const [folioId, setFolioId] = useState(null);
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [forcing, setForcing] = useState(false);
+  const [forceReason, setForceReason] = useState("");
 
   const load = () =>
     api
@@ -34,6 +45,17 @@ export default function BookingDetail() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    if (b?.status !== "checked_in" && b?.status !== "checked_out") return;
+    api
+      .get("/folios")
+      .then((r) => {
+        const f = r.data.find((x) => x.booking_id === b.id);
+        setFolioId(f ? f.id : null);
+      })
+      .catch(() => setFolioId(null));
+  }, [b?.status, b?.id]);
 
   const startCancel = () => {
     setReason("");
@@ -61,6 +83,55 @@ export default function BookingDetail() {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const checkOut = async () => {
+    setCheckingOut(true);
+    try {
+      await api.post(`/bookings/${id}/check-out`, {});
+      toast.success("Checked out");
+      load();
+    } catch (e) {
+      const detail = e.response?.data?.detail;
+      // 409 carries the outstanding balance — surface it and point at the force
+      // path rather than making the desk guess why it refused.
+      if (e.response?.status === 409 && detail?.balance !== undefined) {
+        toast.error(`Outstanding balance ${currency(detail.balance)} — use Force check-out`);
+      } else {
+        toast.error(formatApiErrorDetail(detail));
+      }
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
+  const startForceCheckOut = () => {
+    setForceReason("");
+    setForcing(true);
+  };
+
+  const abortForceCheckOut = () => {
+    setForcing(false);
+    setForceReason("");
+  };
+
+  const confirmForceCheckOut = async () => {
+    if (!forceReason.trim()) {
+      toast.error("A reason is required to force check-out");
+      return;
+    }
+    setCheckingOut(true);
+    try {
+      await api.post(`/bookings/${id}/check-out`, { force: true, reason: forceReason.trim() });
+      toast.success("Checked out");
+      setForcing(false);
+      setForceReason("");
+      load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setCheckingOut(false);
     }
   };
 
@@ -142,14 +213,89 @@ export default function BookingDetail() {
         </table>
       </div>
 
-      {!["cancelled", "checked_out"].includes(b.status) && !confirming && (
+      {!["cancelled", "checked_out"].includes(b.status) && !confirming && !forcing && (
         <button
           onClick={startCancel}
-          disabled={busy}
-          className="border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+          disabled={busy || checkingOut}
+          className="border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase mb-4"
         >
           Cancel booking
         </button>
+      )}
+
+      {b.status === "checked_in" && !confirming && !forcing && (
+        <div className="flex gap-3 flex-wrap mb-4">
+          {folioId && (
+            <Link
+              to={`/app/hotel/folios/${folioId}`}
+              className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Open folio
+            </Link>
+          )}
+          <button
+            onClick={checkOut}
+            disabled={checkingOut || busy}
+            className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+          >
+            {checkingOut ? "Checking out…" : "Check out"}
+          </button>
+          {/* Forcing is manager-only on the server (403 otherwise), so the control
+              is hidden entirely for non-managers rather than shown and left to fail. */}
+          {isManager && (
+            <button
+              onClick={startForceCheckOut}
+              disabled={checkingOut || busy}
+              className="border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Force check-out
+            </button>
+          )}
+        </div>
+      )}
+
+      {forcing && (
+        <div className="border border-red-500/40 bg-red-950/20 rounded p-5 max-w-xl mb-4">
+          <p className="text-sm text-red-300 mb-3">
+            This checks the guest out with an outstanding balance — the folio closes unpaid
+            and cannot be undone. Give a reason to confirm.
+          </p>
+          <textarea
+            autoFocus
+            value={forceReason}
+            onChange={(e) => setForceReason(e.target.value)}
+            placeholder="Reason for forcing check-out with a balance"
+            rows={3}
+            className="w-full bg-stone-950 border border-stone-700 text-stone-100 rounded p-3 text-sm focus:border-red-500 outline-none"
+          />
+          <div className="flex gap-3 mt-4">
+            <button
+              onClick={confirmForceCheckOut}
+              disabled={checkingOut || !forceReason.trim()}
+              className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              {checkingOut ? "Checking out…" : "Confirm force check-out"}
+            </button>
+            <button
+              onClick={abortForceCheckOut}
+              disabled={checkingOut}
+              className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Never mind
+            </button>
+          </div>
+        </div>
+      )}
+
+      {b.status === "checked_out" && folioId && (
+        <div className="mb-4">
+          <Link
+            to={`/app/hotel/folios/${folioId}`}
+            className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+          >
+            Open folio
+          </Link>
+        </div>
       )}
 
       {confirming && (
