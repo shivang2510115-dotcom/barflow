@@ -59,6 +59,11 @@ async def seed_data():
     await db.bookings.create_index([("room_type_id", 1), ("check_in", 1), ("check_out", 1), ("status", 1)])
     await db.bookings.create_index("reference", unique=True)
     await db.rooms.create_index("room_type_id")
+    await db.folios.create_index("booking_id", unique=True)
+    await db.folio_entries.create_index("folio_id")
+    # Makes lazy night-posting idempotent at the store, not just in application code.
+    await db.folio_entries.create_index(
+        [("folio_id", 1), ("kind", 1), ("charge_date", 1)], unique=True, sparse=True)
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
