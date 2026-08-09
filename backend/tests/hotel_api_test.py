@@ -1001,3 +1001,101 @@ def test_voiding_a_room_settled_order_reverses_both_the_folio_and_the_revenue(ad
 
     after_revenue = admin.get(f"{API}/reports/summary").json()["revenue_today"]
     assert round(after_revenue - before_revenue, 2) == 0.0
+
+
+# ------------------------- Pre-merge review fixes -------------------------
+@pytest.fixture(scope="module")
+def waiter():
+    """Demo waiter login (DEMO_LOGINS defaults to true locally)."""
+    s = requests.Session()
+    r = s.post(f"{API}/auth/login", json={"email": "waiter@barflow.io", "password": "waiter123"})
+    assert r.status_code == 200, r.text
+    s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    return s
+
+
+@pytest.fixture(scope="module")
+def front_desk():
+    """Demo front-desk login (DEMO_LOGINS defaults to true locally)."""
+    s = requests.Session()
+    r = s.post(f"{API}/auth/login", json={"email": "frontdesk@barflow.io", "password": "desk123"})
+    assert r.status_code == 200, r.text
+    s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    return s
+
+
+def test_waiter_can_look_up_in_house_guests_but_not_the_front_desk_board(admin, waiter):
+    """FIX 1: a waiter runs the POS and must be able to find the room to charge, but
+    nothing more of front desk's screens."""
+    s = _checked_in(admin, "2032-01-05", "2032-01-08")
+    lookup = waiter.get(f"{API}/in-house")
+    assert lookup.status_code == 200, lookup.text
+    assert any(x["booking"]["id"] == s["booking"]["id"] for x in lookup.json())
+
+    board = waiter.get(f"{API}/front-desk")
+    assert board.status_code == 403, board.text
+
+
+def test_settling_an_already_settled_order_is_refused(admin):
+    """FIX 3: a double-tap or retry must not debit the folio/till twice."""
+    order = _open_order(admin)
+    first = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "cash"})
+    assert first.status_code == 200, first.text
+    second = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "cash"})
+    assert second.status_code == 409, second.text
+
+
+def test_settling_a_voided_order_is_refused(admin):
+    """FIX 3: a voided order was deliberately reversed and must not be re-settled."""
+    s = _checked_in(admin, "2032-02-05", "2032-02-08")
+    order = _open_order(admin)
+    admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    outlet_entry = next(e for e in folio["entries"] if e["kind"] == "outlet")
+    admin.post(f"{API}/folios/{s['folio_id']}/entries/{outlet_entry['id']}/void",
+               json={"reason": "Bill voided by manager"})
+
+    again = admin.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "cash"})
+    assert again.status_code == 409, again.text
+
+
+def test_front_desk_discount_refused_but_ordinary_payment_allowed(admin, front_desk):
+    """FIX 4: a discount is a credit like a refund, so it must be manager-only, or
+    front desk could write a balance down to zero and check out normally."""
+    s = _checked_in(admin, "2032-03-05", "2032-03-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1000.0, "description": "Minibar"})
+
+    discount = front_desk.post(
+        f"{API}/folios/{s['folio_id']}/payments",
+        json={"amount": 1000.0, "method": "cash", "kind": "discount"})
+    assert discount.status_code == 403, discount.text
+
+    payment = front_desk.post(
+        f"{API}/folios/{s['folio_id']}/payments",
+        json={"amount": 400.0, "method": "cash", "kind": "payment"})
+    assert payment.status_code == 200, payment.text
+    assert admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"] == 600.0
+
+
+def test_front_desk_cannot_void_an_entry(admin, front_desk):
+    """FIX 5: voiding is a manager action; front desk only has payments."""
+    s = _checked_in(admin, "2032-04-05", "2032-04-08")
+    charge = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                        json={"amount": 500.0, "description": "Laundry"}).json()
+    r = front_desk.post(
+        f"{API}/folios/{s['folio_id']}/entries/{charge['entry']['id']}/void",
+        json={"reason": "Guest disputed"})
+    assert r.status_code == 403, r.text
+
+
+def test_front_desk_cannot_force_check_out(admin, front_desk):
+    """FIX 5: forcing a check-out with a balance is a manager action."""
+    s = _checked_in(admin, "2032-05-05", "2032-05-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 300.0, "description": "Minibar"})
+    r = front_desk.post(
+        f"{API}/bookings/{s['booking']['id']}/check-out",
+        json={"force": True, "reason": "Company will settle"})
+    assert r.status_code == 403, r.text

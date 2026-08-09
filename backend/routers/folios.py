@@ -135,9 +135,12 @@ async def add_payment(folio_id: str, payload: PaymentIn, user: dict = Depends(DE
     if payload.amount <= 0:
         raise HTTPException(400, "Amount must be greater than zero")
 
-    # A refund moves money back to the guest. Managers only.
-    if payload.kind == "refund" and user.get("role") not in ("admin", "manager"):
-        raise HTTPException(403, "Only a manager can issue a refund")
+    # A refund or a discount is a credit that writes down the balance without cash
+    # changing hands, so both are managers only — otherwise front desk could discount
+    # a balance to zero and check the guest out normally, defeating the manager gate
+    # on force check-out.
+    if payload.kind in ("refund", "discount") and user.get("role") not in ("admin", "manager"):
+        raise HTTPException(403, f"Only a manager can issue a {payload.kind}")
 
     default_text = {"payment": f"Payment ({payload.method})",
                     "refund": f"Refund ({payload.method})",

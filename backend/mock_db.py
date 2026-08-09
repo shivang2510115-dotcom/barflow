@@ -102,7 +102,7 @@ class MockCollection:
                     return False
         return True
 
-    async def create_index(self, keys, unique=False, sparse=False):
+    async def create_index(self, keys, unique=False, sparse=False, partialFilterExpression=None):
         pass
 
     async def find_one(self, filter_query, projection=None):

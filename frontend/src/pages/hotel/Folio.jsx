@@ -326,7 +326,7 @@ export default function Folio() {
                   className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
                 >
                   <option value="payment">Payment</option>
-                  <option value="discount">Discount</option>
+                  {isManager && <option value="discount">Discount</option>}
                   {isManager && <option value="refund">Refund</option>}
                 </select>
               </label>
@@ -339,8 +339,9 @@ export default function Folio() {
               </button>
             </div>
             <p className="text-xs text-stone-500 mt-4">
-              A refund hands money back, so it increases the balance.
-              {!isManager && " Managers only."}
+              A refund hands money back, so it increases the balance. A discount forgives
+              part of it without cash changing hands.
+              {!isManager && " Both are managers only."}
             </p>
           </div>
         </div>

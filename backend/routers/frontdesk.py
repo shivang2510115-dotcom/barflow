@@ -10,6 +10,9 @@ from security import require_roles
 router = APIRouter()
 
 DESK = require_roles("admin", "manager", "front_desk")
+# A waiter needs to find the in-house guest to charge at the POS, and nothing more:
+# not the front-desk board, not check-in, not check-out.
+IN_HOUSE_LOOKUP = require_roles("admin", "manager", "front_desk", "waiter")
 
 
 def _today() -> str:
@@ -41,7 +44,7 @@ async def front_desk(user: dict = Depends(DESK)):
 
 
 @router.get("/in-house")
-async def in_house(q: str = "", user: dict = Depends(DESK)):
+async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP)):
     """Checked-in guests, for the POS room search. Only in-house bookings are
     chargeable — a departed folio must never be reachable from the POS."""
     bookings = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(500)

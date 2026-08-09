@@ -37,7 +37,7 @@ class Order(BaseModel):
     table_id: str
     table_label: str
     items: List[OrderItem] = []
-    status: Literal["open", "settled", "cancelled"] = "open"
+    status: Literal["open", "settled", "cancelled", "voided"] = "open"
     subtotal: float = 0.0
     tax: float = 0.0
     discount: float = 0.0
@@ -173,6 +173,8 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(re
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
+    if order["status"] != "open":
+        raise HTTPException(409, f"This order is already {order['status']} and cannot be settled again")
     order["discount"] = payload.discount
     order = compute_totals(order)
 

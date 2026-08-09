@@ -63,8 +63,14 @@ async def seed_data():
     await db.folio_entries.create_index("folio_id")
     # Unique against real MongoDB; mocked create_index is a no-op.
     # Actual idempotency comes from services/folio.py::unposted_nights.
+    # Partial, not sparse: a compound sparse index only skips a document missing ALL of
+    # its keys, and folio_id/kind are always present, so a plain sparse index would still
+    # cover every payment/misc_charge/outlet/void entry (all with charge_date: null) and
+    # the second such entry on a folio would raise a duplicate-key error. The partial
+    # filter limits uniqueness to the room-night rows that actually need it.
     await db.folio_entries.create_index(
-        [("folio_id", 1), ("kind", 1), ("charge_date", 1)], unique=True, sparse=True)
+        [("folio_id", 1), ("charge_date", 1)], unique=True,
+        partialFilterExpression={"kind": "room_night"})
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
