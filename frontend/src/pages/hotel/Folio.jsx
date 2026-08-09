@@ -32,7 +32,7 @@ export default function Folio() {
   const [voidReason, setVoidReason] = useState("");
 
   const load = useCallback(() => {
-    api
+    return api
       .get(`/folios/${id}`)
       .then((r) => setFolio(r.data))
       .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
@@ -46,7 +46,7 @@ export default function Folio() {
     setBusy(true);
     try {
       await fn();
-      load();
+      await load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     } finally {
@@ -110,7 +110,7 @@ export default function Folio() {
       toast.success("Voided");
       setVoidTarget(null);
       setVoidReason("");
-      load();
+      await load();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     } finally {
