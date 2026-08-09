@@ -766,3 +766,82 @@ def test_future_stay_posts_no_nights_yet(admin):
     folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
     assert [e for e in folio["entries"] if e["kind"] == "room_night"] == []
     assert folio["balance"] == 0.0
+
+
+# ------------------------- Task 4: charges, payments, check-out -------------------------
+def test_charge_and_payment_move_the_balance(admin):
+    s = _checked_in(admin, "2029-08-05", "2029-08-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1500.0, "description": "Spa"})
+    after_charge = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after_charge["balance"] == 1500.0
+
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 500.0, "method": "cash", "kind": "payment"})
+    after_payment = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    assert after_payment["balance"] == 1000.0
+
+
+def test_refund_increases_the_balance(admin):
+    s = _checked_in(admin, "2029-09-05", "2029-09-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 1000.0, "description": "Minibar"})
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 1000.0, "method": "cash", "kind": "payment"})
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 400.0, "method": "cash", "kind": "refund"})
+    assert admin.get(f"{API}/folios/{s['folio_id']}").json()["balance"] == 400.0
+
+
+def test_negative_or_zero_amounts_are_refused(admin):
+    s = _checked_in(admin, "2029-10-05", "2029-10-08")
+    bad = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                     json={"amount": 0, "description": "Nothing"})
+    assert bad.status_code == 400, bad.text
+    worse = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                       json={"amount": -50, "description": "Negative"})
+    assert worse.status_code == 400, worse.text
+
+
+def test_check_out_blocked_while_balance_outstanding(admin):
+    s = _checked_in(admin, "2029-06-05", "2029-06-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 900.0, "description": "Laundry"})
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out", json={})
+    assert r.status_code == 409, r.text
+
+
+def test_force_check_out_requires_a_reason_and_closes_unpaid(admin):
+    s = _checked_in(admin, "2029-07-05", "2029-07-08")
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 700.0, "description": "Minibar"})
+
+    no_reason = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+                           json={"force": True})
+    assert no_reason.status_code == 400, no_reason.text
+
+    forced = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+                        json={"force": True, "reason": "Company will settle"})
+    assert forced.status_code == 200, forced.text
+    assert forced.json()["folio"]["status"] == "closed_unpaid"
+
+
+def test_check_out_settles_when_the_balance_is_paid(admin):
+    s = _checked_in(admin, "2031-03-05", "2031-03-08")   # future stay: no nights due yet
+    admin.post(f"{API}/folios/{s['folio_id']}/charges",
+               json={"amount": 600.0, "description": "Laundry"})
+    admin.post(f"{API}/folios/{s['folio_id']}/payments",
+               json={"amount": 600.0, "method": "card", "kind": "payment"})
+    r = admin.post(f"{API}/bookings/{s['booking']['id']}/check-out", json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["folio"]["status"] == "settled"
+    assert r.json()["booking"]["status"] == "checked_out"
+
+
+def test_charging_a_closed_folio_is_refused(admin):
+    s = _checked_in(admin, "2029-11-05", "2029-11-08")
+    admin.post(f"{API}/bookings/{s['booking']['id']}/check-out",
+               json={"force": True, "reason": "test"})
+    r = admin.post(f"{API}/folios/{s['folio_id']}/charges",
+                   json={"amount": 100.0, "description": "Too late"})
+    assert r.status_code == 409, r.text

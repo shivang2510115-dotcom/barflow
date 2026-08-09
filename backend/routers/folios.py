@@ -8,9 +8,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
-from models.folio import FolioEntry
+from models.folio import ChargeIn, FolioEntry, PaymentIn
 from security import require_roles
-from services.folio import folio_balance, unposted_nights
+from services.folio import direction_for, folio_balance, unposted_nights
 
 router = APIRouter()
 
@@ -110,3 +110,43 @@ async def get_folio(folio_id: str, user: dict = Depends(DESK)):
     folio["guest"] = await db.guests.find_one({"id": folio["guest_id"]}, {"_id": 0})
     folio["booking"] = await db.bookings.find_one({"id": folio["booking_id"]}, {"_id": 0})
     return folio
+
+
+@router.post("/folios/{folio_id}/charges")
+async def add_charge(folio_id: str, payload: ChargeIn, user: dict = Depends(DESK)):
+    await _require_open(folio_id)
+    if payload.amount <= 0:
+        raise HTTPException(400, "Amount must be greater than zero")
+    if not payload.description.strip():
+        raise HTTPException(400, "A description is required")
+
+    entry = FolioEntry(
+        folio_id=folio_id, kind="misc_charge", direction=direction_for("misc_charge"),
+        amount=round(payload.amount, 2), description=payload.description.strip(),
+        posted_by=user.get("id")).model_dump()
+    await db.folio_entries.insert_one(entry)
+    entry.pop("_id", None)
+    return {"entry": entry, "balance": await _sync_balance(folio_id)}
+
+
+@router.post("/folios/{folio_id}/payments")
+async def add_payment(folio_id: str, payload: PaymentIn, user: dict = Depends(DESK)):
+    await _require_open(folio_id)
+    if payload.amount <= 0:
+        raise HTTPException(400, "Amount must be greater than zero")
+
+    # A refund moves money back to the guest. Managers only.
+    if payload.kind == "refund" and user.get("role") not in ("admin", "manager"):
+        raise HTTPException(403, "Only a manager can issue a refund")
+
+    default_text = {"payment": f"Payment ({payload.method})",
+                    "refund": f"Refund ({payload.method})",
+                    "discount": "Discount"}[payload.kind]
+    entry = FolioEntry(
+        folio_id=folio_id, kind=payload.kind, direction=direction_for(payload.kind),
+        amount=round(payload.amount, 2),
+        description=(payload.description or default_text).strip(),
+        posted_by=user.get("id")).model_dump()
+    await db.folio_entries.insert_one(entry)
+    entry.pop("_id", None)
+    return {"entry": entry, "balance": await _sync_balance(folio_id)}
