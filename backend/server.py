@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
-from db import db, client
+from db import db, client, check_connection
 from security import hash_password
 from routers import auth, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios
 from routers.tables import Table
@@ -255,6 +255,9 @@ async def seed_data():
 # ----------------- Startup -----------------
 @app.on_event("startup")
 async def on_startup():
+    # Ping before seeding. seed_data() issues many queries, so an unreachable
+    # database would otherwise fail slowly and opaquely somewhere in the middle.
+    await check_connection()
     await seed_data()
     logger.info("Seed complete.")
     if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
