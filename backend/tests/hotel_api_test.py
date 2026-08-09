@@ -1036,6 +1036,24 @@ def test_waiter_can_look_up_in_house_guests_but_not_the_front_desk_board(admin, 
     assert board.status_code == 403, board.text
 
 
+def test_in_house_guest_is_projected_to_only_name_and_phone(admin, waiter):
+    """A waiter can look up an in-house guest to charge a bar bill to their room, but
+    the POS only needs the room, the guest's name/phone and the folio id — the full
+    guest document (id proof, address, email, notes) must never reach the POS."""
+    s = _checked_in(admin, "2032-06-05", "2032-06-08")
+    lookup = waiter.get(f"{API}/in-house")
+    assert lookup.status_code == 200, lookup.text
+
+    row = next(x for x in lookup.json() if x["booking"]["id"] == s["booking"]["id"])
+    guest = row["guest"]
+    assert set(guest.keys()) == {"id", "name", "phone"}
+    assert guest["id"] == s["guest"]["id"]
+    assert guest["name"] == s["guest"]["name"]
+    assert guest["phone"] == s["guest"]["phone"]
+    assert "id_proof_number" not in guest
+    assert "address" not in guest
+
+
 def test_settling_an_already_settled_order_is_refused(admin):
     """FIX 3: a double-tap or retry must not debit the folio/till twice."""
     order = _open_order(admin)

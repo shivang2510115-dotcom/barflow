@@ -43,6 +43,16 @@ async def front_desk(user: dict = Depends(DESK)):
             "in_house": decorate(in_house_rows)}
 
 
+def _pos_guest(guest: dict | None) -> dict | None:
+    """Project a guest down to what the POS needs to charge a room: enough to look
+    the guest up and label the button. Waiters can reach this endpoint but have no
+    other access to guest records, so id_proof_number, id_proof_type, address,
+    email and notes must never leave the server here."""
+    if not guest:
+        return None
+    return {"id": guest.get("id"), "name": guest.get("name"), "phone": guest.get("phone")}
+
+
 @router.get("/in-house")
 async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP)):
     """Checked-in guests, for the POS room search. Only in-house bookings are
@@ -69,6 +79,9 @@ async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP)):
             or needle in ((r["guest"] or {}).get("name") or "").lower()
             or needle in ((r["guest"] or {}).get("phone") or "")
         ]
+
+    for r in rows:
+        r["guest"] = _pos_guest(r["guest"])
     return rows
 
 

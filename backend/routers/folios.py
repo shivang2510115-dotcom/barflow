@@ -46,8 +46,9 @@ async def post_due_nights(folio_id: str) -> int:
     """Post every room night due but not yet posted. Called on every folio read.
 
     Lazy rather than scheduled: a server that slept cannot silently skip a night, and
-    under real MongoDB the unique index on (folio_id, kind, charge_date) also guards
-    this, but mock_db's create_index is a no-op, so unposted_nights is the real protection.
+    under real MongoDB the unique index on (folio_id, charge_date), partial on
+    kind: "room_night", also guards this, but mock_db's create_index is a no-op, so
+    unposted_nights is the real protection.
     Amounts come from the booking's quote snapshot so the folio agrees with the price
     the guest was actually quoted, even if rates have changed since.
     """
