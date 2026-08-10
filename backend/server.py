@@ -25,6 +25,7 @@ from routers.inventory import InventoryItem
 from routers.reports import daily_brief_scheduler
 from models.hotel import Rate, Room, RoomType
 from services.access import DOMAINS
+from migrations.backfill_domains import backfill as backfill_domains
 
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
@@ -265,6 +266,12 @@ async def on_startup():
     await check_connection()
     await seed_data()
     logger.info("Seed complete.")
+    # After seeding, so an account seed_data() wrote without the fields is caught too.
+    # Failures propagate on purpose, matching seed_data above: an app that starts with
+    # unmigrated users is one where every pre-existing login silently reaches nothing,
+    # which is far harder to diagnose than a refused start.
+    updated, current = await backfill_domains()
+    logger.info("Domain backfill: %d user(s) updated, %d already current.", updated, current)
     if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
         asyncio.create_task(daily_brief_scheduler())
         logger.info("Daily brief scheduler started (%s).", os.environ.get("OWNER_BRIEF_TIME", "23:00"))

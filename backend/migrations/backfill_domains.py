@@ -17,13 +17,23 @@ from db import db  # noqa: E402
 from services.access import DOMAINS  # noqa: E402
 
 
-async def main() -> None:
+async def backfill() -> tuple[int, int]:
+    """Bring every user up to date. Returns (updated, already current).
+
+    Also imported by server.py and run at startup: this app deploys as a container
+    with no manual shell step, so a migration nobody runs is a migration that never
+    runs — and an account left without domains is locked out of the whole app.
+    """
     users = await db.users.find({}, {"_id": 0}).to_list(10000)
     updated = skipped = 0
     for user in users:
         patch = {}
+        # `not user.get(...)` rather than a missing-key check, so a user left with an
+        # empty list is repaired too — empty domains denies access to everything.
         if not user.get("domains"):
             patch["domains"] = list(DOMAINS)
+        # Key presence, NOT truthiness: a deliberately deactivated leaver must stay
+        # deactivated. Testing `not user.get("active")` would reactivate all of them.
         if "active" not in user:
             patch["active"] = True
         if not patch:
@@ -31,6 +41,11 @@ async def main() -> None:
             continue
         await db.users.update_one({"id": user["id"]}, {"$set": patch})
         updated += 1
+    return updated, skipped
+
+
+async def main() -> None:
+    updated, skipped = await backfill()
     print(f"users updated: {updated}, already current: {skipped}")
 
 
