@@ -1140,6 +1140,10 @@ def _staff_session(admin, email, password, role, domains):
     return s
 
 
+# POST /api/staff does not exist until Task 4, so this cannot pass yet. strict=True on
+# purpose: the moment Task 4 lands, an unexpected pass fails the suite and forces this
+# marker off, rather than letting a now-passing test sit here labelled as expected to fail.
+@pytest.mark.xfail(strict=True, reason="needs POST /api/staff, added in Task 4")
 def test_restaurant_manager_is_refused_hotel_endpoints(admin):
     email = f"rest-{uuid.uuid4().hex[:6]}@barflow.io"
     s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
