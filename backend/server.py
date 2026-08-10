@@ -24,6 +24,7 @@ from routers.menu import MenuItem
 from routers.inventory import InventoryItem
 from routers.reports import daily_brief_scheduler
 from models.hotel import Rate, Room, RoomType
+from services.access import DOMAINS
 
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
@@ -100,6 +101,10 @@ async def seed_data():
                 "name": u["name"],
                 "role": u["role"],
                 "password_hash": hash_password(u["password"]),
+                # Seeded staff work everywhere; the admin narrows them from the staff
+                # screen. Seeding them narrow would lock a fresh install out of itself.
+                "domains": list(DOMAINS),
+                "active": True,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
         # An existing account keeps whatever password it currently has. Re-hashing the

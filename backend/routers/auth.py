@@ -19,6 +19,8 @@ class UserPublic(BaseModel):
     email: EmailStr
     name: str
     role: Role
+    domains: list[str] = []
+    active: bool = True
 
 
 class LoginIn(BaseModel):
@@ -39,10 +41,22 @@ async def login(payload: LoginIn):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    # Refused at the door rather than on the first request. The message is identical to
+    # a wrong password on purpose: revealing that an account exists but is disabled tells
+    # a former employee their guess was right.
+    if not user.get("active", True):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(user["id"], user["email"], user["role"])
     return {
         "token": token,
-        "user": {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]},
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"],
+            "domains": user.get("domains", []),
+            "active": user.get("active", True),
+        },
     }
 
 
@@ -65,7 +79,14 @@ async def register(payload: RegisterIn, current: dict = Depends(require_roles("a
 
 @router.get("/auth/me")
 async def me(user: dict = Depends(get_current_user)):
-    return {"id": user["id"], "email": user["email"], "name": user["name"], "role": user["role"]}
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "name": user["name"],
+        "role": user["role"],
+        "domains": user.get("domains", []),
+        "active": user.get("active", True),
+    }
 
 
 @router.get("/auth/staff")

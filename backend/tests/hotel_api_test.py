@@ -1117,3 +1117,11 @@ def test_front_desk_cannot_force_check_out(admin, front_desk):
         f"{API}/bookings/{s['booking']['id']}/check-out",
         json={"force": True, "reason": "Company will settle"})
     assert r.status_code == 403, r.text
+
+
+def test_seeded_admin_has_all_domains_and_is_active(admin):
+    me = admin.get(f"{API}/auth/me")
+    assert me.status_code == 200, me.text
+    body = me.json()
+    assert body["active"] is True
+    assert set(body["domains"]) == {"hotel", "restaurant", "bar"}
