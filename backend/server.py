@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import db, client, check_connection
 from security import hash_password
-from routers import auth, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -30,7 +30,7 @@ from migrations.backfill_domains import backfill as backfill_domains
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios):
     api_router.include_router(module.router)
 
 

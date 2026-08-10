@@ -1140,12 +1140,132 @@ def _staff_session(admin, email, password, role, domains):
     return s
 
 
-# POST /api/staff does not exist until Task 4, so this cannot pass yet. strict=True on
-# purpose: the moment Task 4 lands, an unexpected pass fails the suite and forces this
-# marker off, rather than letting a now-passing test sit here labelled as expected to fail.
-@pytest.mark.xfail(strict=True, reason="needs POST /api/staff, added in Task 4")
 def test_restaurant_manager_is_refused_hotel_endpoints(admin):
     email = f"rest-{uuid.uuid4().hex[:6]}@barflow.io"
     s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
     assert s.get(f"{API}/bookings").status_code == 403
     assert s.get(f"{API}/tables").status_code == 200
+
+
+# ------------------------ staff administration ------------------------
+def test_admin_creates_staff_with_domains(admin):
+    email = f"new-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "New Person", "email": email, "password": "newpass123",
+        "role": "waiter", "domains": ["bar"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["domains"] == ["bar"]
+    assert body["active"] is True
+    assert "password_hash" not in body and "password" not in body
+
+
+def test_duplicate_email_is_refused(admin):
+    email = f"dup-{uuid.uuid4().hex[:6]}@barflow.io"
+    body = {"name": "A", "email": email, "password": "pass12345",
+            "role": "waiter", "domains": ["bar"]}
+    assert admin.post(f"{API}/staff", json=body).status_code == 200
+    assert admin.post(f"{API}/staff", json=body).status_code == 409
+
+
+def test_non_admin_cannot_reach_staff(admin):
+    email = f"mgr-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "mgr12345", "manager", ["restaurant"])
+    assert s.get(f"{API}/staff").status_code == 403
+
+
+def test_empty_domains_on_a_non_admin_is_refused(admin):
+    r = admin.post(f"{API}/staff", json={
+        "name": "Nobody", "email": f"none-{uuid.uuid4().hex[:6]}@barflow.io",
+        "password": "pass12345", "role": "waiter", "domains": []})
+    assert r.status_code == 400, r.text
+
+
+def test_unknown_domain_is_refused(admin):
+    r = admin.post(f"{API}/staff", json={
+        "name": "Spa", "email": f"spa-{uuid.uuid4().hex[:6]}@barflow.io",
+        "password": "pass12345", "role": "waiter", "domains": ["spa"]})
+    assert r.status_code == 422, r.text
+
+
+def test_admin_cannot_deactivate_themselves(admin):
+    me = admin.get(f"{API}/auth/me").json()
+    r = admin.post(f"{API}/staff/{me['id']}/active", json={"active": False})
+    assert r.status_code == 409, r.text
+
+
+def test_admin_cannot_change_their_own_role_or_domains(admin):
+    me = admin.get(f"{API}/auth/me").json()
+    r = admin.put(f"{API}/staff/{me['id']}", json={
+        "name": me["name"], "role": "waiter", "domains": ["bar"]})
+    assert r.status_code == 409, r.text
+
+
+def test_last_active_admin_cannot_be_demoted(admin):
+    # The seeded admin is the only admin in a fresh database.
+    me = admin.get(f"{API}/auth/me").json()
+    others = [u for u in admin.get(f"{API}/staff").json()
+              if u["role"] == "admin" and u["active"] and u["id"] != me["id"]]
+    if others:
+        return  # another admin exists; the rule under test does not apply
+    r = admin.put(f"{API}/staff/{me['id']}", json={
+        "name": me["name"], "role": "manager", "domains": ["hotel"]})
+    assert r.status_code == 409, r.text
+
+
+def test_admin_edits_role_and_domains_of_another_staff_member(admin):
+    email = f"edit-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Edit Me", "email": email, "password": "edit12345",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    r = admin.put(f"{API}/staff/{created['id']}", json={
+        "name": "Edited", "role": "front_desk", "domains": ["hotel", "restaurant"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "Edited"
+    assert body["role"] == "front_desk"
+    assert body["domains"] == ["hotel", "restaurant"]
+    assert "password_hash" not in body
+
+
+def test_a_deactivated_staff_member_can_be_reactivated(admin):
+    email = f"back-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Boomerang", "email": email, "password": "back12345",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    off = admin.post(f"{API}/staff/{created['id']}/active", json={"active": False})
+    assert off.status_code == 200, off.text
+    assert off.json()["active"] is False
+
+    on = admin.post(f"{API}/staff/{created['id']}/active", json={"active": True})
+    assert on.status_code == 200, on.text
+    assert on.json()["active"] is True
+
+    import requests as _rq
+    assert _rq.post(f"{API}/auth/login",
+                    json={"email": email, "password": "back12345"}).status_code == 200
+
+
+def test_staff_list_never_leaks_password_hashes(admin):
+    r = admin.get(f"{API}/staff")
+    assert r.status_code == 200, r.text
+    assert r.json(), "the seeded admin should at least be listed"
+    assert "password_hash" not in r.text
+
+
+def test_admin_resets_a_password(admin):
+    import requests as _rq
+    email = f"reset-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Reset Me", "email": email, "password": "oldpass123",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    assert admin.post(f"{API}/staff/{created['id']}/password",
+                      json={"password": "newpass456"}).status_code == 200
+
+    assert _rq.post(f"{API}/auth/login",
+                    json={"email": email, "password": "oldpass123"}).status_code == 401
+    assert _rq.post(f"{API}/auth/login",
+                    json={"email": email, "password": "newpass456"}).status_code == 200
