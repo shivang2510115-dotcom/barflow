@@ -1,13 +1,10 @@
 """Authentication and staff listing."""
-import uuid
-from datetime import datetime, timezone
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from db import db
 from security import (
-    hash_password, verify_password, create_access_token,
+    verify_password, create_access_token,
     get_current_user, require_roles, Role,
 )
 
@@ -26,13 +23,6 @@ class UserPublic(BaseModel):
 class LoginIn(BaseModel):
     email: EmailStr
     password: str
-
-
-class RegisterIn(BaseModel):
-    email: EmailStr
-    password: str
-    name: str
-    role: Role = "waiter"
 
 
 @router.post("/auth/login")
@@ -60,21 +50,9 @@ async def login(payload: LoginIn):
     }
 
 
-@router.post("/auth/register")
-async def register(payload: RegisterIn, current: dict = Depends(require_roles("admin"))):
-    email = payload.email.lower()
-    if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=400, detail="Email already exists")
-    doc = {
-        "id": str(uuid.uuid4()),
-        "email": email,
-        "name": payload.name,
-        "role": payload.role,
-        "password_hash": hash_password(payload.password),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await db.users.insert_one(doc)
-    return {"id": doc["id"], "email": doc["email"], "name": doc["name"], "role": doc["role"]}
+# POST /auth/register is gone: it created users with no domains and no password rules,
+# which under domain-based access is an account that can reach nothing. POST /api/staff
+# replaces it and is the only way to create a user.
 
 
 @router.get("/auth/me")

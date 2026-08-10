@@ -24,15 +24,15 @@ def admin():
 
 
 def test_front_desk_role_exists(admin):
-    r = admin.post("{}/auth/register".format(API), json={
-        "email": "desk-test@barflow.io",
+    r = admin.post(f"{API}/staff", json={
         "name": "Desk Tester",
+        "email": f"desk-{uuid.uuid4().hex[:6]}@barflow.io",
         "password": "desk12345",
         "role": "front_desk",
+        "domains": ["hotel"],
     })
-    assert r.status_code in (200, 400), r.text
-    if r.status_code == 400:
-        assert "exists" in r.text.lower()
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "front_desk"
 
 
 def test_create_and_find_guest(admin):
