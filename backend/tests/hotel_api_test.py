@@ -1255,6 +1255,42 @@ def test_staff_list_never_leaks_password_hashes(admin):
     assert "password_hash" not in r.text
 
 
+def test_deactivated_user_cannot_log_in(admin):
+    import requests as _rq
+    email = f"leaver-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Leaver", "email": email, "password": "leave12345",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    ok = _rq.post(f"{API}/auth/login", json={"email": email, "password": "leave12345"})
+    assert ok.status_code == 200
+
+    assert admin.post(f"{API}/staff/{created['id']}/active",
+                      json={"active": False}).status_code == 200
+
+    after = _rq.post(f"{API}/auth/login", json={"email": email, "password": "leave12345"})
+    assert after.status_code == 401, after.text
+
+    # Byte-identical to a wrong password on purpose. A distinct "account disabled"
+    # message would confirm to a former employee that their password guess was right.
+    wrong = _rq.post(f"{API}/auth/login",
+                     json={"email": email, "password": "not-the-password"})
+    assert wrong.status_code == 401
+    assert after.json()["detail"] == wrong.json()["detail"]
+
+
+def test_deactivated_users_existing_token_stops_working(admin):
+    email = f"tok-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "tok12345", "waiter", ["bar"])
+    assert s.get(f"{API}/auth/me").status_code == 200
+
+    uid = next(u["id"] for u in admin.get(f"{API}/staff").json() if u["email"] == email)
+    admin.post(f"{API}/staff/{uid}/active", json={"active": False})
+
+    # Same token, now refused — the active check runs per request, not only at login.
+    assert s.get(f"{API}/auth/me").status_code == 403
+
+
 def test_admin_resets_a_password(admin):
     import requests as _rq
     email = f"reset-{uuid.uuid4().hex[:6]}@barflow.io"

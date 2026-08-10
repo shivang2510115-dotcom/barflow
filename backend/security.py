@@ -49,6 +49,13 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Tokens live for seven days, so refusing at login is not enough — a leaver
+        # deactivated an hour ago would otherwise keep working until their token expired.
+        # Checked here rather than only in require_access so that deactivation takes
+        # effect on every authenticated route at once. 403, not 401: the token is
+        # genuine, the account is not permitted.
+        if not user.get("active", True):
+            raise HTTPException(status_code=403, detail="Account is deactivated")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
