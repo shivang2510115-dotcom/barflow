@@ -28,7 +28,12 @@ def normalise_domains(domains: str | tuple[str, ...] | list[str]) -> tuple[str, 
     """
     if isinstance(domains, str):
         domains = (domains,)
-    out = tuple(domains)
+    # A missing or malformed declaration is a configuration mistake, not a Python
+    # TypeError — callers are told AccessError is the one thing to catch.
+    try:
+        out = tuple(domains)
+    except TypeError:
+        raise AccessError(f"invalid domains: {domains!r}") from None
     if not out:
         raise AccessError("an endpoint must declare at least one domain")
     for d in out:
@@ -42,10 +47,16 @@ def normalise_domains(domains: str | tuple[str, ...] | list[str]) -> tuple[str, 
 def can_access(
     user: dict,
     domains: str | tuple[str, ...] | list[str],
-    roles: tuple[str, ...] | list[str],
+    roles: str | tuple[str, ...] | list[str],
 ) -> bool:
     """True when this user may reach an endpoint requiring these roles and domains."""
     required = normalise_domains(domains)
+
+    # A bare string is convenient shorthand for a single role, same as for domains —
+    # but left unwrapped, `role not in roles` becomes substring matching on the str,
+    # so "man" would pass a check for roles="manager".
+    if isinstance(roles, str):
+        roles = (roles,)
 
     # Deactivated accounts are refused regardless of role. This applies to admin too —
     # otherwise deactivating a compromised admin would do nothing.

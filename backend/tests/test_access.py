@@ -88,3 +88,14 @@ def test_shared_cannot_be_mixed_with_a_specific_domain():
 def test_single_domain_string_and_tuple_are_equivalent():
     assert normalise_domains("hotel") == ("hotel",)
     assert normalise_domains(("hotel",)) == ("hotel",)
+
+
+def test_missing_domains_raises_access_error_not_type_error():
+    with pytest.raises(AccessError):
+        normalise_domains(None)
+
+
+def test_bare_string_role_does_not_become_substring_matching():
+    # "man" must not pass a check for roles="manager" just because "man" in "manager".
+    assert can_access(u(role="man"), "restaurant", "manager") is False
+    assert can_access(u(role="manager"), "restaurant", "manager") is True
