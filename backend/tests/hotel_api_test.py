@@ -1125,3 +1125,23 @@ def test_seeded_admin_has_all_domains_and_is_active(admin):
     body = me.json()
     assert body["active"] is True
     assert set(body["domains"]) == {"hotel", "restaurant", "bar"}
+
+
+def _staff_session(admin, email, password, role, domains):
+    """Create a staff user directly via the seeded admin, and return a logged-in session."""
+    import requests as _rq
+    admin.post(f"{API}/staff", json={
+        "name": email.split("@")[0], "email": email, "password": password,
+        "role": role, "domains": domains})
+    s = _rq.Session()
+    r = s.post(f"{API}/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    return s
+
+
+def test_restaurant_manager_is_refused_hotel_endpoints(admin):
+    email = f"rest-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
+    assert s.get(f"{API}/bookings").status_code == 403
+    assert s.get(f"{API}/tables").status_code == 200

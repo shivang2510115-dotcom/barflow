@@ -8,6 +8,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request, status
 
 from db import db
+from services.access import can_access, normalise_domains
 
 JWT_ALGORITHM = "HS256"
 JWT_SECRET = os.environ.get("JWT_SECRET", "supersecret-key-123456789")
@@ -60,4 +61,25 @@ def require_roles(*roles: str):
         if user["role"] not in roles:
             raise HTTPException(status_code=403, detail="Forbidden")
         return user
+    return checker
+
+
+def require_access(domains: str | tuple[str, ...], *roles: str):
+    """Dependency: the caller must be active, hold one of `roles`, and hold a domain.
+
+    Replaces require_roles. Declaring the domain at each call site keeps authorization
+    greppable — you can read any route and see exactly who reaches it. Inferring it from
+    the router or the URL would make a misfiled endpoint silently inherit the wrong
+    permission.
+    """
+    # Validated where this is called (route declaration, i.e. import time), not inside
+    # the checker: a typo in a domain must break startup loudly, not silently deny every
+    # user at request time.
+    domains = normalise_domains(domains)
+
+    async def checker(user: dict = Depends(get_current_user)) -> dict:
+        if not can_access(user, domains, roles):
+            raise HTTPException(status_code=403, detail="Not permitted")
+        return user
+
     return checker
