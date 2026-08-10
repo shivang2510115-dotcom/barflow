@@ -1194,23 +1194,59 @@ def test_admin_cannot_deactivate_themselves(admin):
     assert r.status_code == 409, r.text
 
 
-def test_admin_cannot_change_their_own_role_or_domains(admin):
+def test_a_user_cannot_change_their_own_role(admin):
+    """Refused by the self-guard, whatever else is true of the database. This is also
+    what keeps an active admin in place: a demotion can only target someone else."""
     me = admin.get(f"{API}/auth/me").json()
-    r = admin.put(f"{API}/staff/{me['id']}", json={
-        "name": me["name"], "role": "waiter", "domains": ["bar"]})
-    assert r.status_code == 409, r.text
-
-
-def test_last_active_admin_cannot_be_demoted(admin):
-    # The seeded admin is the only admin in a fresh database.
-    me = admin.get(f"{API}/auth/me").json()
-    others = [u for u in admin.get(f"{API}/staff").json()
-              if u["role"] == "admin" and u["active"] and u["id"] != me["id"]]
-    if others:
-        return  # another admin exists; the rule under test does not apply
     r = admin.put(f"{API}/staff/{me['id']}", json={
         "name": me["name"], "role": "manager", "domains": ["hotel"]})
     assert r.status_code == 409, r.text
+    # And nothing was written.
+    assert admin.get(f"{API}/auth/me").json()["role"] == "admin"
+
+
+def test_a_user_cannot_change_their_own_domains(admin):
+    """Same guard, with the role left alone — narrowing your own domains is refused too,
+    or an admin could quietly cut themselves off from part of the property."""
+    me = admin.get(f"{API}/auth/me").json()
+    r = admin.put(f"{API}/staff/{me['id']}", json={
+        "name": me["name"], "role": me["role"], "domains": ["hotel"]})
+    assert r.status_code == 409, r.text
+    assert set(admin.get(f"{API}/auth/me").json()["domains"]) == set(me["domains"])
+
+
+def test_an_admin_can_deactivate_another_admin_but_never_themselves(admin):
+    """With two admins present: neither can remove themselves, and A can still remove B.
+    The old last-active-admin count blocked nothing here — the self-guards do the work."""
+    email = f"admin2-{uuid.uuid4().hex[:6]}@barflow.io"
+    b = _staff_session(admin, email, "admin2pass", "admin", [])
+    a_id = admin.get(f"{API}/auth/me").json()["id"]
+    b_id = b.get(f"{API}/auth/me").json()["id"]
+
+    assert admin.post(f"{API}/staff/{a_id}/active",
+                      json={"active": False}).status_code == 409
+    assert b.post(f"{API}/staff/{b_id}/active",
+                  json={"active": False}).status_code == 409
+
+    r = admin.post(f"{API}/staff/{b_id}/active", json={"active": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["active"] is False
+    assert b.get(f"{API}/auth/me").status_code == 403
+
+    # A is untouched and still admin.
+    assert admin.get(f"{API}/auth/me").json()["active"] is True
+
+
+def test_the_old_auth_staff_roster_is_not_reachable(admin):
+    """GET /auth/staff used to return every user behind require_roles("admin","manager"),
+    which let a restaurant-only manager enumerate all staff around the admin-only gate on
+    GET /api/staff. It is gone; this test stops it coming back quietly."""
+    email = f"roster-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "roster12345", "manager", ["restaurant"])
+    r = s.get(f"{API}/auth/staff")
+    assert r.status_code in (403, 404), r.text
+    assert "password_hash" not in r.text
+    assert email not in r.text
 
 
 def test_admin_edits_role_and_domains_of_another_staff_member(admin):

@@ -1,11 +1,11 @@
-"""Authentication and staff listing."""
+"""Authentication: logging in and reading your own identity."""
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from db import db
 from security import (
     verify_password, create_access_token,
-    get_current_user, require_roles, Role,
+    get_current_user, Role,
 )
 
 router = APIRouter()
@@ -67,7 +67,7 @@ async def me(user: dict = Depends(get_current_user)):
     }
 
 
-@router.get("/auth/staff")
-async def list_staff(user: dict = Depends(require_roles("admin", "manager"))):
-    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
-    return docs
+# GET /auth/staff is gone. It returned the whole roster — every id, name, email, role,
+# domains and active flag — behind require_roles("admin", "manager"), which let any
+# manager, including a restaurant-only one, enumerate all staff around the admin-only
+# gate on GET /api/staff. That route is now the only roster.
