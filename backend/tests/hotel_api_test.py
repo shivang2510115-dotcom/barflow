@@ -1434,3 +1434,174 @@ def test_shared_endpoints_reachable_from_any_domain(admin):
 def test_admin_still_reaches_everything(admin):
     for path in ("/bookings", "/tables", "/guests", "/inventory", "/folios", "/staff"):
         assert admin.get(f"{API}{path}").status_code == 200, path
+
+
+# ------------------------- Task 10: combined revenue analytics -------------------------
+# A fixed window shared by the structural tests below. Nothing here asserts an absolute
+# figure inside it, so leftovers from a previous run against the same db.json are fine.
+ANALYTICS_WINDOW = {"start": "2026-03-01", "end": "2026-03-31"}
+
+
+def test_analytics_rejects_a_domain_the_user_does_not_hold(admin):
+    # A manager who asks for hotel figures must not silently receive restaurant ones.
+    email = f"ranl-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
+    r = s.get(f"{API}/analytics/revenue", params={"domains": "hotel", **ANALYTICS_WINDOW})
+    assert r.status_code == 403, r.text
+
+
+def test_analytics_defaults_to_the_users_own_domains(admin):
+    r = admin.get(f"{API}/analytics/revenue", params=ANALYTICS_WINDOW)
+    assert r.status_code == 200, r.text
+    assert sorted(r.json()["domains"]) == ["bar", "hotel", "restaurant"]
+
+
+def test_analytics_default_for_a_narrower_user_is_only_their_own_domains(admin):
+    """Omitting `domains` must mean "everything I hold", not "everything there is"."""
+    email = f"danl-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
+    r = s.get(f"{API}/analytics/revenue", params=ANALYTICS_WINDOW)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["domains"] == ["restaurant"]
+    assert body["hotel"] is None
+    assert body["outlets"] is not None
+    assert body["outlets_combined"] is False
+
+
+def test_analytics_hotel_only_omits_outlets(admin):
+    r = admin.get(f"{API}/analytics/revenue", params={"domains": "hotel", **ANALYTICS_WINDOW})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["outlets"] is None
+    assert body["hotel"] is not None
+    assert body["outlets_combined"] is False
+
+
+def test_analytics_restaurant_only_omits_hotel(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "restaurant", **ANALYTICS_WINDOW})
+    assert r.status_code == 200, r.text
+    assert r.json()["hotel"] is None
+
+
+def test_selecting_both_outlet_domains_does_not_double_count(admin):
+    one = admin.get(f"{API}/analytics/revenue",
+                    params={"domains": "restaurant", **ANALYTICS_WINDOW}).json()
+    both = admin.get(f"{API}/analytics/revenue",
+                     params={"domains": "restaurant,bar", **ANALYTICS_WINDOW}).json()
+    assert both["outlets"]["total"] == one["outlets"]["total"]
+    assert both["outlets"]["orders"] == one["outlets"]["orders"]
+    assert both["total"] == one["total"]
+    assert both["outlets_combined"] is True
+    assert one["outlets_combined"] is False
+
+
+def test_analytics_by_day_spans_the_whole_range(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "2026-03-01", "end": "2026-03-05"})
+    days = [d["date"] for d in r.json()["by_day"]]
+    assert days == ["2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"]
+
+
+def test_analytics_by_day_row_totals_are_hotel_plus_outlets(admin):
+    body = admin.get(f"{API}/analytics/revenue",
+                     params={"domains": "hotel,restaurant", **ANALYTICS_WINDOW}).json()
+    for row in body["by_day"]:
+        assert row["total"] == round(row["hotel"] + row["outlets"], 2), row
+    assert body["total"] == round(body["hotel"]["total"] + body["outlets"]["total"], 2)
+
+
+def test_analytics_rejects_start_after_end(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "2026-03-31", "end": "2026-03-01"})
+    assert r.status_code == 400, r.text
+
+
+def test_analytics_rejects_an_unparseable_date(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "March", "end": "2026-03-01"})
+    assert r.status_code == 400, r.text
+
+
+def test_analytics_rejects_an_unknown_domain(admin):
+    r = admin.get(f"{API}/analytics/revenue", params={"domains": "spa", **ANALYTICS_WINDOW})
+    assert r.status_code == 422, r.text
+
+
+def test_a_waiter_cannot_reach_analytics(waiter):
+    r = waiter.get(f"{API}/analytics/revenue", params=ANALYTICS_WINDOW)
+    assert r.status_code == 403, r.text
+
+
+def test_a_room_night_appears_in_hotel_revenue_on_the_night_it_covers(admin):
+    """A stay's nights land on the nights they cover, not on the day they were posted."""
+    # A past window of its own, so every night is due the moment the folio is read.
+    ci, co = "2024-06-14", "2024-06-16"
+    window = {"domains": "hotel", "start": ci, "end": "2024-06-15"}
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+
+    s = _checked_in(admin, ci, co)
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()   # posts the due nights
+    assert folio["balance"] > 0, folio
+    nights = {e["charge_date"]: e["amount"]
+              for e in folio["entries"] if e["kind"] == "room_night"}
+    # Two nights: 06-14 and 06-15. 06-16 is the departure and is not slept in.
+    assert sorted(nights) == ["2024-06-14", "2024-06-15"], nights
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert after["hotel"]["room_nights"] > before["hotel"]["room_nights"]
+    assert round(after["hotel"]["room_nights"] - before["hotel"]["room_nights"], 2) == \
+        round(sum(nights.values()), 2)
+
+    was = {d["date"]: d["hotel"] for d in before["by_day"]}
+    now = {d["date"]: d["hotel"] for d in after["by_day"]}
+    for night, amount in nights.items():
+        assert round(now[night] - was[night], 2) == round(amount, 2), night
+
+
+def test_a_bar_bill_charged_to_a_room_is_outlet_revenue_and_not_hotel_revenue(admin):
+    """The rule the whole endpoint exists for: hotel and outlet figures add cleanly
+    because a room-charged bar bill is revenue at the bar and a receivable on the folio.
+    It must be counted exactly once, on the outlet side."""
+    today = date.today()
+    ci = (today - timedelta(days=3)).isoformat()
+    co = (today + timedelta(days=1)).isoformat()
+    # The window ends today so it holds both the three due nights and today's bar bill.
+    window = {"domains": "hotel,restaurant", "start": ci, "end": today.isoformat()}
+
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+
+    s = _checked_in(admin, ci, co)
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()   # posts the due nights
+    nights = [e for e in folio["entries"] if e["kind"] == "room_night"]
+    assert len(nights) == 3, folio
+    night_total = round(sum(n["amount"] for n in nights), 2)
+
+    mid = admin.get(f"{API}/analytics/revenue", params=window).json()
+    # (a) hotel revenue rose by exactly the room nights; the outlet side did not move.
+    assert round(mid["hotel"]["room_nights"] - before["hotel"]["room_nights"], 2) == night_total
+    assert round(mid["outlets"]["total"] - before["outlets"]["total"], 2) == 0.0
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    # (a) the bar bill did NOT raise hotel revenue, even though it sits on the folio.
+    assert round(after["hotel"]["total"] - mid["hotel"]["total"], 2) == 0.0
+    # (b) outlet revenue rose by exactly the bill, and by one order.
+    assert round(after["outlets"]["total"] - mid["outlets"]["total"], 2) == bill
+    assert after["outlets"]["orders"] - mid["outlets"]["orders"] == 1
+    # (c) the combined total is the sum, with the bill counted once and only once.
+    assert after["total"] == round(after["hotel"]["total"] + after["outlets"]["total"], 2)
+    assert round(after["total"] - before["total"], 2) == round(night_total + bill, 2)
+
+    both = admin.get(f"{API}/analytics/revenue",
+                     params={**window, "domains": "hotel,restaurant,bar"}).json()
+    assert both["total"] == after["total"]
+    assert both["outlets"]["total"] == after["outlets"]["total"]
+    assert both["outlets_combined"] is True
