@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from db import db
-from security import get_current_user, require_roles
+from security import require_access
+from services.access import SHARED
 
 router = APIRouter()
 
@@ -30,12 +31,12 @@ class InventoryAdjustIn(BaseModel):
 
 # ----------------- Inventory -----------------
 @router.get("/inventory")
-async def list_inventory(user: dict = Depends(get_current_user)):
+async def list_inventory(user: dict = Depends(require_access(SHARED))):
     return await db.inventory.find({}, {"_id": 0}).sort("name", 1).to_list(1000)
 
 
 @router.post("/inventory")
-async def create_inventory(payload: InventoryItemIn, user: dict = Depends(require_roles("admin", "manager"))):
+async def create_inventory(payload: InventoryItemIn, user: dict = Depends(require_access(SHARED, "admin", "manager"))):
     item = InventoryItem(**payload.model_dump()).model_dump()
     await db.inventory.insert_one(item)
     item.pop("_id", None)
@@ -43,13 +44,13 @@ async def create_inventory(payload: InventoryItemIn, user: dict = Depends(requir
 
 
 @router.put("/inventory/{item_id}")
-async def update_inventory(item_id: str, payload: InventoryItemIn, user: dict = Depends(require_roles("admin", "manager"))):
+async def update_inventory(item_id: str, payload: InventoryItemIn, user: dict = Depends(require_access(SHARED, "admin", "manager"))):
     await db.inventory.update_one({"id": item_id}, {"$set": payload.model_dump()})
     return await db.inventory.find_one({"id": item_id}, {"_id": 0})
 
 
 @router.post("/inventory/{item_id}/adjust")
-async def adjust_inventory(item_id: str, payload: InventoryAdjustIn, user: dict = Depends(require_roles("admin", "manager", "kitchen"))):
+async def adjust_inventory(item_id: str, payload: InventoryAdjustIn, user: dict = Depends(require_access(SHARED, "admin", "manager", "kitchen"))):
     item = await db.inventory.find_one({"id": item_id}, {"_id": 0})
     if not item:
         raise HTTPException(404, "Item not found")
@@ -59,6 +60,6 @@ async def adjust_inventory(item_id: str, payload: InventoryAdjustIn, user: dict 
 
 
 @router.delete("/inventory/{item_id}")
-async def delete_inventory(item_id: str, user: dict = Depends(require_roles("admin", "manager"))):
+async def delete_inventory(item_id: str, user: dict = Depends(require_access(SHARED, "admin", "manager"))):
     await db.inventory.delete_one({"id": item_id})
     return {"ok": True}

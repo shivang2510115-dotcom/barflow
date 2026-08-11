@@ -3,10 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from db import db
-from security import (
-    verify_password, create_access_token,
-    get_current_user, Role,
-)
+from security import verify_password, create_access_token, require_access, Role
+from services.access import SHARED
 
 router = APIRouter()
 
@@ -56,7 +54,7 @@ async def login(payload: LoginIn):
 
 
 @router.get("/auth/me")
-async def me(user: dict = Depends(get_current_user)):
+async def me(user: dict = Depends(require_access(SHARED))):
     return {
         "id": user["id"],
         "email": user["email"],
