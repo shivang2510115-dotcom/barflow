@@ -19,28 +19,65 @@ import {
   ClipboardList,
   Tags,
   Users,
+  ShieldCheck,
 } from "lucide-react";
 
+const OUTLET = ["restaurant", "bar"];
+
 const NAV = [
+  // Overview carries no domains: it is the landing page every signed-in role gets.
   { to: "/app", label: "Overview", icon: LayoutGrid, roles: ["admin", "manager", "waiter", "kitchen"], end: true },
-  { to: "/app/tables", label: "Tables", icon: Grid3x3, roles: ["admin", "manager", "waiter"] },
-  { to: "/app/reservations", label: "Reservations", icon: CalendarClock, roles: ["admin", "manager", "waiter"] },
-  { to: "/app/pos", label: "POS / Bill", icon: Receipt, roles: ["admin", "manager", "waiter"] },
-  { to: "/app/kot", label: "KOT Board", icon: ChefHat, roles: ["admin", "manager", "kitchen", "waiter"] },
-  { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"] },
-  { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"] },
-  { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"] },
+  { section: "Restaurant", roles: ["admin", "manager", "waiter", "kitchen"] },
+  { to: "/app/tables", label: "Tables", icon: Grid3x3, roles: ["admin", "manager", "waiter"], domains: OUTLET },
+  { to: "/app/reservations", label: "Reservations", icon: CalendarClock, roles: ["admin", "manager", "waiter"], domains: OUTLET },
+  { to: "/app/pos", label: "POS / Bill", icon: Receipt, roles: ["admin", "manager", "waiter"], domains: OUTLET },
+  { to: "/app/kot", label: "KOT Board", icon: ChefHat, roles: ["admin", "manager", "kitchen", "waiter"], domains: OUTLET },
+  { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"], domains: OUTLET },
+  { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"], domains: OUTLET },
+  { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"], domains: OUTLET },
   { section: "Hotel", roles: ["admin", "manager", "front_desk"] },
-  { to: "/app/hotel/front-desk", label: "Front desk", icon: UserCheck, roles: ["admin", "manager", "front_desk"] },
-  { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"] },
-  { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"] },
+  { to: "/app/hotel/front-desk", label: "Front desk", icon: UserCheck, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
+  { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"], domains: ["hotel"] },
+  { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
   // "Bookings" is a path-prefix of "New booking" (/app/hotel/bookings/new starts with
   // /app/hotel/bookings) — exclude that sibling so the two links don't both light up.
-  { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], exclude: ["/app/hotel/bookings/new"] },
-  { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"] },
-  { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"] },
-  { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"] },
+  { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], exclude: ["/app/hotel/bookings/new"] },
+  { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
+  { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"], domains: ["hotel"] },
+  { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
+  { section: "Staff", roles: ["admin"] },
+  { to: "/app/admin/staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
 ];
+
+// A nav item is visible when the user is an admin, or holds any domain the item serves.
+// This mirrors the server's rule rather than inventing a second one — the API is the real
+// boundary, and a mismatch here shows a menu entry that 403s when clicked.
+function visibleFor(item, user) {
+  if (!item.to) return true; // section headings: kept or dropped by dropEmptySections
+  if (user?.role === "admin") return true;
+  if (!item.domains) return true; // unscoped items, e.g. Overview
+  const held = user?.domains || [];
+  return item.domains.some((d) => held.includes(d));
+}
+
+// A heading whose items were all filtered out must not render — a "Hotel" label with
+// nothing under it reads as a bug. A heading survives only if a link follows it before
+// the next heading, i.e. the very next entry is a link.
+function dropEmptySections(list) {
+  return list.filter((item, i) => {
+    if (!item.section) return true;
+    const next = list[i + 1];
+    return Boolean(next) && !next.section;
+  });
+}
+
+// Both renderings below map over this, so the filtering lives here only once.
+export function visibleNavFor(user) {
+  const allowed = NAV.filter(
+    (n) => (!user || n.roles.includes(user.role)) && visibleFor(n, user)
+  );
+  return dropEmptySections(allowed);
+}
 
 function isNavItemActive(item, pathname) {
   const matches = item.end ? pathname === item.to : pathname.startsWith(item.to);
@@ -53,7 +90,7 @@ export default function AppLayout({ children }) {
   const nav = useNavigate();
   const loc = useLocation();
 
-  const items = NAV.filter((n) => !user || n.roles.includes(user.role));
+  const items = visibleNavFor(user);
 
   return (
     <div className="min-h-screen flex bg-stone-950 text-stone-100 relative z-[2]">
