@@ -1,7 +1,8 @@
 """Hotel revenue attribution — pure, no database."""
 import pytest
 
-from services.revenue import entry_revenue_date, hotel_revenue
+from models.folio import ENTRY_KINDS
+from services.revenue import REVENUE_SIGN, entry_revenue_date, hotel_revenue
 
 
 def e(kind, amount, *, id="e1", charge_date=None, posted_at="2026-03-05T10:00:00+00:00",
@@ -99,6 +100,48 @@ def test_an_entry_with_no_usable_date_is_ignored_not_crashed_on():
     r = hotel_revenue([{"id": "x", "kind": "misc_charge", "amount": 100,
                         "posted_at": None}], "2026-03-01", "2026-03-31")
     assert r["total"] == 0.0
+
+
+def test_a_posted_entry_lands_on_the_propertys_local_day_not_the_utc_one():
+    """19:30 UTC is 01:00 the next morning at the property (Asia/Kolkata, UTC+5:30).
+
+    A bar bill or a late charge recorded between 00:00 and 05:29:59 local time has a
+    UTC date of the day before. Slicing the timestamp reports the whole late session on
+    the wrong day, and pushes the first hours of the 1st into last month's figures.
+    """
+    assert entry_revenue_date({"kind": "misc_charge",
+                               "posted_at": "2026-03-05T19:30:00+00:00"}) == "2026-03-06"
+
+    r = hotel_revenue([e("misc_charge", 400, posted_at="2026-03-05T19:30:00+00:00")],
+                      "2026-03-01", "2026-03-31")
+    by = {d["date"]: d["revenue"] for d in r["by_day"]}
+    assert by["2026-03-06"] == 400.0
+    assert by["2026-03-05"] == 0.0
+
+
+def test_a_charge_date_is_a_local_date_and_is_never_shifted():
+    """The counterpart: charge_date is already the calendar night, not an instant.
+    Running it through the timezone conversion as well would move it."""
+    assert entry_revenue_date({"kind": "room_night", "charge_date": "2026-03-05",
+                               "posted_at": "2026-03-08T19:30:00+00:00"}) == "2026-03-05"
+
+
+def test_every_kind_revenue_sign_names_is_a_real_entry_kind():
+    """A typo, or a kind renamed in models/folio.py, would otherwise be worth zero in
+    silence. revenue.py refuses to import at all if this is broken; assert it here too
+    so the reason is named."""
+    assert set(REVENUE_SIGN) <= set(ENTRY_KINDS)
+
+
+def test_the_full_set_of_entry_kinds_is_pinned():
+    """Adding a kind to models/folio.py must fail here until someone decides how it is
+    treated: revenue (add it to REVENUE_SIGN) or not (say so, and update this list).
+    Silently worth zero is not a decision."""
+    assert set(ENTRY_KINDS) == {
+        "room_night", "outlet", "misc_charge", "payment", "refund", "discount", "void",
+    }
+    # And the standing decision for each one that is deliberately not revenue.
+    assert set(ENTRY_KINDS) - set(REVENUE_SIGN) == {"outlet", "payment", "refund", "void"}
 
 
 def test_a_missing_amount_is_treated_as_zero():
