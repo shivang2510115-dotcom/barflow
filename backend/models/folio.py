@@ -4,7 +4,7 @@ The ledger is append-only: there is deliberately no model for updating an entry.
 """
 import uuid
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Literal, Optional, get_args
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,11 @@ FolioStatus = Literal["open", "settled", "closed_unpaid"]
 EntryKind = Literal[
     "room_night", "outlet", "misc_charge", "payment", "refund", "discount", "void"
 ]
+
+# The same set as a plain tuple, so code that has to reason about every kind — notably
+# services.revenue, which decides what each one is worth — can check itself against the
+# one definition instead of keeping a second copy that drifts.
+ENTRY_KINDS: tuple[str, ...] = get_args(EntryKind)
 
 
 def _uuid() -> str:

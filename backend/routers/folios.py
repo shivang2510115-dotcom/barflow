@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from db import db
 from models.folio import ChargeIn, FolioEntry, PaymentIn, VoidIn
 from security import require_access
+from services.clock import today as _today
 from services.folio import direction_for, folio_balance, unposted_nights, void_direction
 
 router = APIRouter()
@@ -17,9 +18,10 @@ router = APIRouter()
 DESK = require_access("hotel", "admin", "manager", "front_desk")
 MANAGER = require_access("hotel", "admin", "manager")
 
-
-def _today() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+# `_today` is the property's local date, not UTC. It decides which room nights are due,
+# and before 05:30 local the UTC date is still yesterday's — so a folio read at 2am would
+# decide tonight's night has not happened yet and the hotel column of that report would
+# read zero. See services/clock.py.
 
 
 async def _entries(folio_id: str) -> list[dict]:
