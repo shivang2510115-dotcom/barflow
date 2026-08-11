@@ -20,6 +20,8 @@ import {
   Tags,
   Users,
   ShieldCheck,
+  LayoutDashboard,
+  TrendingUp,
 } from "lucide-react";
 
 const OUTLET = ["restaurant", "bar"];
@@ -45,8 +47,17 @@ const NAV = [
   { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
   { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"], domains: ["hotel"] },
   { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
-  { section: "Staff", roles: ["admin"] },
+  // Analytics is open to managers as well as admins, so the heading over it has to be
+  // too — otherwise a manager's Analytics link renders with the Staff heading dropped and
+  // appears to belong to the Hotel group above it.
+  { section: "Admin", roles: ["admin", "manager"] },
+  // "Console" is a path-prefix of both admin children, so exclude them: the same reason
+  // "Bookings" excludes "New booking" above.
+  { to: "/app/admin", label: "Console", icon: LayoutDashboard, roles: ["admin"], exclude: ["/app/admin/staff", "/app/admin/analytics"] },
   { to: "/app/admin/staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
+  // No `domains`: analytics spans them, and the server answers whichever ones the caller
+  // holds. A manager with any single domain still has a report to read.
+  { to: "/app/admin/analytics", label: "Analytics", icon: TrendingUp, roles: ["admin", "manager"] },
 ];
 
 // A nav item is visible when the user is an admin, or holds any domain the item serves.
