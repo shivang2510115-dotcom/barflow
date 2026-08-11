@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { TrendingUp, Grid3x3, ShoppingBag, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { OUTLET, heldDomains } from "@/lib/domains";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import AnimatedNumber from "@/components/app/AnimatedNumber";
@@ -57,6 +58,41 @@ export default function Dashboard() {
   }, [canSeeReports]);
 
   if (!canSeeReports) {
+    // This is a landing page, so every link on it has to be one this person can actually
+    // open. /api/tables and /api/orders/kot are require_access(OUTLET, ...): a front desk
+    // user holding only `hotel` gets a 403 on both, and has no Overview nav entry to
+    // escape to, so they would land here on a dead end. The rule below is the server's
+    // own — an admin is never domain-checked, everyone else needs the domain — read from
+    // the same list the API is written against rather than a second one invented here.
+    // Role as well as domain: both have to pass on the server, and they exclude
+    // different people. A kitchen hand holding `restaurant` is refused the floor map by
+    // role; a receptionist holding `hotel` is refused it by domain.
+    const held = heldDomains(user);
+    const inOutlet = held.some((d) => OUTLET.includes(d));
+    const inHotel = held.includes("hotel");
+    const has = (...roles) => roles.includes(user?.role);
+
+    const canTables = inOutlet && has("admin", "manager", "waiter");
+    const canKot = inOutlet && has("admin", "manager", "waiter", "kitchen");
+    const canDesk = inHotel && has("admin", "manager", "front_desk");
+
+    const blurb = () => {
+      if (canTables && canDesk)
+        return "Take a table from the floor map, or pick up today's arrivals at the front desk.";
+      if (canTables) return "Grab a table from the floor map to start a bill.";
+      if (canKot) return "Head to the KOT board — tickets will land there as guests order.";
+      if (canDesk)
+        return "Today's arrivals, departures and in-house guests are on the front desk board.";
+      // Domains are assigned by an admin on the staff screen; an account with none can
+      // reach nothing, so say that plainly rather than offering a link that 403s.
+      return "Nothing is assigned to this account yet — ask an admin to set your work areas on the staff screen.";
+    };
+
+    const primary =
+      "rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-6 py-3 text-xs font-mono uppercase tracking-widest";
+    const secondary =
+      "border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-6 py-3 text-xs font-mono uppercase tracking-widest";
+
     return (
       <div className="p-8 md:p-12">
         <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 mb-3">
@@ -65,18 +101,29 @@ export default function Dashboard() {
         <h1 className="font-display uppercase text-4xl md:text-6xl leading-none tracking-tight">
           Ready for service.
         </h1>
-        <p className="text-stone-400 mt-4 max-w-md">
-          {user?.role === "kitchen"
-            ? "Head to the KOT board — tickets will land there as guests order."
-            : "Grab a table from the floor map to start a bill."}
-        </p>
-        <div className="mt-8 flex gap-3">
-          <Link to="/app/tables" className="rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-6 py-3 text-xs font-mono uppercase tracking-widest">
-            Open Tables
-          </Link>
-          <Link to="/app/kot" className="border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-6 py-3 text-xs font-mono uppercase tracking-widest">
-            KOT Board
-          </Link>
+        <p className="text-stone-400 mt-4 max-w-md">{blurb()}</p>
+        <div className="mt-8 flex gap-3 flex-wrap">
+          {canTables && (
+            <Link to="/app/tables" className={primary}>
+              Open Tables
+            </Link>
+          )}
+          {canKot && (
+            <Link to="/app/kot" className={canTables ? secondary : primary}>
+              KOT Board
+            </Link>
+          )}
+          {canDesk && (
+            <>
+              <Link to="/app/hotel/front-desk" className={canTables || canKot ? secondary : primary}>
+                Front Desk
+              </Link>
+              {/* The front desk board is today; Bookings is the rest of the diary. */}
+              <Link to="/app/hotel/bookings" className={secondary}>
+                Bookings
+              </Link>
+            </>
+          )}
         </div>
       </div>
     );
