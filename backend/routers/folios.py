@@ -9,13 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
 from models.folio import ChargeIn, FolioEntry, PaymentIn, VoidIn
-from security import require_roles
+from security import require_access
 from services.folio import direction_for, folio_balance, unposted_nights, void_direction
 
 router = APIRouter()
 
-DESK = require_roles("admin", "manager", "front_desk")
-MANAGER = require_roles("admin", "manager")
+DESK = require_access("hotel", "admin", "manager", "front_desk")
+MANAGER = require_access("hotel", "admin", "manager")
 
 
 def _today() -> str:

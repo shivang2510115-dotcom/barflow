@@ -5,16 +5,16 @@ from db import db
 from models.hotel import (
     MealPlan, MealPlanIn, Rate, RateIn, RatePeriod, RatePeriodIn, TaxSlab,
 )
-from security import get_current_user, require_roles
+from security import require_access
 
 router = APIRouter()
 
-MANAGE = require_roles("admin", "manager")
+MANAGE = require_access("hotel", "admin", "manager")
 
 
 # --------------------------- meal plans ---------------------------
 @router.get("/meal-plans")
-async def list_meal_plans(user: dict = Depends(get_current_user)):
+async def list_meal_plans(user: dict = Depends(require_access("hotel"))):
     return await db.meal_plans.find({}, {"_id": 0}).to_list(50)
 
 
@@ -36,7 +36,7 @@ async def update_meal_plan(plan_id: str, payload: MealPlanIn, user: dict = Depen
 
 # -------------------------- rate periods --------------------------
 @router.get("/rate-periods")
-async def list_rate_periods(user: dict = Depends(get_current_user)):
+async def list_rate_periods(user: dict = Depends(require_access("hotel"))):
     return await db.rate_periods.find({}, {"_id": 0}).to_list(200)
 
 
@@ -83,7 +83,7 @@ async def delete_rate_period(period_id: str, user: dict = Depends(MANAGE)):
 
 # ------------------------------ rates -----------------------------
 @router.get("/rates")
-async def list_rates(user: dict = Depends(get_current_user)):
+async def list_rates(user: dict = Depends(require_access("hotel"))):
     return await db.rates.find({}, {"_id": 0}).to_list(500)
 
 
@@ -117,7 +117,7 @@ async def delete_rate(rate_id: str, user: dict = Depends(MANAGE)):
 
 # ---------------------------- tax slabs ---------------------------
 @router.get("/tax-slabs")
-async def list_tax_slabs(user: dict = Depends(get_current_user)):
+async def list_tax_slabs(user: dict = Depends(require_access("hotel"))):
     return await db.tax_slabs.find({}, {"_id": 0}).to_list(20)
 
 

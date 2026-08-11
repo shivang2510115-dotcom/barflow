@@ -5,14 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
 from models.folio import CheckInIn, CheckOutIn, Folio
-from security import require_roles
+from security import require_access
 
 router = APIRouter()
 
-DESK = require_roles("admin", "manager", "front_desk")
+DESK = require_access("hotel", "admin", "manager", "front_desk")
 # A waiter needs to find the in-house guest to charge at the POS, and nothing more:
 # not the front-desk board, not check-in, not check-out.
-IN_HOUSE_LOOKUP = require_roles("admin", "manager", "front_desk", "waiter")
+IN_HOUSE_LOOKUP = require_access("hotel", "admin", "manager", "front_desk", "waiter")
 
 
 def _today() -> str:
