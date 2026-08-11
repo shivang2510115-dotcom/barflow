@@ -320,7 +320,7 @@ export default function Reports() {
                   tick={{ fill: AXIS, fontSize: 11 }}
                   stroke={GRID}
                 />
-                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `$${v}`} width={56} />
+                <YAxis tick={{ fill: AXIS, fontSize: 11 }} stroke={GRID} tickFormatter={(v) => `₹${v}`} width={56} />
                 <Tooltip content={<ChartTooltip granularity={range.granularity} />} />
                 <Area type="monotone" dataKey="revenue" name="Revenue" stroke={ORANGE} strokeWidth={2} fill="url(#rev)" />
               </AreaChart>
