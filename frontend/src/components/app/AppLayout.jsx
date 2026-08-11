@@ -24,7 +24,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-const OUTLET = ["restaurant", "bar"];
+import { OUTLET } from "@/lib/domains";
 
 const NAV = [
   // Overview carries no domains: it is the landing page every signed-in role gets.
@@ -34,7 +34,6 @@ const NAV = [
   { to: "/app/reservations", label: "Reservations", icon: CalendarClock, roles: ["admin", "manager", "waiter"], domains: OUTLET },
   { to: "/app/pos", label: "POS / Bill", icon: Receipt, roles: ["admin", "manager", "waiter"], domains: OUTLET },
   { to: "/app/kot", label: "KOT Board", icon: ChefHat, roles: ["admin", "manager", "kitchen", "waiter"], domains: OUTLET },
-  { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"], domains: OUTLET },
   { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"], domains: OUTLET },
   { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"], domains: OUTLET },
   { section: "Hotel", roles: ["admin", "manager", "front_desk"] },
@@ -46,7 +45,19 @@ const NAV = [
   { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], exclude: ["/app/hotel/bookings/new"] },
   { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
   { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"], domains: ["hotel"] },
-  { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
+  // Endpoints the server declares SHARED, so they carry no `domains` here either — the
+  // nav must not hide a route that answers the caller 200. They get a heading of their
+  // own rather than sitting under Restaurant or Hotel, because a shared item filed under
+  // a domain heading is what produced the bug: "Guests" under Hotel read as hotel-only
+  // and was tagged that way, and Inventory under Restaurant would leave a hotel-only
+  // manager staring at a "Restaurant" heading with one unrelated link beneath it.
+  { section: "Property", roles: ["admin", "manager", "front_desk", "kitchen"] },
+  // guests.py declares SHARED: a bar regular and a hotel guest are the same person, and
+  // splitting the records by domain would stop the desk seeing an arrival's bar history.
+  { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"] },
+  // inventory.py declares SHARED too — one store room supplies the kitchen, the bar and
+  // housekeeping.
+  { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"] },
   // Analytics is open to managers as well as admins, so the heading over it has to be
   // too — otherwise a manager's Analytics link renders with the Staff heading dropped and
   // appears to belong to the Hotel group above it.

@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { DOMAINS } from "@/lib/domains";
 
 const ROLES = ["admin", "manager", "front_desk", "waiter", "kitchen"];
-const DOMAINS = ["hotel", "restaurant", "bar"];
 
 const BLANK = {
   name: "",

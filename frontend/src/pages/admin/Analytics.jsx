@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { DOMAINS, DOMAIN_LABELS, heldDomains } from "@/lib/domains";
 import {
   ResponsiveContainer,
   BarChart,
@@ -12,8 +13,10 @@ import {
   Tooltip,
 } from "recharts";
 
-const DOMAIN_ORDER = ["hotel", "restaurant", "bar"];
-const DOMAIN_LABELS = { hotel: "Hotel", restaurant: "Restaurant", bar: "Bar" };
+// One copy of the vocabulary, shared with the nav and the staff screen. DOMAINS is
+// already in display order, so it doubles as the order the tick-boxes and the picked
+// list come out in.
+const DOMAIN_ORDER = DOMAINS;
 
 // Same palette Reports.jsx draws its charts with, so the two revenue screens read as one
 // product: orange for the accented series, stone for the grid and axes.
@@ -45,15 +48,9 @@ function ChartTooltip({ active, payload, label }) {
   );
 }
 
-// Only offer what the signed-in person actually holds. Asking for a domain you do not
-// hold is a 403, not a narrowed answer, so a tick-box for it could only ever produce an
-// error toast. An admin is never domain-checked and holds all three.
-function heldDomains(user) {
-  if (!user) return [];
-  if (user.role === "admin") return [...DOMAIN_ORDER];
-  const held = user.domains || [];
-  return DOMAIN_ORDER.filter((d) => held.includes(d));
-}
+// `heldDomains` comes from lib/domains: only offer what the signed-in person actually
+// holds, because asking for a domain you do not hold is a 403, not a narrowed answer, so
+// a tick-box for it could only ever produce an error toast.
 
 const label = (d) => DOMAIN_LABELS[d] || d;
 
