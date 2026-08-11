@@ -63,18 +63,12 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def require_roles(*roles: str):
-    async def checker(user: dict = Depends(get_current_user)):
-        if user["role"] not in roles:
-            raise HTTPException(status_code=403, detail="Forbidden")
-        return user
-    return checker
-
-
 def require_access(domains: str | tuple[str, ...], *roles: str):
     """Dependency: the caller must be active, hold one of `roles`, and hold a domain.
 
-    Replaces require_roles. Declaring the domain at each call site keeps authorization
+    The only authorization dependency. `require_roles` — role-only, no domain — is gone
+    rather than deprecated: leaving both in place means the next endpoint gets written
+    with the weaker one. Declaring the domain at each call site keeps authorization
     greppable — you can read any route and see exactly who reaches it. Inferring it from
     the router or the URL would make a misfiled endpoint silently inherit the wrong
     permission.

@@ -1341,3 +1341,34 @@ def test_admin_resets_a_password(admin):
                     json={"email": email, "password": "oldpass123"}).status_code == 401
     assert _rq.post(f"{API}/auth/login",
                     json={"email": email, "password": "newpass456"}).status_code == 200
+
+
+# ------------------------ work domains on every endpoint ------------------------
+def test_hotel_front_desk_is_refused_restaurant_writes(admin):
+    email = f"fd-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "fd12345678", "front_desk", ["hotel"])
+    assert s.get(f"{API}/folios").status_code == 200
+    assert s.post(f"{API}/menu", json={
+        "name": "Nope", "category": "Cocktails", "price": 100,
+        "station": "bar", "description": ""}).status_code == 403
+
+
+def test_bar_only_waiter_reaches_the_order_screens(admin):
+    # The order endpoints are declared ("restaurant", "bar"); declaring them restaurant
+    # alone would lock a bar-only waiter out of the POS.
+    email = f"bar-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "bar12345678", "waiter", ["bar"])
+    assert s.get(f"{API}/tables").status_code == 200
+    assert s.get(f"{API}/orders/kot").status_code == 200
+
+
+def test_shared_endpoints_reachable_from_any_domain(admin):
+    email = f"sh-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "sh12345678", "manager", ["bar"])
+    assert s.get(f"{API}/guests").status_code == 200
+    assert s.get(f"{API}/inventory").status_code == 200
+
+
+def test_admin_still_reaches_everything(admin):
+    for path in ("/bookings", "/tables", "/guests", "/inventory", "/folios", "/staff"):
+        assert admin.get(f"{API}{path}").status_code == 200, path
