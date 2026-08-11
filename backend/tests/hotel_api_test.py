@@ -1738,3 +1738,60 @@ def test_a_bar_bill_charged_to_a_room_is_outlet_revenue_and_not_hotel_revenue(ad
     assert both["total"] == after["total"]
     assert both["outlets"]["total"] == after["outlets"]["total"]
     assert both["outlets"]["covers"] == ["restaurant", "bar"]
+
+
+def test_analytics_posts_due_nights_for_an_open_folio_nobody_has_opened(admin):
+    """Hotel revenue must include the guests currently in the building.
+
+    Room nights post lazily — `post_due_nights` writes them, and until this fix only
+    GET /folios/{id} and check-out ever called it. So a stay whose nights were due but
+    whose folio nobody had opened contributed ₹0 to this report, and then gained that
+    money *retroactively*, on the nights it covered, the moment a receptionist happened
+    to open the folio: the same range, queried twice a day apart, gave two different
+    answers with nothing to explain the change.
+
+    The folio is deliberately never fetched here. Every other analytics test in this file
+    reads it first, with a `# posts the due nights` comment — which is precisely the
+    dependency this test exists to remove.
+    """
+    ci, co = "2024-02-05", "2024-02-08"
+    window = {"domains": "hotel", "start": ci, "end": "2024-02-07"}
+
+    # Taken before the stay exists, and it settles any nights left open by an earlier run
+    # of this suite — so the delta below is this stay's nights and nothing else.
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+
+    s = _checked_in(admin, ci, co)
+    # What the nights are worth, read off the booking's own quote snapshot rather than
+    # off the folio: the whole point is that nothing opens the folio.
+    quoted = {n["date"]: round(float(n["tariff"]) + float(n["gst_amount"]), 2)
+              for n in s["booking"]["quote"]["nights"]}
+    assert sorted(quoted) == ["2024-02-05", "2024-02-06", "2024-02-07"], quoted
+    night_total = round(sum(quoted.values()), 2)
+    assert night_total > 0
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert round(after["hotel"]["room_nights"] - before["hotel"]["room_nights"], 2) == \
+        night_total, "the stay's nights were missing from hotel revenue"
+
+    # And on the right days: each night lands on the night it covers, not on today.
+    was = {d["date"]: d["hotel"] for d in before["by_day"]}
+    now = {d["date"]: d["hotel"] for d in after["by_day"]}
+    for night, amount in quoted.items():
+        assert round(now[night] - was[night], 2) == amount, night
+
+    # Idempotent under this new caller: a second report posts nothing, so the figure does
+    # not creep upwards every time somebody looks at it.
+    again = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert again["hotel"]["room_nights"] == after["hotel"]["room_nights"]
+    assert again["hotel"]["total"] == after["hotel"]["total"]
+    assert again["by_day"] == after["by_day"]
+
+    # Opening the folio afterwards still shows exactly those nights and adds nothing —
+    # the ledger the report read is the same one the desk sees.
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    nights = {e["charge_date"]: e["amount"]
+              for e in folio["entries"] if e["kind"] == "room_night"}
+    assert nights == quoted, nights
+    third = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert third["hotel"]["room_nights"] == after["hotel"]["room_nights"]

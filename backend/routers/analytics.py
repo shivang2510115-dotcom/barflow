@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import db
+from routers.folios import post_due_nights
 from security import require_access
 from services.access import DOMAINS, OUTLET
 from services.clock import local_date
@@ -69,6 +70,28 @@ def _timestamp_bounds(start: str, end: str) -> tuple[str, str]:
     # the day before it, and ISO-8601 strings compare in chronological order.
     hi = (date.fromisoformat(end) + _TZ_SLACK + timedelta(days=1)).isoformat()
     return lo, hi
+
+
+async def _post_due_nights_for_open_folios() -> int:
+    """Bring every open folio's room nights up to date, and report how many were posted.
+
+    Room nights are posted lazily: `post_due_nights` writes them, and nothing schedules
+    it — a guest who checked in on the 14th for three nights contributes nothing to the
+    ledger until somebody opens their folio. Reading `db.folio_entries` without this
+    first means hotel revenue omits every stay currently in the building, and the nights
+    appear *retroactively* on their own dates whenever the folio is next read, so the
+    same range queried twice a day apart gives two different answers.
+
+    Idempotent, because `post_due_nights` filters the due nights through
+    `services/folio.py::unposted_nights` against what is already on the folio — a second
+    call in the same second posts nothing. Only open folios are considered; a closed one
+    already had its nights posted at check-out and `post_due_nights` refuses it anyway.
+    """
+    folios = await db.folios.find({"status": "open"}, {"_id": 0}).to_list(MAX_ROWS)
+    posted = 0
+    for folio in folios:
+        posted += await post_due_nights(folio["id"])
+    return posted
 
 
 async def _hotel_entries(start: str, end: str) -> list[dict]:
@@ -153,6 +176,17 @@ async def revenue(
 
     hotel = None
     if "hotel" in picked:
+        # DELIBERATE: this read endpoint writes. Room nights only exist on the ledger
+        # once `post_due_nights` has posted them, and nothing schedules that — so a
+        # report that just read `folio_entries` would show ₹0 for every guest currently
+        # in the building, then show their nights retroactively on those same dates the
+        # moment somebody happened to open the folio. GET /folios/{id} already posts on
+        # read for exactly this reason; this is the same act, for the same reason, on
+        # behalf of a caller who is not going to open every folio first.
+        #
+        # Only when the hotel domain is actually selected: an outlets-only report has no
+        # business touching the guest ledger. Safe to repeat — see the helper's docstring.
+        await _post_due_nights_for_open_folios()
         hotel = hotel_revenue(await _hotel_entries(start, end), start, end)
 
     # This property's bar and restaurant share one POS and one set of orders. Selecting
