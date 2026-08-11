@@ -80,6 +80,21 @@ async def _count_active_admins() -> int:
     return sum(1 for a in admins if a.get("active", True))
 
 
+def _stored_domains(role: str, domains: List[str]) -> List[str]:
+    """The domain list to persist for this role, de-duplicated.
+
+    An admin is never domain-checked, so an empty list costs them nothing today — but it
+    is the state the startup backfill exists to repair, and it makes a later demotion to
+    manager silently produce an account that can reach nothing. Storing the full list
+    means the row already says what the admin can actually do, and there is no longer any
+    route that writes an empty `domains`.
+    """
+    picked = list(dict.fromkeys(domains))
+    if role == "admin" and not picked:
+        return list(DOMAINS)
+    return picked
+
+
 @router.get("/staff")
 async def list_staff(user: dict = Depends(ADMIN)):
     users = await db.users.find({}, {"_id": 0}).to_list(10000)
@@ -103,7 +118,7 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
         "name": payload.name.strip(),
         "email": email,
         "role": payload.role,
-        "domains": list(dict.fromkeys(payload.domains)),
+        "domains": _stored_domains(payload.role, payload.domains),
         "active": True,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -125,25 +140,49 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
     if not target:
         raise HTTPException(404, "Staff member not found")
 
-    # Without this, one edit locks the owner out of their own system with no recovery
-    # short of editing the database by hand.
-    #
-    # This guard is also what upholds "the property always has at least one active
-    # admin". Only an admin reaches this route, and this line stops them targeting
-    # themselves — so a demotion can only ever remove *another* admin, and the actor
-    # remains an active admin afterwards. A separate last-admin count would be dead
-    # code: the caller is always in it, so it could never reach zero.
-    if staff_id == user.get("id"):
-        raise HTTPException(409, "You cannot change your own role or domains")
-
     if payload.role != "admin" and not payload.domains:
         raise HTTPException(400, "A non-admin needs at least one work domain")
+
+    domains = _stored_domains(payload.role, payload.domains)
+
+    # Editing your own *permissions* is refused — without this, one edit locks the owner
+    # out of their own system with no recovery short of editing the database by hand.
+    # Your own name is not a permission, though: a sole admin with a typo in their name
+    # had no way to fix it while this guard covered the whole payload. So the guard is
+    # on the fields that decide access, and the message names the one that was refused
+    # rather than reciting both.
+    if staff_id == user.get("id"):
+        blocked = []
+        if payload.role != target.get("role"):
+            blocked.append("role")
+        if domains != list(target.get("domains") or []):
+            blocked.append("domains")
+        if blocked:
+            raise HTTPException(409, f"You cannot change your own {' or '.join(blocked)}")
+
+    previous = {"name": target.get("name"), "role": target.get("role"),
+                "domains": list(target.get("domains") or [])}
 
     await db.users.update_one({"id": staff_id}, {"$set": {
         "name": payload.name.strip(),
         "role": payload.role,
-        "domains": list(dict.fromkeys(payload.domains)),
+        "domains": domains,
     }})
+
+    # The same compensating check `set_active` makes below, for the other way to reach
+    # zero admins. The self-guard above is enough sequentially — a demotion can only
+    # target somebody else, so the actor is still an active admin afterwards — but it is
+    # not enough concurrently: admin A demotes B while B demotes A, both pass the
+    # self-guard because each is looking at the other, both writes land, and no admin is
+    # left. /api/staff requires admin, so nothing short of editing the database by hand
+    # restores it. Re-counting after the write and putting the row back narrows that
+    # window rather than closing it — there are no transactions here — which is exactly
+    # what the deactivation path settles for, and for the same reason.
+    if previous["role"] == "admin" and payload.role != "admin" \
+            and await _count_active_admins() == 0:
+        await db.users.update_one({"id": staff_id}, {"$set": previous})
+        raise HTTPException(409, "This would leave the property with no active admin")
+
     return _public(await db.users.find_one({"id": staff_id}, {"_id": 0}))
 
 

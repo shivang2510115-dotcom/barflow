@@ -1795,3 +1795,51 @@ def test_analytics_posts_due_nights_for_an_open_folio_nobody_has_opened(admin):
     assert nights == quoted, nights
     third = admin.get(f"{API}/analytics/revenue", params=window).json()
     assert third["hotel"]["room_nights"] == after["hotel"]["room_nights"]
+
+
+def test_an_admin_created_with_no_domains_is_given_all_of_them(admin):
+    """`{"role": "admin", "domains": []}` used to be stored as written. Harmless while
+    the account stays an admin — admins are never domain-checked — but it is the state
+    the startup backfill exists to repair, and a later demotion to manager turned it into
+    an account that could reach nothing."""
+    email = f"alldom-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Domainless Admin", "email": email, "password": "admin12345",
+        "role": "admin", "domains": []})
+    assert r.status_code == 200, r.text
+    assert set(r.json()["domains"]) == {"hotel", "restaurant", "bar"}, r.text
+
+    # And it survives the round trip, so the roster does not have to special-case it.
+    listed = next(u for u in admin.get(f"{API}/staff").json() if u["email"] == email)
+    assert set(listed["domains"]) == {"hotel", "restaurant", "bar"}
+
+
+def test_you_can_rename_yourself_but_not_change_your_own_role_or_domains(admin):
+    """The self-guard exists to stop someone editing away their own access. A typo in
+    your own name is not that, and a sole admin had no way to fix one."""
+    email = f"rename-{uuid.uuid4().hex[:6]}@barflow.io"
+    me = _staff_session(admin, email, "rename12345", "admin", ["hotel", "restaurant", "bar"])
+    my = me.get(f"{API}/auth/me").json()
+
+    renamed = me.put(f"{API}/staff/{my['id']}", json={
+        "name": "Correctly Spelled", "role": my["role"], "domains": my["domains"]})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Correctly Spelled"
+    assert me.get(f"{API}/auth/me").json()["name"] == "Correctly Spelled"
+
+    # Role and domains are still refused, and the 409 says which field was the problem
+    # rather than reciting both.
+    role = me.put(f"{API}/staff/{my['id']}", json={
+        "name": "Correctly Spelled", "role": "manager", "domains": my["domains"]})
+    assert role.status_code == 409, role.text
+    assert "role" in role.json()["detail"] and "domains" not in role.json()["detail"]
+
+    doms = me.put(f"{API}/staff/{my['id']}", json={
+        "name": "Correctly Spelled", "role": my["role"], "domains": ["hotel"]})
+    assert doms.status_code == 409, doms.text
+    assert "domains" in doms.json()["detail"] and "role" not in doms.json()["detail"]
+
+    # Nothing was written by either refusal.
+    still = me.get(f"{API}/auth/me").json()
+    assert still["role"] == "admin"
+    assert set(still["domains"]) == set(my["domains"])
