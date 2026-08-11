@@ -6,13 +6,23 @@ from fastapi import APIRouter, Depends, HTTPException
 from db import db
 from models.folio import CheckInIn, CheckOutIn, Folio
 from security import require_access
+from services.access import SHARED
 
 router = APIRouter()
 
 DESK = require_access("hotel", "admin", "manager", "front_desk")
 # A waiter needs to find the in-house guest to charge at the POS, and nothing more:
 # not the front-desk board, not check-in, not check-out.
-IN_HOUSE_LOOKUP = require_access("hotel", "admin", "manager", "front_desk", "waiter")
+#
+# Declared shared, not hotel: an outlet waiter's domains are ["bar"] or ["restaurant"],
+# never "hotel", so a hotel-only declaration 403s the very caller the waiter role was
+# put on this list for — the POS asks for /in-house the moment payment method "room" is
+# chosen, finds no folio, and a bar bill can no longer be charged to a room. Widening
+# the domain leaks nothing, because every guest here goes through _pos_guest, which
+# projects down to id, name and phone for all callers alike: no id_proof_number, no
+# address, email or notes reach any caller of this route. Same reasoning that puts
+# guest records on shared — a bar regular and a hotel guest are the same person.
+IN_HOUSE_LOOKUP = require_access(SHARED, "admin", "manager", "front_desk", "waiter")
 
 
 def _today() -> str:
