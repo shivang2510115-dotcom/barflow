@@ -8,13 +8,9 @@ from pydantic import BaseModel, Field
 
 from db import db
 from security import require_access
+from services.access import OUTLET
 
 router = APIRouter()
-
-# This property's restaurant and bar share the order, menu, table and reservation
-# screens, so these endpoints declare both domains: holding either one grants access.
-# Declaring "restaurant" alone would lock a bar-only waiter out of the POS.
-OUTLET = ("restaurant", "bar")
 
 
 class TableIn(BaseModel):

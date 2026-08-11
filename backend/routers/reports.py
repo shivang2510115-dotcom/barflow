@@ -10,14 +10,13 @@ from pydantic import BaseModel
 
 from db import db
 from security import require_access
+# Outlet sales analytics cover both the restaurant and the bar, so either domain grants
+# access. The hotel revenue report is a later sub-project and will declare "hotel".
+from services.access import OUTLET
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Outlet sales analytics, covering both the restaurant and the bar, so either domain
-# grants access. The hotel revenue report is a later sub-project and will declare "hotel".
-OUTLET = ("restaurant", "bar")
 
 
 # ----------------- Reports -----------------

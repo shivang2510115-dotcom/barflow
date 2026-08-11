@@ -15,6 +15,11 @@ DOMAINS = ("hotel", "restaurant", "bar")
 # seeing an arrival's bar history — which is the product's whole claim.
 SHARED = "shared"
 
+# This property's restaurant and bar share the order, menu, table and reservation
+# screens, so those endpoints declare both domains: holding either one grants access.
+# Declaring "restaurant" alone would lock a bar-only waiter out of the POS.
+OUTLET = ("restaurant", "bar")
+
 
 class AccessError(Exception):
     """Raised when an access rule is configured with something meaningless."""
