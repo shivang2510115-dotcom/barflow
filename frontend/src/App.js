@@ -29,6 +29,7 @@ import FrontDesk from "@/pages/hotel/FrontDesk";
 import Calendar from "@/pages/hotel/Calendar";
 import Rates from "@/pages/hotel/Rates";
 import Guests from "@/pages/hotel/Guests";
+import Staff from "@/pages/admin/Staff";
 import CustomerMenu from "@/pages/CustomerMenu";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
@@ -70,6 +71,7 @@ function AppShell() {
         <Route path="/hotel/calendar" element={<Protected roles={["admin", "manager", "front_desk"]}><Calendar /></Protected>} />
         <Route path="/hotel/rates" element={<Protected roles={["admin", "manager"]}><Rates /></Protected>} />
         <Route path="/hotel/guests" element={<Protected roles={["admin", "manager", "front_desk"]}><Guests /></Protected>} />
+        <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />
       </Routes>
     </AppLayout>
   );
