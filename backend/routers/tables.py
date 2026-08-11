@@ -7,9 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from db import db
-from security import get_current_user, require_roles
+from security import require_access
 
 router = APIRouter()
+
+# This property's restaurant and bar share the order, menu, table and reservation
+# screens, so these endpoints declare both domains: holding either one grants access.
+# Declaring "restaurant" alone would lock a bar-only waiter out of the POS.
+OUTLET = ("restaurant", "bar")
 
 
 class TableIn(BaseModel):
@@ -59,7 +64,7 @@ class Reservation(BaseModel):
 
 # ----------------- Tables -----------------
 @router.get("/tables")
-async def list_tables(user: dict = Depends(get_current_user)):
+async def list_tables(user: dict = Depends(require_access(OUTLET))):
     return await db.tables.find({}, {"_id": 0}).sort("label", 1).to_list(500)
 
 
@@ -72,7 +77,7 @@ async def get_table_public(table_id: str):
 
 
 @router.post("/tables")
-async def create_table(payload: TableIn, user: dict = Depends(require_roles("admin", "manager"))):
+async def create_table(payload: TableIn, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     t = Table(**payload.model_dump()).model_dump()
     await db.tables.insert_one(t)
     t.pop("_id", None)
@@ -80,14 +85,14 @@ async def create_table(payload: TableIn, user: dict = Depends(require_roles("adm
 
 
 @router.delete("/tables/{table_id}")
-async def delete_table(table_id: str, user: dict = Depends(require_roles("admin", "manager"))):
+async def delete_table(table_id: str, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     await db.tables.delete_one({"id": table_id})
     return {"ok": True}
 
 
 # ----------------- Reservations -----------------
 @router.get("/reservations")
-async def list_reservations(date: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_reservations(date: Optional[str] = None, user: dict = Depends(require_access(OUTLET))):
     query = {"date": date} if date else {}
     return await db.reservations.find(query, {"_id": 0}).sort("time", 1).to_list(500)
 
@@ -95,7 +100,7 @@ async def list_reservations(date: Optional[str] = None, user: dict = Depends(get
 @router.post("/reservations")
 async def create_reservation(
     payload: ReservationIn,
-    user: dict = Depends(require_roles("admin", "manager", "waiter")),
+    user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter")),
 ):
     data = payload.model_dump()
     hold = data.pop("hold_table", False)
@@ -117,7 +122,7 @@ async def create_reservation(
 async def set_reservation_status(
     reservation_id: str,
     payload: StatusIn,
-    user: dict = Depends(require_roles("admin", "manager", "waiter")),
+    user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter")),
 ):
     res = await db.reservations.find_one({"id": reservation_id}, {"_id": 0})
     if not res:
@@ -141,7 +146,7 @@ async def set_reservation_status(
 @router.delete("/reservations/{reservation_id}")
 async def delete_reservation(
     reservation_id: str,
-    user: dict = Depends(require_roles("admin", "manager")),
+    user: dict = Depends(require_access(OUTLET, "admin", "manager")),
 ):
     res = await db.reservations.find_one({"id": reservation_id}, {"_id": 0})
     if res and res.get("table_id"):

@@ -7,11 +7,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from db import db
-from security import get_current_user, require_roles
+from security import require_access
 from models.folio import FolioEntry
 from services.folio import direction_for, folio_balance
 
 router = APIRouter()
+
+# This property's restaurant and bar share the order, menu, table and reservation
+# screens, so these endpoints declare both domains: holding either one grants access.
+# Declaring "restaurant" alone would lock a bar-only waiter out of the POS.
+OUTLET = ("restaurant", "bar")
 
 
 class OrderItemIn(BaseModel):
@@ -124,7 +129,7 @@ async def current_order(table_id: str):
 
 
 @router.get("/orders/kot")
-async def list_kot(user: dict = Depends(get_current_user)):
+async def list_kot(user: dict = Depends(require_access(OUTLET))):
     """All pending/preparing items across open orders."""
     open_orders = await db.orders.find({"status": "open"}, {"_id": 0}).to_list(500)
     tickets = []
@@ -145,7 +150,7 @@ class UpdateItemStatusIn(BaseModel):
 
 
 @router.put("/orders/{order_id}/items/{item_id}/status")
-async def update_item_status(order_id: str, item_id: str, payload: UpdateItemStatusIn, user: dict = Depends(get_current_user)):
+async def update_item_status(order_id: str, item_id: str, payload: UpdateItemStatusIn, user: dict = Depends(require_access(OUTLET))):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -161,7 +166,7 @@ async def update_item_status(order_id: str, item_id: str, payload: UpdateItemSta
 
 
 @router.get("/orders/{order_id}")
-async def get_order(order_id: str, user: dict = Depends(get_current_user)):
+async def get_order(order_id: str, user: dict = Depends(require_access(OUTLET))):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -169,7 +174,7 @@ async def get_order(order_id: str, user: dict = Depends(get_current_user)):
 
 
 @router.post("/orders/{order_id}/settle")
-async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(require_roles("admin", "manager", "waiter"))):
+async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter"))):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -214,7 +219,7 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(re
 
 
 @router.delete("/orders/{order_id}/items/{item_id}")
-async def remove_item(order_id: str, item_id: str, user: dict = Depends(require_roles("admin", "manager", "waiter"))):
+async def remove_item(order_id: str, item_id: str, user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter"))):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")

@@ -9,16 +9,20 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from db import db
-from security import require_roles
+from security import require_access
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Outlet sales analytics, covering both the restaurant and the bar, so either domain
+# grants access. The hotel revenue report is a later sub-project and will declare "hotel".
+OUTLET = ("restaurant", "bar")
+
 
 # ----------------- Reports -----------------
 @router.get("/reports/summary")
-async def report_summary(user: dict = Depends(require_roles("admin", "manager"))):
+async def report_summary(user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     settled = await db.orders.find({"status": "settled"}, {"_id": 0}).to_list(2000)
     today_orders = [o for o in settled if o.get("settled_at", "") >= today]
@@ -58,7 +62,7 @@ async def report_summary(user: dict = Depends(require_roles("admin", "manager"))
 
 
 @router.get("/reports/orders")
-async def recent_orders(user: dict = Depends(require_roles("admin", "manager"))):
+async def recent_orders(user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     return await db.orders.find({"status": "settled"}, {"_id": 0}).sort("settled_at", -1).limit(50).to_list(50)
 
 
@@ -67,7 +71,7 @@ async def report_analytics(
     start: Optional[str] = None,
     end: Optional[str] = None,
     granularity: str = "day",
-    user: dict = Depends(require_roles("admin", "manager")),
+    user: dict = Depends(require_access(OUTLET, "admin", "manager")),
 ):
     """Sales analytics for a date range (inclusive, by settled_at date).
 
@@ -271,7 +275,7 @@ def _send_whatsapp(to: str, text: str) -> dict:
 
 
 @router.get("/reports/daily-brief")
-async def daily_brief(date: Optional[str] = None, user: dict = Depends(require_roles("admin", "manager"))):
+async def daily_brief(date: Optional[str] = None, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     return await build_daily_brief(date)
 
 
@@ -281,7 +285,7 @@ class BriefSendIn(BaseModel):
 
 
 @router.post("/reports/daily-brief/send")
-async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(require_roles("admin", "manager"))):
+async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     brief = await build_daily_brief(payload.date)
     to = (payload.to or os.environ.get("OWNER_PHONE") or "").strip()
     result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, brief["message"])
