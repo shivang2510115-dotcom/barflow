@@ -7,6 +7,7 @@ from db import db
 from models.folio import CheckInIn, CheckOutIn, Folio
 from security import require_access
 from services.access import SHARED
+from services.clock import today
 
 router = APIRouter()
 
@@ -29,17 +30,24 @@ IN_HOUSE_LOOKUP = require_access(SHARED, "admin", "manager", "front_desk", "wait
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    """The property's today, not the server's.
+
+    Booking dates are plain local calendar dates, so comparing them against a UTC
+    date shows the wrong board between midnight and 05:30 IST: the desk would see
+    yesterday's arrivals during the night shift, which is exactly when someone is
+    checking in a late flight.
+    """
+    return today()
 
 
 @router.get("/front-desk")
 async def front_desk(user: dict = Depends(DESK)):
-    today = _today()
+    day = _today()
     arrivals = await db.bookings.find(
-        {"check_in": today, "status": {"$in": ["tentative", "confirmed"]}}, {"_id": 0}
+        {"check_in": day, "status": {"$in": ["tentative", "confirmed"]}}, {"_id": 0}
     ).to_list(500)
     departures = await db.bookings.find(
-        {"check_out": today, "status": "checked_in"}, {"_id": 0}).to_list(500)
+        {"check_out": day, "status": "checked_in"}, {"_id": 0}).to_list(500)
     in_house_rows = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(500)
 
     guests = {g["id"]: g for g in await db.guests.find({}, {"_id": 0}).to_list(5000)}
@@ -50,7 +58,7 @@ async def front_desk(user: dict = Depends(DESK)):
                 "room": rooms.get(b.get("assigned_room_id"))} for b in rows]
         return sorted(out, key=lambda b: b["check_in"])
 
-    return {"date": today,
+    return {"date": day,
             "arrivals": decorate(arrivals),
             "departures": decorate(departures),
             "in_house": decorate(in_house_rows)}
