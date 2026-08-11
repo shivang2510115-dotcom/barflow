@@ -1437,9 +1437,25 @@ def test_admin_still_reaches_everything(admin):
 
 
 # ------------------------- Task 10: combined revenue analytics -------------------------
-# A fixed window shared by the structural tests below. Nothing here asserts an absolute
-# figure inside it, so leftovers from a previous run against the same db.json are fine.
+# A fixed window shared by the *structural* tests below — the ones asserting status
+# codes, domain lists and the shape of by_day. Nothing here asserts an absolute figure
+# inside it, so leftovers from a previous run against the same db.json are fine, and it
+# is deliberately empty of money. Any test asserting a number must create that number
+# inside its own window instead: see the tests further down that do.
 ANALYTICS_WINDOW = {"start": "2026-03-01", "end": "2026-03-31"}
+
+
+def _property_today() -> date:
+    """Today's date at the property.
+
+    The server dates money by the property's local calendar day, not by UTC and not by
+    whatever timezone this machine happens to sit in (services/clock.py). A test that
+    mixes its own `date.today()` into an assertion about posted room nights is flaky by
+    time of day — on a UTC machine the two disagree for the first 5½ hours of every
+    local day.
+    """
+    from services.clock import today as _today
+    return date.fromisoformat(_today())
 
 
 def test_analytics_rejects_a_domain_the_user_does_not_hold(admin):
@@ -1466,7 +1482,9 @@ def test_analytics_default_for_a_narrower_user_is_only_their_own_domains(admin):
     assert body["domains"] == ["restaurant"]
     assert body["hotel"] is None
     assert body["outlets"] is not None
-    assert body["outlets_combined"] is False
+    # The figure spans both outlets whichever one you asked for — one till, one set of
+    # orders — and says so.
+    assert body["outlets"]["covers"] == ["restaurant", "bar"]
 
 
 def test_analytics_hotel_only_omits_outlets(admin):
@@ -1475,7 +1493,9 @@ def test_analytics_hotel_only_omits_outlets(admin):
     body = r.json()
     assert body["outlets"] is None
     assert body["hotel"] is not None
-    assert body["outlets_combined"] is False
+    # The old flag told the screen what the user had already ticked rather than what the
+    # figure contained. It was replaced by `outlets.covers`, not renamed alongside it.
+    assert "outlets_combined" not in body
 
 
 def test_analytics_restaurant_only_omits_hotel(admin):
@@ -1486,15 +1506,62 @@ def test_analytics_restaurant_only_omits_hotel(admin):
 
 
 def test_selecting_both_outlet_domains_does_not_double_count(admin):
+    """Both money assertions used to compare 0.0 to 0.0: the shared window is in March
+    2026 and every settled order in the database settled today. So this test creates the
+    revenue it asserts on, in a window that contains it."""
+    today = _property_today().isoformat()
+    window = {"start": today, "end": today}
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle",
+                         json={"payment_method": "cash"})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
     one = admin.get(f"{API}/analytics/revenue",
-                    params={"domains": "restaurant", **ANALYTICS_WINDOW}).json()
+                    params={"domains": "restaurant", **window}).json()
     both = admin.get(f"{API}/analytics/revenue",
-                     params={"domains": "restaurant,bar", **ANALYTICS_WINDOW}).json()
+                     params={"domains": "restaurant,bar", **window}).json()
+
+    # There is real money in the window now, so "equal" means something.
+    assert one["outlets"]["total"] >= bill
+    assert one["outlets"]["orders"] >= 1
+    assert one["total"] >= bill
+
     assert both["outlets"]["total"] == one["outlets"]["total"]
     assert both["outlets"]["orders"] == one["outlets"]["orders"]
     assert both["total"] == one["total"]
-    assert both["outlets_combined"] is True
-    assert one["outlets_combined"] is False
+    # Ticking one box or two changes nothing about what the figure contains, and the
+    # response reports the contents rather than the ticks.
+    assert one["outlets"]["covers"] == ["restaurant", "bar"]
+    assert both["outlets"]["covers"] == ["restaurant", "bar"]
+
+
+def test_a_bar_only_manager_is_told_the_figure_covers_the_restaurant_too(admin):
+    """This property's restaurant and bar share one till and one set of orders, and an
+    order carries no domain — so a manager holding only `bar` receives every restaurant
+    rupee. The response has to say so. The old `outlets_combined` flag was False for
+    this user, because they had only ticked one box: it reported what they already knew
+    instead of what the number contained."""
+    email = f"barmgr-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "barmgr12345", "manager", ["bar"])
+    today = _property_today().isoformat()
+    window = {"start": today, "end": today}
+
+    r = s.get(f"{API}/analytics/revenue", params=window)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["domains"] == ["bar"]
+    assert body["hotel"] is None
+    assert body["outlets"]["covers"] == ["restaurant", "bar"]
+    assert "outlets_combined" not in body
+
+    # And it really is the whole till: the same figure an admin sees for both outlets.
+    everything = admin.get(f"{API}/analytics/revenue",
+                           params={"domains": "restaurant,bar", **window}).json()
+    assert body["outlets"]["total"] == everything["outlets"]["total"]
+    assert body["outlets"]["orders"] == everything["outlets"]["orders"]
 
 
 def test_analytics_by_day_spans_the_whole_range(admin):
@@ -1505,11 +1572,73 @@ def test_analytics_by_day_spans_the_whole_range(admin):
 
 
 def test_analytics_by_day_row_totals_are_hotel_plus_outlets(admin):
-    body = admin.get(f"{API}/analytics/revenue",
-                     params={"domains": "hotel,restaurant", **ANALYTICS_WINDOW}).json()
+    """Against an empty window every row compared 0 == round(0 + 0, 2), which would pass
+    just as happily if the endpoint returned hotel MINUS outlets, or shifted the by_day
+    index by one — the exact bugs this test is named for. So it builds both halves of
+    the sum first: a past stay for the hotel side, a settled bill for the outlet side."""
+    ci, co = "2024-08-12", "2024-08-15"
+    s = _checked_in(admin, ci, co)
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()   # posts the due nights
+    nights = {e["charge_date"]: e["amount"]
+              for e in folio["entries"] if e["kind"] == "room_night"}
+    assert sorted(nights) == ["2024-08-12", "2024-08-13", "2024-08-14"], nights
+    night_total = round(sum(nights.values()), 2)
+    assert night_total > 0
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle",
+                         json={"payment_method": "cash"})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
+    today = _property_today().isoformat()
+    body = admin.get(f"{API}/analytics/revenue", params={
+        "domains": "hotel,restaurant", "start": ci, "end": today}).json()
+
+    # Both sides carry real money, so the arithmetic below has something to be wrong about.
+    assert body["hotel"]["total"] >= night_total
+    assert body["outlets"]["total"] >= bill
+
+    # And it is on the right rows: a by_day shifted by one day fails here.
+    rows = {d["date"]: d for d in body["by_day"]}
+    for night, amount in nights.items():
+        assert rows[night]["hotel"] >= amount, (night, rows[night])
+    assert rows[today]["outlets"] >= bill, rows[today]
+
     for row in body["by_day"]:
         assert row["total"] == round(row["hotel"] + row["outlets"], 2), row
     assert body["total"] == round(body["hotel"]["total"] + body["outlets"]["total"], 2)
+    assert body["total"] >= round(night_total + bill, 2)
+
+
+def test_a_settled_order_lands_in_the_by_day_row_for_the_day_it_settled(admin):
+    """The outlet column of the chart the screen actually draws. Nothing asserted a
+    non-zero figure in by_day[*]["outlets"] before, so a bucketing bug in the outlet
+    path — the whole late session dated to yesterday, say — would have shipped."""
+    today = _property_today()
+    yesterday, tomorrow = today - timedelta(days=1), today + timedelta(days=1)
+    window = {"domains": "restaurant", "start": yesterday.isoformat(),
+              "end": tomorrow.isoformat()}
+
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+    was = {d["date"]: d["outlets"] for d in before["by_day"]}
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle",
+                         json={"payment_method": "cash"})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    now = {d["date"]: d["outlets"] for d in after["by_day"]}
+
+    assert now[today.isoformat()] > 0
+    assert round(now[today.isoformat()] - was[today.isoformat()], 2) == bill
+    # ...and only that row moved: a day-early or day-late bucket shows up right here.
+    for other in (yesterday, tomorrow):
+        assert round(now[other.isoformat()] - was[other.isoformat()], 2) == 0.0, other
 
 
 def test_analytics_rejects_start_after_end(admin):
@@ -1564,11 +1693,15 @@ def test_a_bar_bill_charged_to_a_room_is_outlet_revenue_and_not_hotel_revenue(ad
     """The rule the whole endpoint exists for: hotel and outlet figures add cleanly
     because a room-charged bar bill is revenue at the bar and a receivable on the folio.
     It must be counted exactly once, on the outlet side."""
-    today = date.today()
-    ci = (today - timedelta(days=3)).isoformat()
-    co = (today + timedelta(days=1)).isoformat()
+    # A stay wholly in the past, so all three nights are due the moment the folio is
+    # read, whatever time of day the suite runs. Deriving check-in from date.today()
+    # made this flaky: the machine's date and the date the server posts nights by are
+    # not the same thing, and a run in the small hours posted only two nights and failed
+    # on `len(nights) == 3`. A fixed window is what the room-night test above uses.
+    ci, co = "2024-09-10", "2024-09-13"
     # The window ends today so it holds both the three due nights and today's bar bill.
-    window = {"domains": "hotel,restaurant", "start": ci, "end": today.isoformat()}
+    window = {"domains": "hotel,restaurant", "start": ci,
+              "end": _property_today().isoformat()}
 
     before = admin.get(f"{API}/analytics/revenue", params=window).json()
 
@@ -1604,4 +1737,4 @@ def test_a_bar_bill_charged_to_a_room_is_outlet_revenue_and_not_hotel_revenue(ad
                      params={**window, "domains": "hotel,restaurant,bar"}).json()
     assert both["total"] == after["total"]
     assert both["outlets"]["total"] == after["outlets"]["total"]
-    assert both["outlets_combined"] is True
+    assert both["outlets"]["covers"] == ["restaurant", "bar"]

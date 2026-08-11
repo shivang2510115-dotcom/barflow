@@ -1,14 +1,25 @@
 """Revenue across the whole property, filtered to the domains the caller selects."""
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import db
 from security import require_access
 from services.access import DOMAINS, OUTLET
-from services.revenue import hotel_revenue
+from services.clock import local_date
+from services.revenue import hotel_revenue, revenue_days
 
 router = APIRouter()
+
+# A backstop, not the filter. Every query below is bounded by date; this only stops a
+# pathological range from paging the whole collection into memory.
+MAX_ROWS = 200_000
+
+# A UTC timestamp can be up to a day away from the local calendar date it belongs to, in
+# either direction, so a query bounded by local dates has to reach one day past each end
+# and let the per-row conversion decide. One day covers every real timezone (UTC-12 to
+# UTC+14) with room to spare.
+_TZ_SLACK = timedelta(days=1)
 
 # Analytics is a management view in every domain, so it declares all of them and lets the
 # query narrow. The role list still gates it: a waiter holds `restaurant` but has no
@@ -20,10 +31,15 @@ ANALYTICS = require_access(DOMAINS, "admin", "manager")
 
 def _held_domains(user: dict) -> list[str]:
     """Every domain this user can report on. Admin is never domain-checked, so an admin
-    holds all of them whatever their stored `domains` list happens to say."""
+    holds all of them whatever their stored `domains` list happens to say.
+
+    Unknown values are dropped rather than echoed. A domain this endpoint refuses on the
+    query string with a 422 must not come back out of it in the response as though it
+    were a real one the report covers.
+    """
     if user.get("role") == "admin":
         return list(DOMAINS)
-    return list(user.get("domains") or ())
+    return [d for d in (user.get("domains") or ()) if d in DOMAINS]
 
 
 def _parse_domains(raw: str | None, user: dict) -> list[str]:
@@ -44,20 +60,67 @@ def _parse_domains(raw: str | None, user: dict) -> list[str]:
     return sorted(set(picked))
 
 
-async def _outlet_revenue(days: list[str]) -> dict:
+def _timestamp_bounds(start: str, end: str) -> tuple[str, str]:
+    """A UTC-timestamp range that is guaranteed to contain every row whose *local* day
+    falls in [start, end]. Deliberately wider than the answer — the exact filtering is
+    done per row by `local_date`, which knows the property's timezone."""
+    lo = (date.fromisoformat(start) - _TZ_SLACK).isoformat()
+    # Exclusive upper bound: any timestamp on this date sorts after every timestamp on
+    # the day before it, and ISO-8601 strings compare in chronological order.
+    hi = (date.fromisoformat(end) + _TZ_SLACK + timedelta(days=1)).isoformat()
+    return lo, hi
+
+
+async def _hotel_entries(start: str, end: str) -> list[dict]:
+    """Folio entries that could contribute to hotel revenue in [start, end].
+
+    Bounded by date rather than read whole. An unfiltered read with a `to_list` cap
+    truncates silently once the property has enough history: the report stays internally
+    consistent while quietly dropping rows, and because truncation is order-dependent it
+    can drop a `void` while keeping the entry it cancels, letting a cancelled room night
+    back into revenue.
+
+    Two dates matter, so the filter is an `$or`: a room night is dated by `charge_date`
+    (the night it covers), everything else by `posted_at`.
+    """
+    lo, hi = _timestamp_bounds(start, end)
+    entries = await db.folio_entries.find({"$or": [
+        {"charge_date": {"$gte": start, "$lte": end}},
+        {"posted_at": {"$gte": lo, "$lt": hi}},
+    ]}, {"_id": 0}).to_list(MAX_ROWS)
+
+    # A void removes the entry it points at, and it can be written long after the night
+    # it cancels — a night voided at check-out, or a bill disputed a week later. Dating
+    # the void out of the range would leave the cancelled entry counted, so fetch the
+    # voids by what they reference instead of by when they were written.
+    ids = [e["id"] for e in entries if e.get("id")]
+    voids = await db.folio_entries.find(
+        {"kind": "void", "ref_entry_id": {"$in": ids}}, {"_id": 0}).to_list(MAX_ROWS)
+
+    seen = {e.get("id") for e in entries}
+    return entries + [v for v in voids if v.get("id") not in seen]
+
+
+async def _outlet_revenue(start: str, end: str, days: list[str]) -> dict:
     """Settled outlet orders in the range, by day.
 
     Recognised when the order settles, whatever it was paid with. A bill charged to a
     room is revenue here and a receivable on the folio — `hotel_revenue` drops the
     matching `outlet` folio entry for exactly this reason, so the two sides add cleanly.
     Voided orders leave `settled` status behind them and so drop out on their own.
+
+    `settled_at` is a UTC timestamp, so the day it belongs to is the property's local
+    day, not the one in the string. See services/clock.py.
     """
-    orders = await db.orders.find({"status": "settled"}, {"_id": 0}).to_list(100000)
+    lo, hi = _timestamp_bounds(start, end)
+    orders = await db.orders.find(
+        {"status": "settled", "settled_at": {"$gte": lo, "$lt": hi}},
+        {"_id": 0}).to_list(MAX_ROWS)
     per_day = {d: 0.0 for d in days}
     total = 0.0
     count = 0
     for o in orders:
-        day = str(o.get("settled_at") or "")[:10]
+        day = local_date(o.get("settled_at"))
         if not day or day not in per_day:
             continue
         amount = float(o.get("total") or 0)
@@ -84,39 +147,43 @@ async def revenue(
     if a > b:
         raise HTTPException(400, "start must not be after end")
 
-    # Borrowed from hotel_revenue so both sides of the chart use one definition of the
+    # Shared with hotel_revenue so both sides of the chart use one definition of the
     # range, and every day in it appears even when nothing happened on it.
-    days = [d["date"] for d in hotel_revenue([], start, end)["by_day"]]
+    days = revenue_days(start, end)
 
     hotel = None
     if "hotel" in picked:
-        entries = await db.folio_entries.find({}, {"_id": 0}).to_list(100000)
-        hotel = hotel_revenue(entries, start, end)
+        hotel = hotel_revenue(await _hotel_entries(start, end), start, end)
 
     # This property's bar and restaurant share one POS and one set of orders. Selecting
     # either shows outlet revenue; selecting both must not show it twice.
     outlets = None
     if any(d in picked for d in OUTLET):
-        outlets = await _outlet_revenue(days)
+        outlets = await _outlet_revenue(start, end, days)
 
+    # Joined on the date, not on position. Both sides come from the same `days` list
+    # today, so an index would work — but if they ever stopped agreeing, the failure
+    # would be money silently drawn on the wrong dates rather than an error.
+    hotel_by_day = {d["date"]: d["revenue"] for d in hotel["by_day"]} if hotel else {}
     by_day = []
-    for i, d in enumerate(days):
-        h = hotel["by_day"][i]["revenue"] if hotel else 0.0
-        o = outlets["by_day"][d] if outlets else 0.0
+    for d in days:
+        h = hotel_by_day.get(d, 0.0)
+        o = outlets["by_day"].get(d, 0.0) if outlets else 0.0
         by_day.append({"date": d, "hotel": round(h, 2), "outlets": round(o, 2),
                        "total": round(h + o, 2)})
 
-    if outlets:
-        outlets.pop("by_day")
-
     return {
         "start": start, "end": end, "domains": picked,
-        # Stated rather than implied, so the screen can label it instead of leaving the
-        # user to wonder whether ticking both outlets doubled the figure.
-        "outlets_combined": sum(1 for d in OUTLET if d in picked) > 1,
         "total": round((hotel["total"] if hotel else 0.0)
                        + (outlets["total"] if outlets else 0.0), 2),
         "hotel": {k: hotel[k] for k in ("total", "room_nights", "extras")} if hotel else None,
-        "outlets": outlets,
+        # `covers` says what the figure contains, not what the user ticked. This
+        # property's restaurant and bar share one till and one set of orders, and an
+        # order carries no domain, so a manager holding only `bar` still receives every
+        # restaurant rupee — the screen needs to be able to label that honestly. The day
+        # the tills are split this becomes ["bar"] and a label rendered from the data
+        # follows on its own.
+        "outlets": {"total": outlets["total"], "orders": outlets["orders"],
+                    "covers": list(OUTLET)} if outlets else None,
         "by_day": by_day,
     }
