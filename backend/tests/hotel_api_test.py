@@ -1382,14 +1382,35 @@ def test_hotel_manager_is_refused_the_outlet_domains(admin):
 
 def test_bar_waiter_reaches_in_house_and_sees_only_pos_fields(admin):
     """Charging a bar bill to a room is why waiter is on the /in-house role list, and a
-    bar waiter never holds "hotel" — so the endpoint is shared. It stays safe because
-    _pos_guest projects every guest down to the three fields the POS needs."""
+    bar waiter never holds "hotel" — so the endpoint is shared. It stays safe only
+    because the whole row is projected: _pos_guest, _pos_booking and _pos_folio each cut
+    a record down to what the POS reads, so the booking notes and quote and the folio
+    balance never reach an outlet."""
+    stay = _checked_in(admin, "2032-07-05", "2032-07-08")
     email = f"bw-{uuid.uuid4().hex[:6]}@barflow.io"
     s = _staff_session(admin, email, "bw12345678", "waiter", ["bar"])
     r = s.get(f"{API}/in-house")
     assert r.status_code == 200, r.text
-    for row in r.json():
+    rows = r.json()
+
+    # Assert the exact key sets, not merely that today's sensitive keys are absent: a
+    # negative-only assertion goes quiet the day a new field joins the record.
+    for row in rows:
+        assert set(row) == {"booking", "guest", "room", "folio"}, row
         assert set(row["guest"]) == {"id", "name", "phone"}, row["guest"]
+        assert set(row["booking"]) == {"id"}, row["booking"]
+        assert set(row["folio"]) == {"id"}, row["folio"]
+        assert "notes" not in row["booking"], row["booking"]
+        assert "quote" not in row["booking"], row["booking"]
+        assert "balance" not in row["folio"], row["folio"]
+
+    # Projected, but not starved: the POS still has the room, the guest and the folio
+    # id it needs to label the row and settle against it.
+    row = next(x for x in rows if x["booking"]["id"] == stay["booking"]["id"])
+    assert row["folio"]["id"] == stay["folio_id"]
+    assert row["guest"]["name"] == stay["guest"]["name"]
+    assert row["room"]["number"] == stay["room"]["number"]
+
     # The board itself stays hotel-only: the widening is one lookup, not the front desk.
     assert s.get(f"{API}/front-desk").status_code == 403
 
