@@ -1344,13 +1344,54 @@ def test_admin_resets_a_password(admin):
 
 
 # ------------------------ work domains on every endpoint ------------------------
-def test_hotel_front_desk_is_refused_restaurant_writes(admin):
-    email = f"fd-{uuid.uuid4().hex[:6]}@barflow.io"
-    s = _staff_session(admin, email, "fd12345678", "front_desk", ["hotel"])
+def test_hotel_manager_is_refused_restaurant_writes(admin):
+    """A manager IS on POST /menu's role list, so only the domain can refuse them.
+    A front_desk user would 403 here on the pre-existing role gate alone, and the test
+    would pass with the domain check deleted from can_access entirely."""
+    email = f"hm-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "hm12345678", "manager", ["hotel"])
     assert s.get(f"{API}/folios").status_code == 200
     assert s.post(f"{API}/menu", json={
         "name": "Nope", "category": "Cocktails", "price": 100,
         "station": "bar", "description": ""}).status_code == 403
+
+
+def test_restaurant_manager_is_refused_the_hotel_domain(admin):
+    """A domain that is too wide has to be able to fail a test, not just one too narrow.
+    Every assertion below uses a role the endpoint already admits — manager is on the
+    folio role list, and /rooms and /tables declare no roles at all — so the only thing
+    that can produce a 403 is the domain. Widen folios.py or rooms.py to shared and this
+    test goes red."""
+    email = f"rm-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rm12345678", "manager", ["restaurant"])
+    assert s.get(f"{API}/folios").status_code == 403
+    assert s.get(f"{API}/rooms").status_code == 403
+    # ...and is not simply refused everything: their own domain still opens.
+    assert s.get(f"{API}/tables").status_code == 200
+
+
+def test_hotel_manager_is_refused_the_outlet_domains(admin):
+    """The mirror image: /reports/summary admits managers by role and /tables declares
+    no roles, so a hotel manager's 403 can only come from the outlet domain."""
+    email = f"ho-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "ho12345678", "manager", ["hotel"])
+    assert s.get(f"{API}/reports/summary").status_code == 403
+    assert s.get(f"{API}/tables").status_code == 403
+    assert s.get(f"{API}/rooms").status_code == 200
+
+
+def test_bar_waiter_reaches_in_house_and_sees_only_pos_fields(admin):
+    """Charging a bar bill to a room is why waiter is on the /in-house role list, and a
+    bar waiter never holds "hotel" — so the endpoint is shared. It stays safe because
+    _pos_guest projects every guest down to the three fields the POS needs."""
+    email = f"bw-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "bw12345678", "waiter", ["bar"])
+    r = s.get(f"{API}/in-house")
+    assert r.status_code == 200, r.text
+    for row in r.json():
+        assert set(row["guest"]) == {"id", "name", "phone"}, row["guest"]
+    # The board itself stays hotel-only: the widening is one lookup, not the front desk.
+    assert s.get(f"{API}/front-desk").status_code == 403
 
 
 def test_bar_only_waiter_reaches_the_order_screens(admin):
