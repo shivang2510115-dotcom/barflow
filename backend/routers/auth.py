@@ -3,19 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from db import db
-from security import verify_password, create_access_token, require_access, Role
+from security import verify_password, create_access_token, require_access
 from services.access import SHARED
 
 router = APIRouter()
-
-
-class UserPublic(BaseModel):
-    id: str
-    email: EmailStr
-    name: str
-    role: Role
-    domains: list[str] = []
-    active: bool = True
 
 
 class LoginIn(BaseModel):

@@ -5,7 +5,7 @@ from typing import Literal
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request
 
 from db import db
 from services.access import can_access, normalise_domains
