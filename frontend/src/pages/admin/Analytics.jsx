@@ -2,9 +2,48 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from "recharts";
 
 const DOMAIN_ORDER = ["hotel", "restaurant", "bar"];
 const DOMAIN_LABELS = { hotel: "Hotel", restaurant: "Restaurant", bar: "Bar" };
+
+// Same palette Reports.jsx draws its charts with, so the two revenue screens read as one
+// product: orange for the accented series, stone for the grid and axes.
+const ORANGE = "#f97316";
+const STONE = "#78716c";
+const GRID = "#292524";
+const AXIS = "#78716c";
+
+// "2026-03-05" → "03/05", matching the day buckets on Reports.jsx.
+function dayLabel(date) {
+  const [, m, d] = String(date).split("-");
+  return `${m}/${d}`;
+}
+
+// Reports.jsx's tooltip, kept to the same markup: money always goes through currency(),
+// because a bare number on a revenue chart is unreadable.
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="bg-stone-950 border border-stone-700 px-3 py-2 text-xs font-mono">
+      {label != null && <div className="text-stone-400 mb-1">{label}</div>}
+      {payload.map((p) => (
+        <div key={p.dataKey} className="flex items-center gap-2" style={{ color: p.color || p.fill }}>
+          <span className="uppercase tracking-widest">{p.name}:</span>
+          <span className="tabular-nums">{currency(p.value)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Only offer what the signed-in person actually holds. Asking for a domain you do not
 // hold is a 403, not a narrowed answer, so a tick-box for it could only ever produce an
@@ -202,36 +241,47 @@ export default function Analytics() {
           <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mt-10 mb-4">
             By day
           </h2>
+          {/* recharts, as on Reports.jsx — `by_day` spans every day in the range, so the
+              rows go straight in as the chart's data with no gap-filling. Stacked, so a
+              bar's height is that day's total. A block the user did not ask for comes
+              back null and gets no series at all: a flat zero series would claim the
+              property took nothing there, which is the same lie the cards avoid with "—".
+              The min-width keeps the days apart on a narrow screen, the way wide content
+              scrolls sideways elsewhere in the app. */}
           <div className="overflow-x-auto">
-            {/* Plain divs, no chart library: one dependency for one screen is not worth
-                it, and `by_day` spans every day in the range so there are no gaps. */}
-            <div className="flex items-end gap-1 h-40 min-w-[480px]" data-testid="by-day">
-              {data.by_day.map((d) => (
-                <div
-                  key={d.date}
-                  className="flex-1 flex flex-col justify-end"
-                  title={`${d.date} — ${currency(d.total)}`}
-                >
+            <div className="h-72 min-w-[480px]" data-testid="by-day">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={data.by_day} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke={GRID} vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={dayLabel}
+                    tick={{ fill: AXIS, fontSize: 11 }}
+                    stroke={GRID}
+                  />
+                  <YAxis
+                    tick={{ fill: AXIS, fontSize: 11 }}
+                    stroke={GRID}
+                    tickFormatter={(v) => `₹${v}`}
+                    width={56}
+                  />
+                  <Tooltip cursor={{ fill: "#ffffff08" }} content={<ChartTooltip />} />
                   {data.hotel && (
-                    <div
-                      className="bg-orange-500/80"
-                      style={{ height: `${(d.hotel / peak) * 100}%` }}
-                    />
+                    <Bar dataKey="hotel" name="Hotel" stackId="day" fill={ORANGE} />
                   )}
                   {data.outlets && (
-                    <div
-                      className="bg-stone-500"
-                      style={{ height: `${(d.outlets / peak) * 100}%` }}
-                    />
+                    <Bar dataKey="outlets" name={outletsHeading} stackId="day" fill={STONE} />
                   )}
-                </div>
-              ))}
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
+          {/* One legend only: hand-rolled, as Reports.jsx does for its payment mix, since
+              it also carries the peak-day figure. No recharts <Legend> to duplicate it. */}
           <div className="flex gap-5 mt-3 text-[10px] tracking-widest uppercase text-stone-500">
             {data.hotel && (
               <span>
-                <span className="inline-block w-3 h-2 bg-orange-500/80 mr-2" />
+                <span className="inline-block w-3 h-2 bg-orange-500 mr-2" />
                 Hotel
               </span>
             )}
