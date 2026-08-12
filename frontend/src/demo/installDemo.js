@@ -11,6 +11,7 @@
  */
 import axios from "axios";
 import seed from "./seed.json";
+import { DOMAINS, OUTLET } from "@/lib/domains";
 
 const clone = (v) => JSON.parse(JSON.stringify(v));
 const uid = () =>
@@ -39,7 +40,31 @@ const DEMO_PASSWORDS = {
   "kitchen@barflow.io": "kitchen123",
 };
 
-const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role });
+// `domains` and `active` are not decoration: the nav filters every domain-scoped item
+// against them (components/app/AppLayout.jsx) and the analytics screen offers only the
+// domains they name, so a demo user without them arrives to a sidebar of Overview and
+// Analytics and nothing else. Mirrors the real /auth/login and /auth/me payloads.
+const publicUser = (u) => ({
+  id: u.id,
+  email: u.email,
+  name: u.name,
+  role: u.role,
+  domains: u.domains || [],
+  active: u.active !== false,
+});
+
+// GET /api/staff, which returns rather more than /auth/me and never a password hash.
+// Built key by key, as routers/staff.py::_public does, so a field added to the seed
+// cannot leak by being forgotten.
+const staffRow = (u) => ({
+  id: u.id,
+  name: u.name,
+  email: u.email,
+  role: u.role,
+  domains: u.domains || [],
+  active: u.active !== false,
+  created_at: u.created_at,
+});
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -54,6 +79,8 @@ function computeTotals(order) {
   order.total = Math.round((subtotal + tax - discount) * 100) / 100;
   return order;
 }
+
+const activeAdmins = () => db.users.filter((u) => u.role === "admin" && u.active !== false);
 
 const settledOrders = () => db.orders.filter((o) => o.status === "settled");
 const dayOf = (o) => (o.settled_at || "").slice(0, 10);
@@ -210,6 +237,87 @@ function analytics(q) {
   };
 }
 
+/** Every calendar day in an inclusive range, as the real endpoint's `by_day` spans it. */
+function daysBetween(start, end) {
+  const out = [];
+  const cur = new Date(`${start}T00:00:00Z`);
+  const last = new Date(`${end}T00:00:00Z`);
+  if (isNaN(cur) || isNaN(last)) throw { status: 400, detail: "start and end must be YYYY-MM-DD dates" };
+  if (cur > last) throw { status: 400, detail: "start must not be after end" };
+  while (cur <= last) {
+    out.push(cur.toISOString().slice(0, 10));
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return out;
+}
+
+/**
+ * GET /api/analytics/revenue — the cross-domain report, shaped exactly as
+ * routers/analytics.py returns it: {start, end, domains, total, hotel, outlets, by_day},
+ * with `outlets.covers` naming what the outlet figure actually contains.
+ *
+ * The hotel block is zeros rather than null whenever hotel is selected: this seed has no
+ * bookings or folios at all, so there genuinely is no room revenue to report, and a null
+ * would make the screen render "—" as though the question had not been asked. Seed some
+ * stays here and this is where they would be counted.
+ */
+function revenueReport(q) {
+  const end = q.end || DEMO_TODAY;
+  const start = q.start || DEMO_TODAY.slice(0, 8) + "01";
+  const asked = String(q.domains || "")
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean);
+  for (const d of asked) {
+    if (!DOMAINS.includes(d)) throw { status: 422, detail: `Unknown domain: ${d}` };
+  }
+  // No selection means everything, the way the server defaults to the caller's own
+  // domains — and every demo user holds at least one outlet.
+  const picked = (asked.length ? asked : DOMAINS).slice().sort();
+  const days = daysBetween(start, end);
+
+  const round = (n) => Math.round(n * 100) / 100;
+  const hotel = picked.includes("hotel")
+    ? { total: 0, room_nights: 0, extras: 0 }
+    : null;
+
+  let outlets = null;
+  const perDay = {};
+  days.forEach((d) => {
+    perDay[d] = 0;
+  });
+  if (picked.some((d) => OUTLET.includes(d))) {
+    // One till for the restaurant and the bar, so selecting both must not count twice.
+    const inRange = settledOrders().filter((o) => {
+      const d = dayOf(o);
+      return d && d >= start && d <= end;
+    });
+    inRange.forEach((o) => {
+      if (perDay[dayOf(o)] != null) perDay[dayOf(o)] += o.total;
+    });
+    outlets = {
+      total: round(inRange.reduce((s, o) => s + o.total, 0)),
+      orders: inRange.length,
+      covers: [...OUTLET],
+    };
+  }
+
+  return {
+    start,
+    end,
+    domains: picked,
+    total: round((hotel ? hotel.total : 0) + (outlets ? outlets.total : 0)),
+    hotel,
+    outlets,
+    by_day: days.map((d) => ({
+      date: d,
+      hotel: 0,
+      outlets: round(outlets ? perDay[d] : 0),
+      total: round(outlets ? perDay[d] : 0),
+    })),
+  };
+}
+
 /* ------------------------------------------------------------------- routes */
 
 const ROUTES = [
@@ -224,6 +332,80 @@ const ROUTES = [
   }],
   ["GET", /^\/auth\/me$/, () => publicUser(db.users[0])],
   ["GET", /^\/auth\/staff$/, () => db.users.map(publicUser)],
+
+  // ---- staff (admin console)
+  // The demo has no session — /auth/me always answers as the first seeded user — so the
+  // "you cannot demote or deactivate yourself" 409s have nothing to compare against and
+  // are left to the screen, which already disables those controls on your own row. The
+  // rules that do not need an identity are kept, so the demo refuses what the API
+  // refuses.
+  ["GET", /^\/staff$/, () =>
+    db.users
+      .slice()
+      .sort((a, b) => ((a.name || "") < (b.name || "") ? -1 : 1))
+      .map(staffRow),
+  ],
+  ["POST", /^\/staff$/, (m, body) => {
+    const role = body.role || "waiter";
+    const domains = [...new Set(body.domains || [])];
+    if (role !== "admin" && domains.length === 0) {
+      throw { status: 400, detail: "A non-admin needs at least one work domain" };
+    }
+    if ((body.password || "").length < 8) {
+      throw { status: 400, detail: "Password must be at least 8 characters" };
+    }
+    const email = (body.email || "").toLowerCase().trim();
+    if (db.users.some((u) => u.email === email)) {
+      throw { status: 409, detail: "A staff member with this email already exists" };
+    }
+    const user = {
+      id: uid(), name: (body.name || "").trim(), email, role,
+      // An admin created with nothing ticked holds everything, as POST /api/staff does:
+      // no route may persist an empty domain list.
+      domains: role === "admin" && domains.length === 0 ? [...DOMAINS] : domains,
+      active: true, created_at: nowIso(),
+    };
+    db.users.push(user);
+    return staffRow(user);
+  }],
+  ["PUT", /^\/staff\/([^/]+)$/, (m, body) => {
+    const u = db.users.find((x) => x.id === m[1]);
+    if (!u) throw { status: 404, detail: "Staff member not found" };
+    const role = body.role || u.role;
+    const domains = [...new Set(body.domains || [])];
+    if (role !== "admin" && domains.length === 0) {
+      throw { status: 400, detail: "A non-admin needs at least one work domain" };
+    }
+    if (u.role === "admin" && role !== "admin" && activeAdmins().length === 1) {
+      throw { status: 409, detail: "This would leave the property with no active admin" };
+    }
+    u.name = (body.name || "").trim();
+    u.role = role;
+    u.domains = role === "admin" && domains.length === 0 ? [...DOMAINS] : domains;
+    return staffRow(u);
+  }],
+  ["POST", /^\/staff\/([^/]+)\/active$/, (m, body) => {
+    const u = db.users.find((x) => x.id === m[1]);
+    if (!u) throw { status: 404, detail: "Staff member not found" };
+    if (!body.active && u.role === "admin" && activeAdmins().length === 1) {
+      throw { status: 409, detail: "This would leave the property with no active admin" };
+    }
+    u.active = Boolean(body.active);
+    return staffRow(u);
+  }],
+  ["POST", /^\/staff\/([^/]+)\/password$/, (m, body) => {
+    const u = db.users.find((x) => x.id === m[1]);
+    if (!u) throw { status: 404, detail: "Staff member not found" };
+    if ((body.password || "").length < 8) {
+      throw { status: 400, detail: "Password must be at least 8 characters" };
+    }
+    // Accepted and discarded: log-in here checks a fixed table of demo passwords, and
+    // rewriting that from the console would lock the next visitor out of the demo.
+    return { ok: true };
+  }],
+
+  // ---- analytics
+  ["GET", /^\/analytics\/revenue$/, (m, body, q) => revenueReport(q)],
 
   // ---- tables
   ["GET", /^\/tables$/, () => db.tables],

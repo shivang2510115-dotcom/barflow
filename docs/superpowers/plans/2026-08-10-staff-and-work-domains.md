@@ -1605,6 +1605,13 @@ git commit -m "feat: nav grouped by work domain, staff section for admins"
 
 ## Task 8: End-to-end verification
 
+> **Note:** Tasks 9-11 were added after this plan was first written, in response to a
+> widened request: separate hotel revenue, a combined analytics view filtered by domain,
+> and an admin landing screen offering the three sections. Run Task 8 as written when
+> Tasks 1-7 are done — it verifies the access boundary, which is the risky part — then
+> continue to Task 9. Re-run Task 8's suites once more after Task 11.
+
+
 **Files:** none modified — verification only.
 
 - [ ] **Step 1: Start from a clean database**
@@ -1675,10 +1682,865 @@ Expected: no `backend/db.json`, no `frontend/build/`, no `.env`.
 
 ---
 
+---
+
+## Task 9: Revenue attribution — pure functions
+
+**Files:**
+- Create: `backend/services/revenue.py`
+- Test: `backend/tests/test_revenue.py`
+
+**Interfaces:**
+- Consumes: nothing — plain dicts only, following `services/pricing.py`, `availability.py`, `folio.py`, `access.py`
+- Produces: `hotel_revenue(entries, start, end) -> dict`, `entry_revenue_date(entry) -> str | None`
+
+### Why this is a pure module and not a query
+
+Money that is counted twice is the failure that matters here, and it is invisible in an
+integration test that only ever posts one kind of charge. The rules below are worth stating
+in one readable place and pinning with tests that need no database.
+
+**The rule, stated once:**
+
+| Entry kind | Counts as hotel revenue? | Why |
+|---|---|---|
+| `room_night` | **yes** | the room sold; this is the hotel's own revenue |
+| `misc_charge` | **yes** | laundry, late check-out, a hotel-side extra |
+| `discount` | **negative** | reduces what the property actually earned |
+| `outlet` | **no** | a bar or restaurant bill charged to the room. Revenue was already recognised at the outlet when the order settled. Counting it here too would double it. |
+| `payment` | **no** | settling a receivable is not earning |
+| `refund` | **no** | handing cash back; the reversal of the sale is the void, not this |
+| `void` | **no** | it cancels its target instead — see below |
+
+**Voids.** A void is its own entry carrying `ref_entry_id`. Rather than adding the void's
+signed amount, the function **excludes the entry the void points at**. Both approaches give
+the same total, but excluding makes a voided night vanish from the day it was charged to
+instead of leaving a positive and a negative on two different days.
+
+**Which day an entry belongs to.** A `room_night` carries `charge_date` — the night it
+covers, which is often not the day it was posted. Everything else falls back to the date
+part of `posted_at`. Attributing a night to its posting date would pile a three-night stay
+onto one day at check-out and show two empty days beside it.
+
+- [ ] **Step 1: Write the failing tests**
+
+`backend/tests/test_revenue.py`:
+
+```python
+"""Hotel revenue attribution — pure, no database."""
+import pytest
+
+from services.revenue import entry_revenue_date, hotel_revenue
+
+
+def e(kind, amount, *, id="e1", charge_date=None, posted_at="2026-03-05T10:00:00+00:00",
+      ref_entry_id=None):
+    return {"id": id, "kind": kind, "amount": amount, "charge_date": charge_date,
+            "posted_at": posted_at, "ref_entry_id": ref_entry_id}
+
+
+def test_room_nights_and_misc_charges_are_revenue():
+    r = hotel_revenue([e("room_night", 5000, charge_date="2026-03-05"),
+                       e("misc_charge", 300, id="e2")], "2026-03-01", "2026-03-31")
+    assert r["total"] == 5300.0
+
+
+def test_a_discount_reduces_revenue():
+    r = hotel_revenue([e("room_night", 5000, charge_date="2026-03-05"),
+                       e("discount", 500, id="e2")], "2026-03-01", "2026-03-31")
+    assert r["total"] == 4500.0
+
+
+def test_an_outlet_charge_is_not_hotel_revenue():
+    # The bar already recognised this when the order settled. Counting it again here
+    # would report the same rupee twice across the combined view.
+    r = hotel_revenue([e("outlet", 800)], "2026-03-01", "2026-03-31")
+    assert r["total"] == 0.0
+
+
+def test_a_payment_is_not_revenue():
+    r = hotel_revenue([e("room_night", 5000, charge_date="2026-03-05"),
+                       e("payment", 5000, id="e2")], "2026-03-01", "2026-03-31")
+    assert r["total"] == 5000.0
+
+
+def test_a_refund_is_not_revenue():
+    r = hotel_revenue([e("refund", 900)], "2026-03-01", "2026-03-31")
+    assert r["total"] == 0.0
+
+
+def test_a_voided_night_is_excluded_not_negated():
+    entries = [
+        e("room_night", 5000, id="n1", charge_date="2026-03-05"),
+        e("void", 5000, id="v1", ref_entry_id="n1", posted_at="2026-03-09T10:00:00+00:00"),
+    ]
+    r = hotel_revenue(entries, "2026-03-01", "2026-03-31")
+    assert r["total"] == 0.0
+    # and it leaves nothing behind on either day
+    assert all(d["revenue"] == 0.0 for d in r["by_day"])
+
+
+def test_a_night_is_counted_on_the_night_it_covers_not_when_posted():
+    # Three nights posted in one go at check-out must still land on three days.
+    entries = [e("room_night", 1000, id=f"n{i}", charge_date=f"2026-03-0{i}",
+                 posted_at="2026-03-04T09:00:00+00:00") for i in (1, 2, 3)]
+    r = hotel_revenue(entries, "2026-03-01", "2026-03-31")
+    by = {d["date"]: d["revenue"] for d in r["by_day"]}
+    assert by["2026-03-01"] == 1000.0
+    assert by["2026-03-02"] == 1000.0
+    assert by["2026-03-03"] == 1000.0
+    assert by["2026-03-04"] == 0.0
+
+
+def test_entries_outside_the_range_are_ignored():
+    entries = [e("room_night", 1000, id="a", charge_date="2026-02-28"),
+               e("room_night", 1000, id="b", charge_date="2026-03-01"),
+               e("room_night", 1000, id="c", charge_date="2026-03-31"),
+               e("room_night", 1000, id="d", charge_date="2026-04-01")]
+    r = hotel_revenue(entries, "2026-03-01", "2026-03-31")
+    assert r["total"] == 2000.0
+
+
+def test_the_range_is_inclusive_of_both_ends():
+    # Unlike a stay, a report range names the days the user picked. Both are included.
+    r = hotel_revenue([e("room_night", 100, charge_date="2026-03-01")],
+                      "2026-03-01", "2026-03-01")
+    assert r["total"] == 100.0
+
+
+def test_by_day_covers_every_day_in_range_including_empty_ones():
+    r = hotel_revenue([], "2026-03-01", "2026-03-03")
+    assert [d["date"] for d in r["by_day"]] == ["2026-03-01", "2026-03-02", "2026-03-03"]
+    assert all(d["revenue"] == 0.0 for d in r["by_day"])
+
+
+def test_room_nights_are_reported_separately_from_extras():
+    r = hotel_revenue([e("room_night", 5000, charge_date="2026-03-05"),
+                       e("misc_charge", 300, id="e2")], "2026-03-01", "2026-03-31")
+    assert r["room_nights"] == 5000.0
+    assert r["extras"] == 300.0
+
+
+def test_an_entry_with_no_usable_date_is_ignored_not_crashed_on():
+    # Legacy rows predate charge_date. Losing one from a report beats a 500 on the
+    # whole analytics screen.
+    assert entry_revenue_date({"kind": "misc_charge", "posted_at": None}) is None
+    r = hotel_revenue([{"id": "x", "kind": "misc_charge", "amount": 100,
+                        "posted_at": None}], "2026-03-01", "2026-03-31")
+    assert r["total"] == 0.0
+
+
+def test_a_missing_amount_is_treated_as_zero():
+    r = hotel_revenue([{"id": "x", "kind": "room_night", "charge_date": "2026-03-05"}],
+                      "2026-03-01", "2026-03-31")
+    assert r["total"] == 0.0
+
+
+def test_start_after_end_raises():
+    with pytest.raises(ValueError):
+        hotel_revenue([], "2026-03-31", "2026-03-01")
+```
+
+- [ ] **Step 2: Run and confirm it fails**
+
+```bash
+cd ~/dev/bar-management-system/backend && python3 -m pytest tests/test_revenue.py -q
+```
+
+Expected: collection error, `No module named 'services.revenue'`.
+
+- [ ] **Step 3: Write `backend/services/revenue.py`**
+
+```python
+"""Which folio money is hotel revenue, and which day it belongs to.
+
+Pure functions over supplied entries — no database — so the double-counting rule is
+testable in isolation and stated in exactly one place.
+
+The rule that matters: an `outlet` folio entry is NOT hotel revenue. A bar bill charged
+to a room was already recognised as revenue at the outlet when the order settled; the
+folio entry is the receivable that mirrors it. Counting both is how a combined
+hotel-plus-restaurant total silently reports the same rupee twice.
+"""
+from datetime import date, timedelta
+
+# Signed contribution of each entry kind to hotel revenue. Anything absent contributes
+# nothing: payments and refunds move cash without earning it, and `outlet` belongs to
+# the outlet that sold it.
+REVENUE_SIGN = {
+    "room_night": 1,
+    "misc_charge": 1,
+    "discount": -1,
+}
+
+
+def entry_revenue_date(entry: dict) -> str | None:
+    """The day this entry's money belongs to, as YYYY-MM-DD, or None if unknowable.
+
+    A room night is earned on the night it covers, not the day it was posted — three
+    nights posted together at check-out must still land on three separate days.
+    """
+    charge_date = entry.get("charge_date")
+    if charge_date:
+        return str(charge_date)[:10]
+    posted_at = entry.get("posted_at")
+    if posted_at:
+        return str(posted_at)[:10]
+    return None
+
+
+def _days(start: str, end: str) -> list[str]:
+    a, b = date.fromisoformat(start), date.fromisoformat(end)
+    if a > b:
+        raise ValueError(f"start {start} is after end {end}")
+    out, d = [], a
+    while d <= b:
+        out.append(d.isoformat())
+        d += timedelta(days=1)
+    return out
+
+
+def hotel_revenue(entries: list[dict], start: str, end: str) -> dict:
+    """Hotel revenue over an inclusive [start, end] range of calendar days.
+
+    Unlike a stay, which is half-open because the departure night is not slept in, a
+    report range names the days the user picked — so both ends are included.
+    """
+    days = _days(start, end)
+    in_range = set(days)
+
+    # A void removes the entry it points at rather than adding a negative of its own.
+    # Both give the same total, but this way a cancelled night disappears from the night
+    # it covered instead of leaving a stray credit on the day someone noticed.
+    voided = {e.get("ref_entry_id") for e in entries if e.get("kind") == "void"}
+    voided.discard(None)
+
+    by_day = {d: 0.0 for d in days}
+    room_nights = 0.0
+    extras = 0.0
+
+    for e in entries:
+        sign = REVENUE_SIGN.get(e.get("kind"))
+        if sign is None or e.get("id") in voided:
+            continue
+        day = entry_revenue_date(e)
+        if day is None or day not in in_range:
+            continue
+        amount = float(e.get("amount") or 0) * sign
+        by_day[day] += amount
+        if e.get("kind") == "room_night":
+            room_nights += amount
+        else:
+            extras += amount
+
+    return {
+        "total": round(room_nights + extras, 2),
+        "room_nights": round(room_nights, 2),
+        "extras": round(extras, 2),
+        "by_day": [{"date": d, "revenue": round(by_day[d], 2)} for d in days],
+    }
+```
+
+- [ ] **Step 4: Run and confirm green**
+
+```bash
+cd ~/dev/bar-management-system/backend && python3 -m pytest tests/test_revenue.py -q
+```
+
+Expected: `14 passed`.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd ~/dev/bar-management-system
+git add backend/services/revenue.py backend/tests/test_revenue.py
+git commit -m "feat: hotel revenue attribution, excluding outlet receivables"
+```
+
+---
+
+## Task 10: The combined analytics endpoint
+
+**Files:**
+- Create: `backend/routers/analytics.py`
+- Modify: `backend/server.py` (register the router)
+- Test: `backend/tests/hotel_api_test.py` (append)
+
+**Interfaces:**
+- Consumes: `require_access` (Task 3), `hotel_revenue` (Task 9)
+- Produces: `GET /api/analytics/revenue?domains=hotel,restaurant&start=&end=`
+
+### What the caller picks and what comes back
+
+`domains` is a comma-separated subset of `hotel`, `restaurant`, `bar` — the tick-boxes on
+the screen. Omitted means every domain the **signed-in user** can reach, which for an admin
+is all three. A user who ticks a domain they do not hold gets **403**, not a silently
+narrowed answer: a manager who asks for hotel figures and receives restaurant ones would
+report the wrong number to an owner.
+
+`restaurant` and `bar` share one set of orders in this property — the same tables, the same
+POS. Ticking either includes outlet revenue, and ticking both does **not** count it twice.
+The response says so explicitly in `outlets_combined`, so the screen can label it rather
+than leaving the user to wonder.
+
+Response:
+
+```json
+{
+  "start": "2026-03-01", "end": "2026-03-31",
+  "domains": ["hotel", "restaurant"],
+  "outlets_combined": true,
+  "total": 184300.0,
+  "hotel": {"total": 120000.0, "room_nights": 108000.0, "extras": 12000.0},
+  "outlets": {"total": 64300.0, "orders": 212},
+  "by_day": [{"date": "2026-03-01", "hotel": 4000.0, "outlets": 2100.0, "total": 6100.0}]
+}
+```
+
+`hotel` is `null` when hotel is not selected; `outlets` is `null` when neither outlet
+domain is. `by_day` always spans every day in the range, so a chart never has to guess at
+gaps.
+
+- [ ] **Step 1: Write the failing tests**
+
+Append to `backend/tests/hotel_api_test.py`. These follow the file's existing fixture style
+and must be self-contained — each creates the data it asserts on, in its own date window.
+
+```python
+def test_analytics_rejects_a_domain_the_user_does_not_hold(admin, api_post):
+    # A manager who asks for hotel figures must not silently receive restaurant ones.
+    email = f"rest-{uuid.uuid4().hex[:6]}@barflow.io"
+    admin.post(f"{API}/staff", json={"name": "Rest Mgr", "email": email,
+                                     "password": "rest12345", "role": "manager",
+                                     "domains": ["restaurant"]})
+    s = session_for(email, "rest12345")
+    r = s.get(f"{API}/analytics/revenue", params={"domains": "hotel",
+                                                  "start": "2026-03-01", "end": "2026-03-31"})
+    assert r.status_code == 403, r.text
+
+
+def test_analytics_defaults_to_the_users_own_domains(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"start": "2026-03-01", "end": "2026-03-31"})
+    assert r.status_code == 200, r.text
+    assert sorted(r.json()["domains"]) == ["bar", "hotel", "restaurant"]
+
+
+def test_analytics_hotel_only_omits_outlets(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "2026-03-01", "end": "2026-03-31"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["outlets"] is None
+    assert body["hotel"] is not None
+
+
+def test_analytics_restaurant_only_omits_hotel(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "restaurant", "start": "2026-03-01", "end": "2026-03-31"})
+    assert r.status_code == 200, r.text
+    assert r.json()["hotel"] is None
+
+
+def test_selecting_both_outlet_domains_does_not_double_count(admin):
+    one = admin.get(f"{API}/analytics/revenue",
+                    params={"domains": "restaurant", "start": "2026-03-01",
+                            "end": "2026-03-31"}).json()
+    both = admin.get(f"{API}/analytics/revenue",
+                     params={"domains": "restaurant,bar", "start": "2026-03-01",
+                             "end": "2026-03-31"}).json()
+    assert both["outlets"]["total"] == one["outlets"]["total"]
+    assert both["outlets_combined"] is True
+
+
+def test_analytics_by_day_spans_the_whole_range(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "2026-03-01", "end": "2026-03-05"})
+    days = [d["date"] for d in r.json()["by_day"]]
+    assert days == ["2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"]
+
+
+def test_analytics_rejects_start_after_end(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "2026-03-31", "end": "2026-03-01"})
+    assert r.status_code == 400, r.text
+
+
+def test_analytics_rejects_an_unknown_domain(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "spa", "start": "2026-03-01", "end": "2026-03-31"})
+    assert r.status_code == 422, r.text
+
+
+def test_a_waiter_cannot_reach_analytics(waiter):
+    r = waiter.get(f"{API}/analytics/revenue",
+                   params={"start": "2026-03-01", "end": "2026-03-31"})
+    assert r.status_code == 403, r.text
+
+
+def test_a_room_night_appears_in_hotel_revenue_on_the_night_it_covers(admin):
+    """End to end: a real stay's nights land on the right days, and the outlet bill
+    charged to that room is NOT added to hotel revenue a second time."""
+    # Build a stay well away from other tests' windows.
+    start, end = "2026-09-14", "2026-09-16"
+    before = admin.get(f"{API}/analytics/revenue",
+                       params={"domains": "hotel", "start": start, "end": "2026-09-15"}).json()
+    booking = make_booking(admin, start, end)          # existing helper in this file
+    check_in(admin, booking["id"])                     # existing helper
+    folio = admin.get(f"{API}/folios/{booking['folio_id']}").json()
+    assert folio["balance"] > 0                        # nights posted
+    after = admin.get(f"{API}/analytics/revenue",
+                      params={"domains": "hotel", "start": start, "end": "2026-09-15"}).json()
+    # Two nights: 09-14 and 09-15. 09-16 is the departure and is not slept in.
+    assert after["hotel"]["room_nights"] > before["hotel"]["room_nights"]
+```
+
+**Before writing these, read the fixtures at the top of `hotel_api_test.py`.** Helper names
+above (`api_post`, `session_for`, `make_booking`, `check_in`, `waiter`) are the intent, not
+a promise — use whatever that file actually provides, and add a fixture only if none fits.
+If `waiter` does not exist, create the user through `POST /api/staff` inside the test.
+
+- [ ] **Step 2: Run and confirm they fail**
+
+```bash
+cd ~/dev/bar-management-system/backend
+REACT_APP_BACKEND_URL=http://127.0.0.1:8000 python3 -m pytest tests/hotel_api_test.py -q -k analytics
+```
+
+Expected: failures with 404 — the route does not exist yet.
+
+- [ ] **Step 3: Write `backend/routers/analytics.py`**
+
+```python
+"""Revenue across the whole property, filtered to the domains the caller selects."""
+from datetime import date
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from db import db
+from security import require_access
+from services.access import DOMAINS
+from services.revenue import hotel_revenue
+
+router = APIRouter()
+
+# Analytics is a management view in every domain, so it declares all of them and lets
+# the query narrow. The role list still gates it: a waiter holds `restaurant` but has no
+# business reading the property's revenue.
+ANALYTICS = require_access(DOMAINS, "admin", "manager")
+
+# This property's bar and restaurant share one POS and one set of orders. Selecting
+# either shows outlet revenue; selecting both must not show it twice.
+OUTLET_DOMAINS = ("restaurant", "bar")
+
+
+def _parse_domains(raw: str | None, user: dict) -> list[str]:
+    held = list(DOMAINS) if user.get("role") == "admin" else list(user.get("domains") or ())
+    if not raw:
+        return sorted(held)
+    picked = [d.strip() for d in raw.split(",") if d.strip()]
+    for d in picked:
+        if d not in DOMAINS:
+            raise HTTPException(422, f"Unknown domain: {d}")
+    # Answering a narrower question than the one asked is worse than refusing it — an
+    # owner reading a figure labelled "hotel" must be able to trust the label.
+    missing = [d for d in picked if d not in held]
+    if missing:
+        raise HTTPException(403, f"You do not have access to: {', '.join(sorted(missing))}")
+    return sorted(set(picked))
+
+
+@router.get("/analytics/revenue")
+async def revenue(
+    start: str = Query(...),
+    end: str = Query(...),
+    domains: str | None = Query(None),
+    user: dict = Depends(ANALYTICS),
+):
+    try:
+        a, b = date.fromisoformat(start), date.fromisoformat(end)
+    except ValueError:
+        raise HTTPException(400, "start and end must be YYYY-MM-DD dates")
+    if a > b:
+        raise HTTPException(400, "start must not be after end")
+
+    picked = _parse_domains(domains, user)
+    days = [d["date"] for d in hotel_revenue([], start, end)["by_day"]]
+
+    hotel = None
+    if "hotel" in picked:
+        entries = await db.folio_entries.find().to_list(100000)
+        hotel = hotel_revenue(entries, start, end)
+
+    outlets = None
+    if any(d in picked for d in OUTLET_DOMAINS):
+        orders = await db.orders.find({"status": "settled"}).to_list(100000)
+        rows = []
+        for o in orders:
+            day = str(o.get("settled_at") or o.get("created_at") or "")[:10]
+            if day and start <= day <= end:
+                rows.append((day, float(o.get("total") or 0)))
+        per_day = {d: 0.0 for d in days}
+        for day, amount in rows:
+            per_day[day] += amount
+        outlets = {"total": round(sum(a for _, a in rows), 2), "orders": len(rows),
+                   "by_day": per_day}
+
+    by_day = []
+    for i, d in enumerate(days):
+        h = hotel["by_day"][i]["revenue"] if hotel else 0.0
+        o = outlets["by_day"][d] if outlets else 0.0
+        by_day.append({"date": d, "hotel": round(h, 2), "outlets": round(o, 2),
+                       "total": round(h + o, 2)})
+
+    if outlets:
+        outlets.pop("by_day")
+
+    return {
+        "start": start, "end": end, "domains": picked,
+        # Stated rather than implied, so the screen can label it instead of leaving the
+        # user to wonder whether ticking both outlets doubled the figure.
+        "outlets_combined": sum(1 for d in OUTLET_DOMAINS if d in picked) > 1,
+        "total": round((hotel["total"] if hotel else 0.0)
+                       + (outlets["total"] if outlets else 0.0), 2),
+        "hotel": {k: hotel[k] for k in ("total", "room_nights", "extras")} if hotel else None,
+        "outlets": outlets,
+        "by_day": by_day,
+    }
+```
+
+**Check the order field name before trusting it.** The code reads `settled_at` and falls
+back to `created_at`. Open `backend/routers/orders.py` and confirm what the settle handler
+actually writes; if it is neither of those, use the real field and say so in your report.
+A wrong field name here silently reports zero outlet revenue.
+
+- [ ] **Step 4: Register the router**
+
+In `backend/server.py`, follow exactly how the neighbouring routers are included:
+
+```python
+from routers.analytics import router as analytics_router
+```
+
+```python
+api_router.include_router(analytics_router)
+```
+
+- [ ] **Step 5: Run and confirm green**
+
+```bash
+cd ~/dev/bar-management-system/backend
+pkill -f "uvicorn server:app"; rm -f db.json
+nohup env MONGO_URL=mock python3 -m uvicorn server:app --host 127.0.0.1 --port 8000 > /tmp/bf.log 2>&1 & disown
+curl -s --retry 40 --retry-delay 1 --retry-all-errors --max-time 90 http://127.0.0.1:8000/api/
+REACT_APP_BACKEND_URL=http://127.0.0.1:8000 python3 -m pytest tests/hotel_api_test.py -q
+REACT_APP_BACKEND_URL=http://127.0.0.1:8000 python3 -m pytest tests/hotel_api_test.py -q
+```
+
+Expected: green on **both** runs against the same database.
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd ~/dev/bar-management-system
+git add backend/routers/analytics.py backend/server.py backend/tests/hotel_api_test.py
+git commit -m "feat: combined revenue analytics filtered by work domain"
+```
+
+---
+
+## Task 11: Admin console — the three doors, and the analytics screen
+
+**Files:**
+- Create: `frontend/src/pages/admin/Console.jsx`, `frontend/src/pages/admin/Analytics.jsx`
+- Modify: `frontend/src/App.js`, `frontend/src/components/app/AppLayout.jsx`
+
+**Interfaces:**
+- Consumes: `GET /api/analytics/revenue` (Task 10), `useAuth()` (Task 7)
+- Produces: routes `/app/admin` and `/app/admin/analytics`
+
+### The three doors
+
+An admin signing in lands on `/app/admin`: three cards — **Hotel**, **Bar & Restaurant**,
+**Staff** — plus a fourth for **Analytics**, which is the only screen that spans domains.
+Each card is a link into that section's own landing screen. Non-admins never see this
+route; they land where they land today.
+
+The cards are a shortcut, not a security boundary. The API is the boundary — see Task 3.
+
+- [ ] **Step 1: Read the house style first**
+
+Read `frontend/src/pages/hotel/FrontDesk.jsx` and `frontend/src/pages/Reports.jsx` before
+writing. Match the eyebrow plus uppercase `<h1>`, the stone/orange palette, `currency()`
+from `@/lib/api` for money, `tabular-nums` on figures, and `formatApiErrorDetail` with
+`toast.error` on failure. Do not introduce a chart library — `Reports.jsx` already draws
+its bars with plain divs, and adding a dependency for one screen is not worth it.
+
+- [ ] **Step 2: Create `frontend/src/pages/admin/Console.jsx`**
+
+```jsx
+import { Link } from "react-router-dom";
+import { BedDouble, LineChart, ShieldCheck, UtensilsCrossed } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+
+const DOORS = [
+  { to: "/app/hotel/front-desk", icon: BedDouble, label: "Hotel",
+    detail: "Front desk, bookings, rooms, rates and guest folios." },
+  { to: "/app/tables", icon: UtensilsCrossed, label: "Bar & Restaurant",
+    detail: "Tables, POS, kitchen board, menu and stock." },
+  { to: "/app/admin/staff", icon: ShieldCheck, label: "Staff",
+    detail: "Add people, set what they can reach, reset a password." },
+  { to: "/app/admin/analytics", icon: LineChart, label: "Analytics",
+    detail: "Revenue across the property — hotel, outlets, or both." },
+];
+
+export default function Console() {
+  const { user } = useAuth();
+  return (
+    <div className="p-6 md:p-10">
+      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
+      <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
+        {user?.name ? `Evening, ${user.name.split(" ")[0]}` : "Console"}
+      </h1>
+      <p className="text-stone-400 mb-10">Pick where you want to work.</p>
+
+      <div className="grid gap-5 sm:grid-cols-2 max-w-4xl">
+        {DOORS.map(({ to, icon: Icon, label, detail }) => (
+          <Link
+            key={to}
+            to={to}
+            className="group border border-stone-800 bg-stone-900 rounded p-6 hover:border-orange-500/60 transition-colors"
+          >
+            <Icon className="w-7 h-7 text-orange-500 mb-4" strokeWidth={1.5} />
+            <div className="text-lg font-bold uppercase tracking-wide text-stone-100 group-hover:text-orange-400">
+              {label}
+            </div>
+            <p className="text-sm text-stone-400 mt-2">{detail}</p>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+The greeting is fixed text rather than time-based: the server clock and the property's
+clock are not reliably the same, and a "Good morning" at 9pm reads as broken.
+
+- [ ] **Step 3: Create `frontend/src/pages/admin/Analytics.jsx`**
+
+```jsx
+import { useCallback, useEffect, useState } from "react";
+import { api, currency, formatApiErrorDetail } from "@/lib/api";
+import { toast } from "sonner";
+
+const DOMAINS = [
+  { key: "hotel", label: "Hotel" },
+  { key: "restaurant", label: "Restaurant" },
+  { key: "bar", label: "Bar" },
+];
+
+// Default to the current calendar month, computed locally. Building these from an ISO
+// slice of a UTC timestamp puts the property a day out for most of its evening.
+function monthRange() {
+  const n = new Date();
+  const p = (v) => String(v).padStart(2, "0");
+  const first = `${n.getFullYear()}-${p(n.getMonth() + 1)}-01`;
+  const today = `${n.getFullYear()}-${p(n.getMonth() + 1)}-${p(n.getDate())}`;
+  return { start: first, end: today };
+}
+
+export default function Analytics() {
+  const [range, setRange] = useState(monthRange);
+  const [picked, setPicked] = useState(["hotel", "restaurant", "bar"]);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(() => {
+    if (picked.length === 0) {
+      setData(null);
+      return;
+    }
+    setLoading(true);
+    api
+      .get("/analytics/revenue", {
+        params: { start: range.start, end: range.end, domains: picked.join(",") },
+      })
+      .then((r) => setData(r.data))
+      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
+      .finally(() => setLoading(false));
+  }, [range.start, range.end, picked]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const toggle = (k) =>
+    setPicked((p) => (p.includes(k) ? p.filter((x) => x !== k) : [...p, k]));
+
+  const peak = Math.max(1, ...(data?.by_day || []).map((d) => d.total));
+
+  return (
+    <div className="p-6 md:p-10">
+      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
+      <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
+        Analytics
+      </h1>
+
+      <div className="flex flex-wrap gap-6 items-end mb-8">
+        {[["start", "From"], ["end", "To"]].map(([k, label]) => (
+          <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+            {label}
+            <input
+              type="date"
+              value={range[k]}
+              onChange={(e) => setRange({ ...range, [k]: e.target.value })}
+              className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+            />
+          </label>
+        ))}
+        <div className="text-xs tracking-widest uppercase text-stone-500">
+          Include
+          <div className="flex gap-2 mt-2">
+            {DOMAINS.map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggle(key)}
+                aria-pressed={picked.includes(key)}
+                className={`text-[10px] tracking-widest uppercase border rounded-full px-4 py-1.5 ${
+                  picked.includes(key)
+                    ? "border-orange-500 text-orange-400 bg-orange-500/10"
+                    : "border-stone-700 text-stone-500 hover:border-stone-500"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {picked.length === 0 && (
+        <p className="text-stone-400">Tick at least one area to see figures.</p>
+      )}
+
+      {data && (
+        <>
+          {data.outlets_combined && (
+            <p className="text-xs text-stone-500 mb-6 max-w-2xl">
+              Bar and restaurant share one till here, so their revenue is reported together
+              — ticking both does not count it twice.
+            </p>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-3 max-w-4xl mb-10">
+            <Figure label="Total" value={data.total} accent />
+            <Figure label="Hotel" value={data.hotel?.total} sub={
+              data.hotel ? `${currency(data.hotel.room_nights)} rooms · ${currency(data.hotel.extras)} extras` : null
+            } />
+            <Figure label="Bar & restaurant" value={data.outlets?.total} sub={
+              data.outlets ? `${data.outlets.orders} orders` : null
+            } />
+          </div>
+
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+            By day
+          </h2>
+          <div className="overflow-x-auto">
+            <div className="flex items-end gap-1 h-40 min-w-[480px]">
+              {data.by_day.map((d) => (
+                <div key={d.date} className="flex-1 flex flex-col justify-end" title={`${d.date} — ${currency(d.total)}`}>
+                  <div className="bg-orange-500/80" style={{ height: `${(d.hotel / peak) * 100}%` }} />
+                  <div className="bg-stone-500" style={{ height: `${(d.outlets / peak) * 100}%` }} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-5 mt-3 text-[10px] tracking-widest uppercase text-stone-500">
+            <span><span className="inline-block w-3 h-2 bg-orange-500/80 mr-2" />Hotel</span>
+            <span><span className="inline-block w-3 h-2 bg-stone-500 mr-2" />Bar &amp; restaurant</span>
+          </div>
+        </>
+      )}
+
+      {loading && <p className="text-stone-500 text-sm mt-6">Loading…</p>}
+    </div>
+  );
+}
+
+function Figure({ label, value, sub, accent }) {
+  return (
+    <div className={`border rounded p-5 ${accent ? "border-orange-500/40 bg-orange-500/5" : "border-stone-800 bg-stone-900"}`}>
+      <div className="text-[10px] tracking-[0.2em] uppercase text-stone-500 mb-2">{label}</div>
+      <div className="text-2xl font-bold tabular-nums text-stone-100">
+        {value == null ? "—" : currency(value)}
+      </div>
+      {sub && <div className="text-xs text-stone-500 mt-2 tabular-nums">{sub}</div>}
+    </div>
+  );
+}
+```
+
+A domain the admin unticks is not sent, so the server returns `null` for that block and the
+card shows `—` rather than a misleading `₹0.00`.
+
+- [ ] **Step 4: Wire the routes and the nav**
+
+`frontend/src/App.js`:
+
+```jsx
+import Console from "@/pages/admin/Console";
+import Analytics from "@/pages/admin/Analytics";
+```
+
+```jsx
+        <Route path="/admin" element={<Protected roles={["admin"]}><Console /></Protected>} />
+        <Route path="/admin/analytics" element={<Protected roles={["admin", "manager"]}><Analytics /></Protected>} />
+```
+
+In `AppLayout.jsx`, the Staff section from Task 7 gains two siblings. `Console` needs
+`exclude` so it does not stay lit while a child route is open — the same mechanism
+`/app/hotel/bookings` already uses:
+
+```jsx
+  { section: "Staff", roles: ["admin"] },
+  { to: "/app/admin", label: "Console", icon: LayoutGrid, roles: ["admin"],
+    exclude: ["/app/admin/staff", "/app/admin/analytics"] },
+  { to: "/app/admin/staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
+  { to: "/app/admin/analytics", label: "Analytics", icon: LineChart, roles: ["admin", "manager"] },
+```
+
+- [ ] **Step 5: Verify**
+
+```bash
+cd ~/dev/bar-management-system/frontend && CI=false npx craco build && rm -rf build
+```
+
+Expected: compiles with only the pre-existing warnings in `CustomerMenu.jsx` and
+`Reservations.jsx`.
+
+Then, against a running backend, sign in as the admin and confirm: `/app/admin` shows four
+cards; Analytics defaults to this month with all three ticked; unticking Hotel makes the
+Hotel figure read `—` and removes the orange bars; unticking everything shows the prompt
+rather than an empty chart.
+
+- [ ] **Step 6: Commit**
+
+```bash
+cd ~/dev/bar-management-system
+git add frontend/src
+git commit -m "feat: admin console and cross-domain revenue analytics"
+```
+
+---
+
 ## Deferred, by design
 
-Printable bills (folio invoice, restaurant bill); hotel reports (occupancy, ADR, RevPAR);
-printable data history; admin corrections to staff-entered data — that last one conflicts
-with the folio ledger being append-only and needs its own conversation. Also out of scope:
-email-based password reset, token revocation, read-versus-write distinctions within a
-domain, and multi-property tenancy.
+Printable bills (folio invoice, restaurant bill); printable data history; occupancy, ADR
+and RevPAR — this plan covers hotel **revenue**, not the occupancy-derived hotel metrics;
+admin corrections to staff-entered data, which conflicts with the folio ledger being
+append-only and needs its own conversation. Also out of scope: email-based password reset,
+token revocation, read-versus-write distinctions within a domain, and multi-property
+tenancy.
+

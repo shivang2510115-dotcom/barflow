@@ -24,15 +24,15 @@ def admin():
 
 
 def test_front_desk_role_exists(admin):
-    r = admin.post("{}/auth/register".format(API), json={
-        "email": "desk-test@barflow.io",
+    r = admin.post(f"{API}/staff", json={
         "name": "Desk Tester",
+        "email": f"desk-{uuid.uuid4().hex[:6]}@barflow.io",
         "password": "desk12345",
         "role": "front_desk",
+        "domains": ["hotel"],
     })
-    assert r.status_code in (200, 400), r.text
-    if r.status_code == 400:
-        assert "exists" in r.text.lower()
+    assert r.status_code == 200, r.text
+    assert r.json()["role"] == "front_desk"
 
 
 def test_create_and_find_guest(admin):
@@ -1117,3 +1117,729 @@ def test_front_desk_cannot_force_check_out(admin, front_desk):
         f"{API}/bookings/{s['booking']['id']}/check-out",
         json={"force": True, "reason": "Company will settle"})
     assert r.status_code == 403, r.text
+
+
+def test_seeded_admin_has_all_domains_and_is_active(admin):
+    me = admin.get(f"{API}/auth/me")
+    assert me.status_code == 200, me.text
+    body = me.json()
+    assert body["active"] is True
+    assert set(body["domains"]) == {"hotel", "restaurant", "bar"}
+
+
+def _staff_session(admin, email, password, role, domains):
+    """Create a staff user directly via the seeded admin, and return a logged-in session."""
+    import requests as _rq
+    admin.post(f"{API}/staff", json={
+        "name": email.split("@")[0], "email": email, "password": password,
+        "role": role, "domains": domains})
+    s = _rq.Session()
+    r = s.post(f"{API}/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    return s
+
+
+def test_restaurant_manager_is_refused_hotel_endpoints(admin):
+    email = f"rest-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
+    assert s.get(f"{API}/bookings").status_code == 403
+    assert s.get(f"{API}/tables").status_code == 200
+
+
+# ------------------------ staff administration ------------------------
+def test_admin_creates_staff_with_domains(admin):
+    email = f"new-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "New Person", "email": email, "password": "newpass123",
+        "role": "waiter", "domains": ["bar"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["domains"] == ["bar"]
+    assert body["active"] is True
+    assert "password_hash" not in body and "password" not in body
+
+
+def test_duplicate_email_is_refused(admin):
+    email = f"dup-{uuid.uuid4().hex[:6]}@barflow.io"
+    body = {"name": "A", "email": email, "password": "pass12345",
+            "role": "waiter", "domains": ["bar"]}
+    assert admin.post(f"{API}/staff", json=body).status_code == 200
+    assert admin.post(f"{API}/staff", json=body).status_code == 409
+
+
+def test_non_admin_cannot_reach_staff(admin):
+    email = f"mgr-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "mgr12345", "manager", ["restaurant"])
+    assert s.get(f"{API}/staff").status_code == 403
+
+
+def test_empty_domains_on_a_non_admin_is_refused(admin):
+    r = admin.post(f"{API}/staff", json={
+        "name": "Nobody", "email": f"none-{uuid.uuid4().hex[:6]}@barflow.io",
+        "password": "pass12345", "role": "waiter", "domains": []})
+    assert r.status_code == 400, r.text
+
+
+def test_unknown_domain_is_refused(admin):
+    r = admin.post(f"{API}/staff", json={
+        "name": "Spa", "email": f"spa-{uuid.uuid4().hex[:6]}@barflow.io",
+        "password": "pass12345", "role": "waiter", "domains": ["spa"]})
+    assert r.status_code == 422, r.text
+
+
+def test_admin_cannot_deactivate_themselves(admin):
+    me = admin.get(f"{API}/auth/me").json()
+    r = admin.post(f"{API}/staff/{me['id']}/active", json={"active": False})
+    assert r.status_code == 409, r.text
+
+
+def test_a_user_cannot_change_their_own_role(admin):
+    """Refused by the self-guard, whatever else is true of the database. This is also
+    what keeps an active admin in place: a demotion can only target someone else."""
+    me = admin.get(f"{API}/auth/me").json()
+    r = admin.put(f"{API}/staff/{me['id']}", json={
+        "name": me["name"], "role": "manager", "domains": ["hotel"]})
+    assert r.status_code == 409, r.text
+    # And nothing was written.
+    assert admin.get(f"{API}/auth/me").json()["role"] == "admin"
+
+
+def test_a_user_cannot_change_their_own_domains(admin):
+    """Same guard, with the role left alone — narrowing your own domains is refused too,
+    or an admin could quietly cut themselves off from part of the property."""
+    me = admin.get(f"{API}/auth/me").json()
+    r = admin.put(f"{API}/staff/{me['id']}", json={
+        "name": me["name"], "role": me["role"], "domains": ["hotel"]})
+    assert r.status_code == 409, r.text
+    assert set(admin.get(f"{API}/auth/me").json()["domains"]) == set(me["domains"])
+
+
+def test_an_admin_can_deactivate_another_admin_but_never_themselves(admin):
+    """With two admins present: neither can remove themselves, and A can still remove B.
+    The old last-active-admin count blocked nothing here — the self-guards do the work."""
+    email = f"admin2-{uuid.uuid4().hex[:6]}@barflow.io"
+    b = _staff_session(admin, email, "admin2pass", "admin", [])
+    a_id = admin.get(f"{API}/auth/me").json()["id"]
+    b_id = b.get(f"{API}/auth/me").json()["id"]
+
+    assert admin.post(f"{API}/staff/{a_id}/active",
+                      json={"active": False}).status_code == 409
+    assert b.post(f"{API}/staff/{b_id}/active",
+                  json={"active": False}).status_code == 409
+
+    r = admin.post(f"{API}/staff/{b_id}/active", json={"active": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["active"] is False
+    assert b.get(f"{API}/auth/me").status_code == 403
+
+    # A is untouched and still admin.
+    assert admin.get(f"{API}/auth/me").json()["active"] is True
+
+
+def test_the_old_auth_staff_roster_is_not_reachable(admin):
+    """GET /auth/staff used to return every user behind require_roles("admin","manager"),
+    which let a restaurant-only manager enumerate all staff around the admin-only gate on
+    GET /api/staff. It is gone; this test stops it coming back quietly."""
+    email = f"roster-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "roster12345", "manager", ["restaurant"])
+    r = s.get(f"{API}/auth/staff")
+    assert r.status_code in (403, 404), r.text
+    assert "password_hash" not in r.text
+    assert email not in r.text
+
+
+def test_admin_edits_role_and_domains_of_another_staff_member(admin):
+    email = f"edit-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Edit Me", "email": email, "password": "edit12345",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    r = admin.put(f"{API}/staff/{created['id']}", json={
+        "name": "Edited", "role": "front_desk", "domains": ["hotel", "restaurant"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "Edited"
+    assert body["role"] == "front_desk"
+    assert body["domains"] == ["hotel", "restaurant"]
+    assert "password_hash" not in body
+
+
+def test_a_deactivated_staff_member_can_be_reactivated(admin):
+    email = f"back-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Boomerang", "email": email, "password": "back12345",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    off = admin.post(f"{API}/staff/{created['id']}/active", json={"active": False})
+    assert off.status_code == 200, off.text
+    assert off.json()["active"] is False
+
+    on = admin.post(f"{API}/staff/{created['id']}/active", json={"active": True})
+    assert on.status_code == 200, on.text
+    assert on.json()["active"] is True
+
+    import requests as _rq
+    assert _rq.post(f"{API}/auth/login",
+                    json={"email": email, "password": "back12345"}).status_code == 200
+
+
+def test_staff_list_never_leaks_password_hashes(admin):
+    r = admin.get(f"{API}/staff")
+    assert r.status_code == 200, r.text
+    assert r.json(), "the seeded admin should at least be listed"
+    assert "password_hash" not in r.text
+
+
+def test_deactivated_user_cannot_log_in(admin):
+    import requests as _rq
+    email = f"leaver-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Leaver", "email": email, "password": "leave12345",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    ok = _rq.post(f"{API}/auth/login", json={"email": email, "password": "leave12345"})
+    assert ok.status_code == 200
+
+    assert admin.post(f"{API}/staff/{created['id']}/active",
+                      json={"active": False}).status_code == 200
+
+    after = _rq.post(f"{API}/auth/login", json={"email": email, "password": "leave12345"})
+    assert after.status_code == 401, after.text
+
+    # Byte-identical to a wrong password on purpose. A distinct "account disabled"
+    # message would confirm to a former employee that their password guess was right.
+    wrong = _rq.post(f"{API}/auth/login",
+                     json={"email": email, "password": "not-the-password"})
+    assert wrong.status_code == 401
+    assert after.json()["detail"] == wrong.json()["detail"]
+
+
+def test_deactivated_users_existing_token_stops_working(admin):
+    email = f"tok-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "tok12345", "waiter", ["bar"])
+    assert s.get(f"{API}/auth/me").status_code == 200
+
+    uid = next(u["id"] for u in admin.get(f"{API}/staff").json() if u["email"] == email)
+    admin.post(f"{API}/staff/{uid}/active", json={"active": False})
+
+    # Same token, now refused — the active check runs per request, not only at login.
+    assert s.get(f"{API}/auth/me").status_code == 403
+
+
+def test_admin_resets_a_password(admin):
+    import requests as _rq
+    email = f"reset-{uuid.uuid4().hex[:6]}@barflow.io"
+    created = admin.post(f"{API}/staff", json={
+        "name": "Reset Me", "email": email, "password": "oldpass123",
+        "role": "waiter", "domains": ["bar"]}).json()
+
+    assert admin.post(f"{API}/staff/{created['id']}/password",
+                      json={"password": "newpass456"}).status_code == 200
+
+    assert _rq.post(f"{API}/auth/login",
+                    json={"email": email, "password": "oldpass123"}).status_code == 401
+    assert _rq.post(f"{API}/auth/login",
+                    json={"email": email, "password": "newpass456"}).status_code == 200
+
+
+# ------------------------ work domains on every endpoint ------------------------
+def test_hotel_manager_is_refused_restaurant_writes(admin):
+    """A manager IS on POST /menu's role list, so only the domain can refuse them.
+    A front_desk user would 403 here on the pre-existing role gate alone, and the test
+    would pass with the domain check deleted from can_access entirely."""
+    email = f"hm-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "hm12345678", "manager", ["hotel"])
+    assert s.get(f"{API}/folios").status_code == 200
+    assert s.post(f"{API}/menu", json={
+        "name": "Nope", "category": "Cocktails", "price": 100,
+        "station": "bar", "description": ""}).status_code == 403
+
+
+def test_restaurant_manager_is_refused_the_hotel_domain(admin):
+    """A domain that is too wide has to be able to fail a test, not just one too narrow.
+    Every assertion below uses a role the endpoint already admits — manager is on the
+    folio role list, and /rooms and /tables declare no roles at all — so the only thing
+    that can produce a 403 is the domain. Widen folios.py or rooms.py to shared and this
+    test goes red."""
+    email = f"rm-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rm12345678", "manager", ["restaurant"])
+    assert s.get(f"{API}/folios").status_code == 403
+    assert s.get(f"{API}/rooms").status_code == 403
+    # ...and is not simply refused everything: their own domain still opens.
+    assert s.get(f"{API}/tables").status_code == 200
+
+
+def test_hotel_manager_is_refused_the_outlet_domains(admin):
+    """The mirror image: /reports/summary admits managers by role and /tables declares
+    no roles, so a hotel manager's 403 can only come from the outlet domain."""
+    email = f"ho-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "ho12345678", "manager", ["hotel"])
+    assert s.get(f"{API}/reports/summary").status_code == 403
+    assert s.get(f"{API}/tables").status_code == 403
+    assert s.get(f"{API}/rooms").status_code == 200
+
+
+def test_bar_waiter_reaches_in_house_and_sees_only_pos_fields(admin):
+    """Charging a bar bill to a room is why waiter is on the /in-house role list, and a
+    bar waiter never holds "hotel" — so the endpoint is shared. It stays safe only
+    because the whole row is projected: _pos_guest, _pos_booking and _pos_folio each cut
+    a record down to what the POS reads, so the booking notes and quote and the folio
+    balance never reach an outlet."""
+    stay = _checked_in(admin, "2032-07-05", "2032-07-08")
+    email = f"bw-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "bw12345678", "waiter", ["bar"])
+    r = s.get(f"{API}/in-house")
+    assert r.status_code == 200, r.text
+    rows = r.json()
+
+    # Assert the exact key sets, not merely that today's sensitive keys are absent: a
+    # negative-only assertion goes quiet the day a new field joins the record.
+    for row in rows:
+        assert set(row) == {"booking", "guest", "room", "folio"}, row
+        assert set(row["guest"]) == {"id", "name", "phone"}, row["guest"]
+        assert set(row["booking"]) == {"id"}, row["booking"]
+        assert set(row["folio"]) == {"id"}, row["folio"]
+        assert "notes" not in row["booking"], row["booking"]
+        assert "quote" not in row["booking"], row["booking"]
+        assert "balance" not in row["folio"], row["folio"]
+
+    # Projected, but not starved: the POS still has the room, the guest and the folio
+    # id it needs to label the row and settle against it.
+    row = next(x for x in rows if x["booking"]["id"] == stay["booking"]["id"])
+    assert row["folio"]["id"] == stay["folio_id"]
+    assert row["guest"]["name"] == stay["guest"]["name"]
+    assert row["room"]["number"] == stay["room"]["number"]
+
+    # The board itself stays hotel-only: the widening is one lookup, not the front desk.
+    assert s.get(f"{API}/front-desk").status_code == 403
+
+
+def test_bar_only_waiter_reaches_the_order_screens(admin):
+    # The order endpoints are declared ("restaurant", "bar"); declaring them restaurant
+    # alone would lock a bar-only waiter out of the POS.
+    email = f"bar-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "bar12345678", "waiter", ["bar"])
+    assert s.get(f"{API}/tables").status_code == 200
+    assert s.get(f"{API}/orders/kot").status_code == 200
+
+
+def test_shared_endpoints_reachable_from_any_domain(admin):
+    email = f"sh-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "sh12345678", "manager", ["bar"])
+    assert s.get(f"{API}/guests").status_code == 200
+    assert s.get(f"{API}/inventory").status_code == 200
+
+
+def test_admin_still_reaches_everything(admin):
+    for path in ("/bookings", "/tables", "/guests", "/inventory", "/folios", "/staff"):
+        assert admin.get(f"{API}{path}").status_code == 200, path
+
+
+# ------------------------- Task 10: combined revenue analytics -------------------------
+# A fixed window shared by the *structural* tests below — the ones asserting status
+# codes, domain lists and the shape of by_day. Nothing here asserts an absolute figure
+# inside it, so leftovers from a previous run against the same db.json are fine, and it
+# is deliberately empty of money. Any test asserting a number must create that number
+# inside its own window instead: see the tests further down that do.
+ANALYTICS_WINDOW = {"start": "2026-03-01", "end": "2026-03-31"}
+
+
+def _property_today() -> date:
+    """Today's date at the property.
+
+    The server dates money by the property's local calendar day, not by UTC and not by
+    whatever timezone this machine happens to sit in (services/clock.py). A test that
+    mixes its own `date.today()` into an assertion about posted room nights is flaky by
+    time of day — on a UTC machine the two disagree for the first 5½ hours of every
+    local day.
+    """
+    from services.clock import today as _today
+    return date.fromisoformat(_today())
+
+
+def test_analytics_rejects_a_domain_the_user_does_not_hold(admin):
+    # A manager who asks for hotel figures must not silently receive restaurant ones.
+    email = f"ranl-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
+    r = s.get(f"{API}/analytics/revenue", params={"domains": "hotel", **ANALYTICS_WINDOW})
+    assert r.status_code == 403, r.text
+
+
+def test_analytics_defaults_to_the_users_own_domains(admin):
+    r = admin.get(f"{API}/analytics/revenue", params=ANALYTICS_WINDOW)
+    assert r.status_code == 200, r.text
+    assert sorted(r.json()["domains"]) == ["bar", "hotel", "restaurant"]
+
+
+def test_analytics_default_for_a_narrower_user_is_only_their_own_domains(admin):
+    """Omitting `domains` must mean "everything I hold", not "everything there is"."""
+    email = f"danl-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "rest12345", "manager", ["restaurant"])
+    r = s.get(f"{API}/analytics/revenue", params=ANALYTICS_WINDOW)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["domains"] == ["restaurant"]
+    assert body["hotel"] is None
+    assert body["outlets"] is not None
+    # The figure spans both outlets whichever one you asked for — one till, one set of
+    # orders — and says so.
+    assert body["outlets"]["covers"] == ["restaurant", "bar"]
+
+
+def test_analytics_hotel_only_omits_outlets(admin):
+    r = admin.get(f"{API}/analytics/revenue", params={"domains": "hotel", **ANALYTICS_WINDOW})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["outlets"] is None
+    assert body["hotel"] is not None
+    # The old flag told the screen what the user had already ticked rather than what the
+    # figure contained. It was replaced by `outlets.covers`, not renamed alongside it.
+    assert "outlets_combined" not in body
+
+
+def test_analytics_restaurant_only_omits_hotel(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "restaurant", **ANALYTICS_WINDOW})
+    assert r.status_code == 200, r.text
+    assert r.json()["hotel"] is None
+
+
+def test_selecting_both_outlet_domains_does_not_double_count(admin):
+    """Both money assertions used to compare 0.0 to 0.0: the shared window is in March
+    2026 and every settled order in the database settled today. So this test creates the
+    revenue it asserts on, in a window that contains it."""
+    today = _property_today().isoformat()
+    window = {"start": today, "end": today}
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle",
+                         json={"payment_method": "cash"})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
+    one = admin.get(f"{API}/analytics/revenue",
+                    params={"domains": "restaurant", **window}).json()
+    both = admin.get(f"{API}/analytics/revenue",
+                     params={"domains": "restaurant,bar", **window}).json()
+
+    # There is real money in the window now, so "equal" means something.
+    assert one["outlets"]["total"] >= bill
+    assert one["outlets"]["orders"] >= 1
+    assert one["total"] >= bill
+
+    assert both["outlets"]["total"] == one["outlets"]["total"]
+    assert both["outlets"]["orders"] == one["outlets"]["orders"]
+    assert both["total"] == one["total"]
+    # Ticking one box or two changes nothing about what the figure contains, and the
+    # response reports the contents rather than the ticks.
+    assert one["outlets"]["covers"] == ["restaurant", "bar"]
+    assert both["outlets"]["covers"] == ["restaurant", "bar"]
+
+
+def test_a_bar_only_manager_is_told_the_figure_covers_the_restaurant_too(admin):
+    """This property's restaurant and bar share one till and one set of orders, and an
+    order carries no domain — so a manager holding only `bar` receives every restaurant
+    rupee. The response has to say so. The old `outlets_combined` flag was False for
+    this user, because they had only ticked one box: it reported what they already knew
+    instead of what the number contained."""
+    email = f"barmgr-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "barmgr12345", "manager", ["bar"])
+    today = _property_today().isoformat()
+    window = {"start": today, "end": today}
+
+    r = s.get(f"{API}/analytics/revenue", params=window)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["domains"] == ["bar"]
+    assert body["hotel"] is None
+    assert body["outlets"]["covers"] == ["restaurant", "bar"]
+    assert "outlets_combined" not in body
+
+    # And it really is the whole till: the same figure an admin sees for both outlets.
+    everything = admin.get(f"{API}/analytics/revenue",
+                           params={"domains": "restaurant,bar", **window}).json()
+    assert body["outlets"]["total"] == everything["outlets"]["total"]
+    assert body["outlets"]["orders"] == everything["outlets"]["orders"]
+
+
+def test_analytics_by_day_spans_the_whole_range(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "2026-03-01", "end": "2026-03-05"})
+    days = [d["date"] for d in r.json()["by_day"]]
+    assert days == ["2026-03-01", "2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"]
+
+
+def test_analytics_by_day_row_totals_are_hotel_plus_outlets(admin):
+    """Against an empty window every row compared 0 == round(0 + 0, 2), which would pass
+    just as happily if the endpoint returned hotel MINUS outlets, or shifted the by_day
+    index by one — the exact bugs this test is named for. So it builds both halves of
+    the sum first: a past stay for the hotel side, a settled bill for the outlet side."""
+    ci, co = "2024-08-12", "2024-08-15"
+    s = _checked_in(admin, ci, co)
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()   # posts the due nights
+    nights = {e["charge_date"]: e["amount"]
+              for e in folio["entries"] if e["kind"] == "room_night"}
+    assert sorted(nights) == ["2024-08-12", "2024-08-13", "2024-08-14"], nights
+    night_total = round(sum(nights.values()), 2)
+    assert night_total > 0
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle",
+                         json={"payment_method": "cash"})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
+    today = _property_today().isoformat()
+    body = admin.get(f"{API}/analytics/revenue", params={
+        "domains": "hotel,restaurant", "start": ci, "end": today}).json()
+
+    # Both sides carry real money, so the arithmetic below has something to be wrong about.
+    assert body["hotel"]["total"] >= night_total
+    assert body["outlets"]["total"] >= bill
+
+    # And it is on the right rows: a by_day shifted by one day fails here.
+    rows = {d["date"]: d for d in body["by_day"]}
+    for night, amount in nights.items():
+        assert rows[night]["hotel"] >= amount, (night, rows[night])
+    assert rows[today]["outlets"] >= bill, rows[today]
+
+    for row in body["by_day"]:
+        assert row["total"] == round(row["hotel"] + row["outlets"], 2), row
+    assert body["total"] == round(body["hotel"]["total"] + body["outlets"]["total"], 2)
+    assert body["total"] >= round(night_total + bill, 2)
+
+
+def test_a_settled_order_lands_in_the_by_day_row_for_the_day_it_settled(admin):
+    """The outlet column of the chart the screen actually draws. Nothing asserted a
+    non-zero figure in by_day[*]["outlets"] before, so a bucketing bug in the outlet
+    path — the whole late session dated to yesterday, say — would have shipped."""
+    today = _property_today()
+    yesterday, tomorrow = today - timedelta(days=1), today + timedelta(days=1)
+    window = {"domains": "restaurant", "start": yesterday.isoformat(),
+              "end": tomorrow.isoformat()}
+
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+    was = {d["date"]: d["outlets"] for d in before["by_day"]}
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle",
+                         json={"payment_method": "cash"})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    now = {d["date"]: d["outlets"] for d in after["by_day"]}
+
+    assert now[today.isoformat()] > 0
+    assert round(now[today.isoformat()] - was[today.isoformat()], 2) == bill
+    # ...and only that row moved: a day-early or day-late bucket shows up right here.
+    for other in (yesterday, tomorrow):
+        assert round(now[other.isoformat()] - was[other.isoformat()], 2) == 0.0, other
+
+
+def test_analytics_rejects_start_after_end(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "2026-03-31", "end": "2026-03-01"})
+    assert r.status_code == 400, r.text
+
+
+def test_analytics_rejects_an_unparseable_date(admin):
+    r = admin.get(f"{API}/analytics/revenue",
+                  params={"domains": "hotel", "start": "March", "end": "2026-03-01"})
+    assert r.status_code == 400, r.text
+
+
+def test_analytics_rejects_an_unknown_domain(admin):
+    r = admin.get(f"{API}/analytics/revenue", params={"domains": "spa", **ANALYTICS_WINDOW})
+    assert r.status_code == 422, r.text
+
+
+def test_a_waiter_cannot_reach_analytics(waiter):
+    r = waiter.get(f"{API}/analytics/revenue", params=ANALYTICS_WINDOW)
+    assert r.status_code == 403, r.text
+
+
+def test_a_room_night_appears_in_hotel_revenue_on_the_night_it_covers(admin):
+    """A stay's nights land on the nights they cover, not on the day they were posted."""
+    # A past window of its own, so every night is due the moment the folio is read.
+    ci, co = "2024-06-14", "2024-06-16"
+    window = {"domains": "hotel", "start": ci, "end": "2024-06-15"}
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+
+    s = _checked_in(admin, ci, co)
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()   # posts the due nights
+    assert folio["balance"] > 0, folio
+    nights = {e["charge_date"]: e["amount"]
+              for e in folio["entries"] if e["kind"] == "room_night"}
+    # Two nights: 06-14 and 06-15. 06-16 is the departure and is not slept in.
+    assert sorted(nights) == ["2024-06-14", "2024-06-15"], nights
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert after["hotel"]["room_nights"] > before["hotel"]["room_nights"]
+    assert round(after["hotel"]["room_nights"] - before["hotel"]["room_nights"], 2) == \
+        round(sum(nights.values()), 2)
+
+    was = {d["date"]: d["hotel"] for d in before["by_day"]}
+    now = {d["date"]: d["hotel"] for d in after["by_day"]}
+    for night, amount in nights.items():
+        assert round(now[night] - was[night], 2) == round(amount, 2), night
+
+
+def test_a_bar_bill_charged_to_a_room_is_outlet_revenue_and_not_hotel_revenue(admin):
+    """The rule the whole endpoint exists for: hotel and outlet figures add cleanly
+    because a room-charged bar bill is revenue at the bar and a receivable on the folio.
+    It must be counted exactly once, on the outlet side."""
+    # A stay wholly in the past, so all three nights are due the moment the folio is
+    # read, whatever time of day the suite runs. Deriving check-in from date.today()
+    # made this flaky: the machine's date and the date the server posts nights by are
+    # not the same thing, and a run in the small hours posted only two nights and failed
+    # on `len(nights) == 3`. A fixed window is what the room-night test above uses.
+    ci, co = "2024-09-10", "2024-09-13"
+    # The window ends today so it holds both the three due nights and today's bar bill.
+    window = {"domains": "hotel,restaurant", "start": ci,
+              "end": _property_today().isoformat()}
+
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+
+    s = _checked_in(admin, ci, co)
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()   # posts the due nights
+    nights = [e for e in folio["entries"] if e["kind"] == "room_night"]
+    assert len(nights) == 3, folio
+    night_total = round(sum(n["amount"] for n in nights), 2)
+
+    mid = admin.get(f"{API}/analytics/revenue", params=window).json()
+    # (a) hotel revenue rose by exactly the room nights; the outlet side did not move.
+    assert round(mid["hotel"]["room_nights"] - before["hotel"]["room_nights"], 2) == night_total
+    assert round(mid["outlets"]["total"] - before["outlets"]["total"], 2) == 0.0
+
+    order = _open_order(admin)
+    settled = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": s["folio_id"]})
+    assert settled.status_code == 200, settled.text
+    bill = round(settled.json()["total"], 2)
+    assert bill > 0
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    # (a) the bar bill did NOT raise hotel revenue, even though it sits on the folio.
+    assert round(after["hotel"]["total"] - mid["hotel"]["total"], 2) == 0.0
+    # (b) outlet revenue rose by exactly the bill, and by one order.
+    assert round(after["outlets"]["total"] - mid["outlets"]["total"], 2) == bill
+    assert after["outlets"]["orders"] - mid["outlets"]["orders"] == 1
+    # (c) the combined total is the sum, with the bill counted once and only once.
+    assert after["total"] == round(after["hotel"]["total"] + after["outlets"]["total"], 2)
+    assert round(after["total"] - before["total"], 2) == round(night_total + bill, 2)
+
+    both = admin.get(f"{API}/analytics/revenue",
+                     params={**window, "domains": "hotel,restaurant,bar"}).json()
+    assert both["total"] == after["total"]
+    assert both["outlets"]["total"] == after["outlets"]["total"]
+    assert both["outlets"]["covers"] == ["restaurant", "bar"]
+
+
+def test_analytics_posts_due_nights_for_an_open_folio_nobody_has_opened(admin):
+    """Hotel revenue must include the guests currently in the building.
+
+    Room nights post lazily — `post_due_nights` writes them, and until this fix only
+    GET /folios/{id} and check-out ever called it. So a stay whose nights were due but
+    whose folio nobody had opened contributed ₹0 to this report, and then gained that
+    money *retroactively*, on the nights it covered, the moment a receptionist happened
+    to open the folio: the same range, queried twice a day apart, gave two different
+    answers with nothing to explain the change.
+
+    The folio is deliberately never fetched here. Every other analytics test in this file
+    reads it first, with a `# posts the due nights` comment — which is precisely the
+    dependency this test exists to remove.
+    """
+    ci, co = "2024-02-05", "2024-02-08"
+    window = {"domains": "hotel", "start": ci, "end": "2024-02-07"}
+
+    # Taken before the stay exists, and it settles any nights left open by an earlier run
+    # of this suite — so the delta below is this stay's nights and nothing else.
+    before = admin.get(f"{API}/analytics/revenue", params=window).json()
+
+    s = _checked_in(admin, ci, co)
+    # What the nights are worth, read off the booking's own quote snapshot rather than
+    # off the folio: the whole point is that nothing opens the folio.
+    quoted = {n["date"]: round(float(n["tariff"]) + float(n["gst_amount"]), 2)
+              for n in s["booking"]["quote"]["nights"]}
+    assert sorted(quoted) == ["2024-02-05", "2024-02-06", "2024-02-07"], quoted
+    night_total = round(sum(quoted.values()), 2)
+    assert night_total > 0
+
+    after = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert round(after["hotel"]["room_nights"] - before["hotel"]["room_nights"], 2) == \
+        night_total, "the stay's nights were missing from hotel revenue"
+
+    # And on the right days: each night lands on the night it covers, not on today.
+    was = {d["date"]: d["hotel"] for d in before["by_day"]}
+    now = {d["date"]: d["hotel"] for d in after["by_day"]}
+    for night, amount in quoted.items():
+        assert round(now[night] - was[night], 2) == amount, night
+
+    # Idempotent under this new caller: a second report posts nothing, so the figure does
+    # not creep upwards every time somebody looks at it.
+    again = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert again["hotel"]["room_nights"] == after["hotel"]["room_nights"]
+    assert again["hotel"]["total"] == after["hotel"]["total"]
+    assert again["by_day"] == after["by_day"]
+
+    # Opening the folio afterwards still shows exactly those nights and adds nothing —
+    # the ledger the report read is the same one the desk sees.
+    folio = admin.get(f"{API}/folios/{s['folio_id']}").json()
+    nights = {e["charge_date"]: e["amount"]
+              for e in folio["entries"] if e["kind"] == "room_night"}
+    assert nights == quoted, nights
+    third = admin.get(f"{API}/analytics/revenue", params=window).json()
+    assert third["hotel"]["room_nights"] == after["hotel"]["room_nights"]
+
+
+def test_an_admin_created_with_no_domains_is_given_all_of_them(admin):
+    """`{"role": "admin", "domains": []}` used to be stored as written. Harmless while
+    the account stays an admin — admins are never domain-checked — but it is the state
+    the startup backfill exists to repair, and a later demotion to manager turned it into
+    an account that could reach nothing."""
+    email = f"alldom-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Domainless Admin", "email": email, "password": "admin12345",
+        "role": "admin", "domains": []})
+    assert r.status_code == 200, r.text
+    assert set(r.json()["domains"]) == {"hotel", "restaurant", "bar"}, r.text
+
+    # And it survives the round trip, so the roster does not have to special-case it.
+    listed = next(u for u in admin.get(f"{API}/staff").json() if u["email"] == email)
+    assert set(listed["domains"]) == {"hotel", "restaurant", "bar"}
+
+
+def test_you_can_rename_yourself_but_not_change_your_own_role_or_domains(admin):
+    """The self-guard exists to stop someone editing away their own access. A typo in
+    your own name is not that, and a sole admin had no way to fix one."""
+    email = f"rename-{uuid.uuid4().hex[:6]}@barflow.io"
+    me = _staff_session(admin, email, "rename12345", "admin", ["hotel", "restaurant", "bar"])
+    my = me.get(f"{API}/auth/me").json()
+
+    renamed = me.put(f"{API}/staff/{my['id']}", json={
+        "name": "Correctly Spelled", "role": my["role"], "domains": my["domains"]})
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["name"] == "Correctly Spelled"
+    assert me.get(f"{API}/auth/me").json()["name"] == "Correctly Spelled"
+
+    # Role and domains are still refused, and the 409 says which field was the problem
+    # rather than reciting both.
+    role = me.put(f"{API}/staff/{my['id']}", json={
+        "name": "Correctly Spelled", "role": "manager", "domains": my["domains"]})
+    assert role.status_code == 409, role.text
+    assert "role" in role.json()["detail"] and "domains" not in role.json()["detail"]
+
+    doms = me.put(f"{API}/staff/{my['id']}", json={
+        "name": "Correctly Spelled", "role": my["role"], "domains": ["hotel"]})
+    assert doms.status_code == 409, doms.text
+    assert "domains" in doms.json()["detail"] and "role" not in doms.json()["detail"]
+
+    # Nothing was written by either refusal.
+    still = me.get(f"{API}/auth/me").json()
+    assert still["role"] == "admin"
+    assert set(still["domains"]) == set(my["domains"])

@@ -3,12 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
 from models.hotel import OutOfOrderIn, Room, RoomIn, RoomType, RoomTypeIn
-from security import get_current_user, require_roles
+from security import require_access
 from services.availability import count_available, ranges_overlap, room_is_available
 
 router = APIRouter()
 
-MANAGE = require_roles("admin", "manager")
+MANAGE = require_access("hotel", "admin", "manager")
 
 # Statuses that mean a booking still matters when deleting inventory or warning
 # about a maintenance block.
@@ -22,7 +22,7 @@ def _validate_occupancy(base_occupancy: int, max_occupancy: int) -> None:
 
 # --------------------------- room types ---------------------------
 @router.get("/room-types")
-async def list_room_types(user: dict = Depends(get_current_user)):
+async def list_room_types(user: dict = Depends(require_access("hotel"))):
     return await db.room_types.find({}, {"_id": 0}).to_list(200)
 
 
@@ -71,7 +71,7 @@ async def delete_room_type(type_id: str, user: dict = Depends(MANAGE)):
 
 # ------------------------------ rooms -----------------------------
 @router.get("/rooms")
-async def list_rooms(user: dict = Depends(get_current_user)):
+async def list_rooms(user: dict = Depends(require_access("hotel"))):
     return await db.rooms.find({}, {"_id": 0}).to_list(500)
 
 

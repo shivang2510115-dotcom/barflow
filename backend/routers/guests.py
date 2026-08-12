@@ -3,11 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
 from models.hotel import Guest, GuestIn
-from security import get_current_user, require_roles
+from security import require_access
+from services.access import SHARED
 
 router = APIRouter()
 
-MANAGE = require_roles("admin", "manager", "front_desk")
+MANAGE = require_access(SHARED, "admin", "manager", "front_desk")
 
 
 @router.get("/guests")

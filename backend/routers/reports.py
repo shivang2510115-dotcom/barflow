@@ -2,14 +2,21 @@
 import os
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 from db import db
-from security import require_roles
+from security import require_access
+# Outlet sales analytics cover both the restaurant and the bar, so either domain grants
+# access. The hotel revenue report is a later sub-project and will declare "hotel".
+from services.access import OUTLET
+# `settled_at` is stored in UTC; every report here is a report on the property's local
+# day. The same conversion the analytics endpoint uses, so the two screens can never
+# disagree about which day a bill belongs to. See services/clock.py.
+from services.clock import local_date, now_local, today as local_today
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +25,10 @@ router = APIRouter()
 
 # ----------------- Reports -----------------
 @router.get("/reports/summary")
-async def report_summary(user: dict = Depends(require_roles("admin", "manager"))):
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+async def report_summary(user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
+    today = local_today()
     settled = await db.orders.find({"status": "settled"}, {"_id": 0}).to_list(2000)
-    today_orders = [o for o in settled if o.get("settled_at", "") >= today]
+    today_orders = [o for o in settled if local_date(o.get("settled_at")) == today]
     revenue_today = sum(o["total"] for o in today_orders)
     revenue_total = sum(o["total"] for o in settled)
 
@@ -35,7 +42,7 @@ async def report_summary(user: dict = Depends(require_roles("admin", "manager"))
     # last 7 days revenue
     days = {}
     for o in settled:
-        d = o.get("settled_at", "")[:10]
+        d = local_date(o.get("settled_at"))
         if d:
             days[d] = days.get(d, 0) + o["total"]
     daily = sorted(days.items())[-7:]
@@ -58,7 +65,7 @@ async def report_summary(user: dict = Depends(require_roles("admin", "manager"))
 
 
 @router.get("/reports/orders")
-async def recent_orders(user: dict = Depends(require_roles("admin", "manager"))):
+async def recent_orders(user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     return await db.orders.find({"status": "settled"}, {"_id": 0}).sort("settled_at", -1).limit(50).to_list(50)
 
 
@@ -67,7 +74,7 @@ async def report_analytics(
     start: Optional[str] = None,
     end: Optional[str] = None,
     granularity: str = "day",
-    user: dict = Depends(require_roles("admin", "manager")),
+    user: dict = Depends(require_access(OUTLET, "admin", "manager")),
 ):
     """Sales analytics for a date range (inclusive, by settled_at date).
 
@@ -78,7 +85,7 @@ async def report_analytics(
     if granularity not in ("day", "month"):
         granularity = "day"
 
-    today = datetime.now(timezone.utc).date()
+    today = date.fromisoformat(local_today())
     if not end:
         end = today.isoformat()
     if not start:
@@ -87,7 +94,7 @@ async def report_analytics(
     settled = await db.orders.find({"status": "settled"}, {"_id": 0}).to_list(100000)
     in_range = []
     for o in settled:
-        d = (o.get("settled_at") or "")[:10]
+        d = local_date(o.get("settled_at"))
         if d and start <= d <= end:
             in_range.append(o)
 
@@ -99,7 +106,7 @@ async def report_analytics(
     # Time series (bucketed by day or month)
     buckets: dict = {}
     for o in in_range:
-        d = (o.get("settled_at") or "")[:10]
+        d = local_date(o.get("settled_at")) or ""
         key = d[:7] if granularity == "month" else d
         b = buckets.setdefault(key, {"revenue": 0.0, "orders": 0})
         b["revenue"] += (o.get("total") or 0)
@@ -179,10 +186,10 @@ def _money(v):
 async def build_daily_brief(date: Optional[str] = None) -> dict:
     """Compute the owner's end-of-day summary for a single date (settled_at)."""
     if not date:
-        date = datetime.now(timezone.utc).date().isoformat()
+        date = local_today()
 
     settled = await db.orders.find({"status": "settled"}, {"_id": 0}).to_list(100000)
-    day = [o for o in settled if (o.get("settled_at") or "")[:10] == date]
+    day = [o for o in settled if local_date(o.get("settled_at")) == date]
 
     revenue = sum((o.get("total") or 0) for o in day)
     bills = len(day)
@@ -271,7 +278,7 @@ def _send_whatsapp(to: str, text: str) -> dict:
 
 
 @router.get("/reports/daily-brief")
-async def daily_brief(date: Optional[str] = None, user: dict = Depends(require_roles("admin", "manager"))):
+async def daily_brief(date: Optional[str] = None, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     return await build_daily_brief(date)
 
 
@@ -281,7 +288,7 @@ class BriefSendIn(BaseModel):
 
 
 @router.post("/reports/daily-brief/send")
-async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(require_roles("admin", "manager"))):
+async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
     brief = await build_daily_brief(payload.date)
     to = (payload.to or os.environ.get("OWNER_PHONE") or "").strip()
     result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, brief["message"])
@@ -292,11 +299,15 @@ _last_brief_sent = {"date": None}
 
 
 async def daily_brief_scheduler():
-    """Once a day at OWNER_BRIEF_TIME (local HH:MM), send the owner brief."""
+    """Once a day at OWNER_BRIEF_TIME, send the owner brief.
+
+    The clock is the property's, not the server's: an 11pm brief must go out at 11pm
+    where the bar is, and cover that same local day's trade.
+    """
     send_time = os.environ.get("OWNER_BRIEF_TIME", "23:00")
     while True:
         try:
-            now = datetime.now()
+            now = now_local()
             hhmm = now.strftime("%H:%M")
             today = now.date().isoformat()
             if hhmm == send_time and _last_brief_sent["date"] != today:

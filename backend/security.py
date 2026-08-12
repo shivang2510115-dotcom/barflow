@@ -5,9 +5,10 @@ from typing import Literal
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request
 
 from db import db
+from services.access import can_access, normalise_domains
 
 JWT_ALGORITHM = "HS256"
 JWT_SECRET = os.environ.get("JWT_SECRET", "supersecret-key-123456789")
@@ -48,6 +49,13 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        # Tokens live for seven days, so refusing at login is not enough — a leaver
+        # deactivated an hour ago would otherwise keep working until their token expired.
+        # Checked here rather than only in require_access so that deactivation takes
+        # effect on every authenticated route at once. 403, not 401: the token is
+        # genuine, the account is not permitted.
+        if not user.get("active", True):
+            raise HTTPException(status_code=403, detail="Account is deactivated")
         return user
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
@@ -55,9 +63,24 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def require_roles(*roles: str):
-    async def checker(user: dict = Depends(get_current_user)):
-        if user["role"] not in roles:
-            raise HTTPException(status_code=403, detail="Forbidden")
+def require_access(domains: str | tuple[str, ...], *roles: str):
+    """Dependency: the caller must be active, hold one of `roles`, and hold a domain.
+
+    The only authorization dependency. `require_roles` — role-only, no domain — is gone
+    rather than deprecated: leaving both in place means the next endpoint gets written
+    with the weaker one. Declaring the domain at each call site keeps authorization
+    greppable — you can read any route and see exactly who reaches it. Inferring it from
+    the router or the URL would make a misfiled endpoint silently inherit the wrong
+    permission.
+    """
+    # Validated where this is called (route declaration, i.e. import time), not inside
+    # the checker: a typo in a domain must break startup loudly, not silently deny every
+    # user at request time.
+    domains = normalise_domains(domains)
+
+    async def checker(user: dict = Depends(get_current_user)) -> dict:
+        if not can_access(user, domains, roles):
+            raise HTTPException(status_code=403, detail="Not permitted")
         return user
+
     return checker

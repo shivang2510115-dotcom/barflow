@@ -9,13 +9,17 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
 from models.hotel import Booking, BookingIn, BookingUpdateIn, CancelIn
-from security import require_roles
+from security import require_access
 from services.availability import CONSUMING_STATUSES, count_available
 from services.pricing import MissingRateError, daterange, quote_stay
 
 router = APIRouter()
 
-BOOK = require_roles("admin", "manager", "front_desk")
+# Rooms are the hotel's business: a restaurant-only manager holds the right role but not
+# the right domain, and is refused. The rest of the call sites move to require_access in
+# the migration task; this one moves early because the staff API is what finally makes a
+# domain-scoped user creatable, and therefore makes the refusal testable.
+BOOK = require_access("hotel", "admin", "manager", "front_desk")
 LIVE = list(CONSUMING_STATUSES)
 
 

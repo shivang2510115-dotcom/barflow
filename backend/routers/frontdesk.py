@@ -5,28 +5,49 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from db import db
 from models.folio import CheckInIn, CheckOutIn, Folio
-from security import require_roles
+from security import require_access
+from services.access import SHARED
+from services.clock import today
 
 router = APIRouter()
 
-DESK = require_roles("admin", "manager", "front_desk")
+DESK = require_access("hotel", "admin", "manager", "front_desk")
 # A waiter needs to find the in-house guest to charge at the POS, and nothing more:
 # not the front-desk board, not check-in, not check-out.
-IN_HOUSE_LOOKUP = require_roles("admin", "manager", "front_desk", "waiter")
+#
+# Declared shared, not hotel: an outlet waiter's domains are ["bar"] or ["restaurant"],
+# never "hotel", so a hotel-only declaration 403s the very caller the waiter role was
+# put on this list for — the POS asks for /in-house the moment payment method "room" is
+# chosen, finds no folio, and a bar bill can no longer be charged to a room. Widening
+# the domain leaks nothing, because every guest here goes through _pos_guest, which
+# projects down to id, name and phone for all callers alike: no id_proof_number, no
+# address, email or notes reach any caller of this route. Same reasoning that puts
+# guest records on shared — a bar regular and a hotel guest are the same person.
+# The booking and the folio go through _pos_booking and _pos_folio for the same reason:
+# widening the domain without projecting them would hand every outlet waiter the
+# booking notes and the folio balance of every in-house guest.
+IN_HOUSE_LOOKUP = require_access(SHARED, "admin", "manager", "front_desk", "waiter")
 
 
 def _today() -> str:
-    return datetime.now(timezone.utc).date().isoformat()
+    """The property's today, not the server's.
+
+    Booking dates are plain local calendar dates, so comparing them against a UTC
+    date shows the wrong board between midnight and 05:30 IST: the desk would see
+    yesterday's arrivals during the night shift, which is exactly when someone is
+    checking in a late flight.
+    """
+    return today()
 
 
 @router.get("/front-desk")
 async def front_desk(user: dict = Depends(DESK)):
-    today = _today()
+    day = _today()
     arrivals = await db.bookings.find(
-        {"check_in": today, "status": {"$in": ["tentative", "confirmed"]}}, {"_id": 0}
+        {"check_in": day, "status": {"$in": ["tentative", "confirmed"]}}, {"_id": 0}
     ).to_list(500)
     departures = await db.bookings.find(
-        {"check_out": today, "status": "checked_in"}, {"_id": 0}).to_list(500)
+        {"check_out": day, "status": "checked_in"}, {"_id": 0}).to_list(500)
     in_house_rows = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(500)
 
     guests = {g["id"]: g for g in await db.guests.find({}, {"_id": 0}).to_list(5000)}
@@ -37,7 +58,7 @@ async def front_desk(user: dict = Depends(DESK)):
                 "room": rooms.get(b.get("assigned_room_id"))} for b in rows]
         return sorted(out, key=lambda b: b["check_in"])
 
-    return {"date": today,
+    return {"date": day,
             "arrivals": decorate(arrivals),
             "departures": decorate(departures),
             "in_house": decorate(in_house_rows)}
@@ -51,6 +72,29 @@ def _pos_guest(guest: dict | None) -> dict | None:
     if not guest:
         return None
     return {"id": guest.get("id"), "name": guest.get("name"), "phone": guest.get("phone")}
+
+
+def _pos_booking(booking: dict | None) -> dict | None:
+    """Project a booking down to what the POS needs: the row's identity, and nothing
+    else. This route is declared shared, so any user holding any domain reaches it and
+    every field left in the response is a field an outlet waiter can read. The POS
+    reads no booking field at all — it labels the row from the room and the guest and
+    settles against the folio id — so the free-text notes, the priced quote, the rate
+    and occupancy, the source and who created the booking all stay on the server."""
+    if not booking:
+        return None
+    return {"id": booking.get("id")}
+
+
+def _pos_folio(folio: dict | None) -> dict | None:
+    """Project a folio down to what the POS needs: the id to settle a room bill
+    against. Same reasoning as _pos_booking — this route is shared, so anything kept
+    here is visible to every outlet waiter and outlet manager. The balance is a hotel
+    figure the POS never displays, and the endpoint already filters to open folios, so
+    neither balance nor status is worth handing to an outlet."""
+    if not folio:
+        return None
+    return {"id": folio.get("id")}
 
 
 @router.get("/in-house")
@@ -82,6 +126,8 @@ async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP)):
 
     for r in rows:
         r["guest"] = _pos_guest(r["guest"])
+        r["booking"] = _pos_booking(r["booking"])
+        r["folio"] = _pos_folio(r["folio"])
     return rows
 
 
