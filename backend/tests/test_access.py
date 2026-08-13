@@ -1,7 +1,8 @@
 """Pure authorization tests — no server, no database."""
 import pytest
 from services.access import (
-    DOMAINS, SHARED, AccessError, can_access, normalise_domains,
+    DOMAINS, LIVE, PENDING, PLATFORM_ADMIN, SHARED, SUSPENDED,
+    AccessError, can_access, normalise_domains,
 )
 
 
@@ -10,6 +11,19 @@ def u(role="manager", domains=("restaurant",), active=True):
 
 
 MGR = ("admin", "manager")
+
+
+# --- tenancy helpers ---------------------------------------------------------------
+
+def tenant(role="manager", domains=("restaurant",), active=True, property_id="p1"):
+    """A user who belongs to a hotel — what every real login is once tenancy exists."""
+    user = u(role, domains, active)
+    user["property_id"] = property_id
+    return user
+
+
+def prop(status, id="p1"):
+    return {"id": id, "status": status, "name": "The Grand"}
 
 
 def test_role_and_domain_both_required():
@@ -99,3 +113,163 @@ def test_bare_string_role_does_not_become_substring_matching():
     # "man" must not pass a check for roles="manager" just because "man" in "manager".
     assert can_access(u(role="man"), "restaurant", "manager") is False
     assert can_access(u(role="manager"), "restaurant", "manager") is True
+
+
+# --- tenancy: is the caller's property usable at all? --------------------------------
+
+
+def test_a_live_property_behaves_exactly_as_today():
+    # Every case above, replayed with a live property attached. Going live must change
+    # nothing about who reaches what, or the whole existing suite is a lie.
+    live = prop(LIVE)
+
+    assert can_access(tenant(domains=("restaurant",)), "restaurant", MGR, live) is True
+    assert can_access(tenant(domains=("restaurant",)), "hotel", MGR, live) is False
+    assert can_access(tenant(role="waiter", domains=("hotel",)), "hotel", MGR, live) is False
+
+    admin = tenant(role="admin", domains=())
+    for d in DOMAINS:
+        assert can_access(admin, d, MGR, live) is True
+
+    assert can_access(tenant(domains=("bar",)), SHARED, MGR, live) is True
+    assert can_access(tenant(role="kitchen", domains=("bar",)), SHARED, MGR, live) is False
+    assert can_access(tenant(domains=()), "restaurant", MGR, live) is False
+    assert can_access(tenant(domains=()), SHARED, MGR, live) is False
+
+    waiter = tenant(role="waiter", domains=("bar",))
+    assert can_access(waiter, ("restaurant", "bar"), ("admin", "manager", "waiter"), live) is True
+
+    duty = tenant(domains=("hotel", "restaurant"))
+    assert can_access(duty, "hotel", MGR, live) is True
+    assert can_access(duty, "bar", MGR, live) is False
+
+    assert can_access(tenant(role="kitchen", domains=("bar",)), "bar", (), live) is True
+    assert can_access(tenant(role="man"), "restaurant", "manager", live) is False
+
+    with pytest.raises(AccessError):
+        can_access(tenant(), "spa", MGR, live)
+
+
+def test_a_live_property_is_unaffected_by_the_setup_time_marking():
+    # setup_time widens who may act while pending; it says nothing about a live hotel.
+    live = prop(LIVE)
+    assert can_access(tenant(), "restaurant", MGR, live, setup_time=True) is True
+    assert can_access(tenant(), "restaurant", MGR, live, setup_time=False) is True
+
+
+def test_an_inactive_user_in_a_live_property_is_still_refused():
+    # Rule 1 passing must not skip the rules after it.
+    live = prop(LIVE)
+    assert can_access(tenant(active=False), "restaurant", MGR, live) is False
+    assert can_access(tenant(role="admin", active=False), "hotel", MGR, live) is False
+
+
+def test_a_suspended_property_refuses_its_own_admin():
+    suspended = prop(SUSPENDED)
+    assert can_access(tenant(role="admin", domains=()), "hotel", MGR, suspended) is False
+
+
+def test_a_suspended_property_refuses_every_role():
+    suspended = prop(SUSPENDED)
+    for role in ("admin", "manager", "waiter", "kitchen", "front_desk"):
+        user = tenant(role=role, domains=DOMAINS)
+        assert can_access(user, "hotel", (), suspended) is False
+        assert can_access(user, SHARED, (), suspended) is False
+
+
+def test_a_suspended_property_beats_the_admin_domain_bypass():
+    # The admin bypass skips the domain check, not the tenancy check. If suspension were
+    # applied after the bypass, suspending a hotel would lock out everyone but the one
+    # person whose account is worth the most.
+    suspended = prop(SUSPENDED)
+    admin = tenant(role="admin", domains=())
+    for d in DOMAINS:
+        assert can_access(admin, d, MGR, suspended) is False
+    assert can_access(admin, SHARED, MGR, suspended) is False
+
+
+def test_setup_time_does_not_rescue_a_suspended_property():
+    # Suspension is total: an unpaid hotel does not get to keep editing its rates.
+    suspended = prop(SUSPENDED)
+    assert can_access(tenant(role="admin"), "hotel", MGR, suspended, setup_time=True) is False
+
+
+def test_a_pending_property_allows_a_setup_time_endpoint():
+    pending = prop(PENDING)
+    assert can_access(tenant(role="admin", domains=()), "hotel", MGR, pending, setup_time=True) is True
+    assert can_access(tenant(domains=("hotel",)), "hotel", MGR, pending, setup_time=True) is True
+
+
+def test_a_pending_property_refuses_an_operating_endpoint():
+    pending = prop(PENDING)
+    assert can_access(tenant(domains=("hotel",)), "hotel", MGR, pending) is False
+    assert can_access(tenant(role="waiter", domains=("bar",)), SHARED, (), pending) is False
+
+
+def test_a_pending_property_refuses_an_operating_endpoint_even_for_an_admin():
+    # No guest money moves through an unvetted property, whoever is signed in.
+    pending = prop(PENDING)
+    admin = tenant(role="admin", domains=())
+    for d in DOMAINS:
+        assert can_access(admin, d, MGR, pending) is False
+
+
+def test_a_pending_property_still_enforces_the_rules_after_rule_one():
+    # Setup-time is a widening of rule 1 only — role, domain and active still apply.
+    pending = prop(PENDING)
+    assert can_access(tenant(role="waiter"), "restaurant", MGR, pending, setup_time=True) is False
+    assert can_access(tenant(domains=("bar",)), "hotel", MGR, pending, setup_time=True) is False
+    assert can_access(tenant(active=False), "restaurant", MGR, pending, setup_time=True) is False
+
+
+def test_an_unknown_property_status_is_refused():
+    # A status nobody has taught this function about is not a licence to operate.
+    assert can_access(tenant(role="admin"), "hotel", MGR, prop("archived")) is False
+    assert can_access(tenant(role="admin"), "hotel", MGR, prop(None)) is False
+    assert can_access(tenant(role="admin"), "hotel", MGR, {"id": "p1"}) is False
+
+
+def test_a_platform_admin_is_refused_a_hotel_endpoint():
+    # The operator's login is not a master key into customer data.
+    operator = {"role": PLATFORM_ADMIN, "domains": [], "active": True, "property_id": None}
+    for d in DOMAINS:
+        assert can_access(operator, d, (), None) is False
+        assert can_access(operator, d, (), None, setup_time=True) is False
+    assert can_access(operator, SHARED, (), None) is False
+
+
+def test_a_platform_admin_cannot_slip_through_by_having_no_property():
+    # Refused on the role, not merely on the absent record — so an operator who somehow
+    # arrives at a hotel endpoint that never resolved a property is still refused, and
+    # one handed a live property (a stamping bug, a hand-edited record) is too.
+    operator = {"role": PLATFORM_ADMIN, "domains": list(DOMAINS), "active": True}
+    assert can_access(operator, "hotel", ()) is False
+    assert can_access(operator, "hotel", (), prop(LIVE)) is False
+    operator_with_property = dict(operator, property_id="p1")
+    assert can_access(operator_with_property, "hotel", (), prop(LIVE), setup_time=True) is False
+
+
+def test_a_user_with_no_property_is_refused():
+    # A startup migration is meant to make this unreachable; the predicate must not
+    # depend on the migration having run.
+    stray = tenant(role="admin", property_id=None)
+    assert can_access(stray, "hotel", MGR, None) is False
+    assert can_access(stray, "hotel", MGR, prop(LIVE)) is False
+    assert can_access(stray, "hotel", MGR, prop(LIVE), setup_time=True) is False
+
+    missing_key = u(role="admin")
+    assert can_access(missing_key, "hotel", MGR, prop(LIVE)) is False
+
+
+def test_a_property_that_could_not_be_found_is_refused():
+    # A property_id pointing at nothing is a broken tenant, not an unrestricted one.
+    assert can_access(tenant(role="admin"), "hotel", MGR, None) is False
+    assert can_access(tenant(role="admin"), "hotel", MGR, None, setup_time=True) is False
+
+
+def test_omitting_the_property_leaves_the_pre_tenancy_rules_alone():
+    # The default exists so the seventeen tests written before tenancy still describe the
+    # truth. require_access always passes a property, so this shape is a test convenience
+    # rather than a route anyone can reach.
+    assert can_access(u(), "restaurant", MGR) is True
+    assert can_access(u(active=False), "restaurant", MGR) is False
