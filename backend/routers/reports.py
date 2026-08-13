@@ -179,8 +179,32 @@ async def report_analytics(
 CURRENCY_SYMBOL = os.environ.get("CURRENCY_SYMBOL", "₹")
 
 
+def _indian_grouping(n: int) -> str:
+    """Group digits the Indian way: 12,34,567 rather than 1,234,567.
+
+    The screens format money through currency() in the frontend, which uses en-IN.
+    Python's "," format spec is Western-only, so without this the same figure reads
+    Rs1,00,000 in the app and Rs100,000 in the owner's WhatsApp message, and the two
+    look like different numbers to the person reconciling them.
+    """
+    s = str(abs(n))
+    if len(s) > 3:
+        head, tail = s[:-3], s[-3:]
+        # Every group above the last three is a pair, hence the step of 2.
+        parts = []
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        if head:
+            parts.insert(0, head)
+        s = ",".join(parts + [tail])
+    return s
+
+
 def _money(v):
-    return f"{CURRENCY_SYMBOL}{round(v or 0):,}"
+    n = round(v or 0)
+    # Sign outside the symbol: -Rs200, not Rs-200. The latter reads as a typo.
+    return f"{'-' if n < 0 else ''}{CURRENCY_SYMBOL}{_indian_grouping(abs(n))}"
 
 
 async def build_daily_brief(date: Optional[str] = None) -> dict:

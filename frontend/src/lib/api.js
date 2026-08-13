@@ -32,7 +32,10 @@ export function formatApiErrorDetail(detail) {
 }
 
 export function currency(v) {
-  return `₹${Number(v || 0).toLocaleString("en-IN", {
+  const n = Number(v || 0);
+  // Sign outside the symbol: -₹200.00, not ₹-200.00. The latter reads as a typo,
+  // and a refund line on a folio is exactly where it shows up.
+  return `${n < 0 ? "-" : ""}₹${Math.abs(n).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
