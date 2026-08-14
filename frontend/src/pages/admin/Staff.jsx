@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { DOMAINS } from "@/lib/domains";
+import { DOMAINS, DOMAIN_LABELS } from "@/lib/domains";
+import { screenInDomains } from "@/lib/sections";
 
 const ROLES = ["admin", "manager", "front_desk", "waiter", "kitchen"];
 
@@ -12,7 +13,127 @@ const BLANK = {
   password: "",
   role: "waiter",
   domains: ["restaurant"],
+  permissions: [],
 };
+
+// "hotel" → "hotel", ["restaurant","bar"] → "restaurant or bar". What a screen needs, said
+// the way the domain picker above says it.
+function needs(screen) {
+  const names = (screen.domains || []).map((d) => DOMAIN_LABELS[d]?.toLowerCase() || d);
+  if (names.length <= 1) return names[0] || "";
+  return `${names.slice(0, -1).join(", ")} or ${names[names.length - 1]}`;
+}
+
+// The catalogue comes back flat and in display order; the ticks are laid out by section,
+// so group it here rather than assuming the sections or their order.
+function bySection(catalogue) {
+  const out = [];
+  for (const screen of catalogue) {
+    const found = out.find((g) => g.section === screen.section);
+    if (found) found.screens.push(screen);
+    else out.push({ section: screen.section, screens: [screen] });
+  }
+  return out;
+}
+
+/**
+ * The screen ticks, laid out by section.
+ *
+ * Built from GET /api/permissions rather than a list written out here: the catalogue is
+ * served precisely so this screen and the navigation cannot disagree about what exists.
+ *
+ * Two cases the API would otherwise refuse are said out loud instead:
+ *
+ * * a screen outside this person's work areas is 400 on save, because the domain check
+ *   runs first at request time and the tick could never take effect — so it is disabled
+ *   and labelled with what it would need, not silently dropped;
+ * * an admin is never permission-checked, so their ticks decide nothing. Showing them
+ *   ticked would claim a constraint that does not exist, so the whole block reads as not
+ *   applicable for an admin.
+ */
+function ScreenPicker({ catalogue, value, onChange, role, domains }) {
+  const isAdmin = role === "admin";
+  const groups = bySection(catalogue);
+
+  if (!catalogue.length) {
+    return <p className="text-xs text-stone-500">Loading the screen list…</p>;
+  }
+
+  const toggle = (key) =>
+    onChange(value.includes(key) ? value.filter((k) => k !== key) : [...value, key]);
+
+  return (
+    <div className={isAdmin ? "opacity-50" : ""}>
+      {isAdmin && (
+        <p className="text-xs text-orange-400/80 mb-4">
+          An admin reaches every screen regardless of what is ticked, exactly as they are
+          never checked against work areas. These boxes decide nothing here.
+        </p>
+      )}
+      <div className="grid gap-x-10 gap-y-6 sm:grid-cols-2">
+        {groups.map(({ section, screens }) => {
+          const grantable = screens.filter((s) => screenInDomains(s, domains));
+          const allOn =
+            grantable.length > 0 && grantable.every((s) => value.includes(s.key));
+          const flip = () =>
+            onChange(
+              allOn
+                ? value.filter((k) => !grantable.some((s) => s.key === k))
+                : [...value, ...grantable.map((s) => s.key).filter((k) => !value.includes(k))],
+            );
+          return (
+            <div key={section}>
+              <div className="flex items-baseline justify-between mb-2">
+                <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
+                  {section}
+                </div>
+                <button
+                  type="button"
+                  onClick={flip}
+                  disabled={isAdmin || grantable.length === 0}
+                  data-testid={`screens-all-${section.toLowerCase()}`}
+                  className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30"
+                >
+                  {allOn ? "Clear all" : "Select all"}
+                </button>
+              </div>
+              <div className="space-y-1">
+                {screens.map((s) => {
+                  const available = screenInDomains(s, domains);
+                  const on = !isAdmin && available && value.includes(s.key);
+                  return (
+                    <label
+                      key={s.key}
+                      title={available ? s.key : `Needs ${needs(s)}`}
+                      className={`flex items-center gap-2 text-sm ${
+                        available ? "text-stone-300" : "text-stone-600"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        data-testid={`screen-${s.key}`}
+                        checked={isAdmin ? false : on}
+                        disabled={isAdmin || !available}
+                        onChange={() => toggle(s.key)}
+                        className="accent-orange-500 disabled:opacity-40"
+                      />
+                      <span>{s.label}</span>
+                      {!available && (
+                        <span className="text-[10px] tracking-widest uppercase text-stone-600">
+                          needs {needs(s)}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function DomainPicker({ value, onChange, disabled }) {
   const toggle = (d) =>
@@ -45,8 +166,9 @@ export default function Staff() {
   // never briefly clickable into the server's 409.
   const { user: me } = useAuth();
   const [rows, setRows] = useState([]);
+  const [catalogue, setCatalogue] = useState([]); // GET /api/permissions
   const [creating, setCreating] = useState(BLANK);
-  const [editing, setEditing] = useState(null); // { id, name, role, domains }
+  const [editing, setEditing] = useState(null); // { id, name, role, domains, permissions }
   const [deactivating, setDeactivating] = useState(null); // the staff row being toggled
   const [resetting, setResetting] = useState(null); // { id, name, password }
   const [busy, setBusy] = useState(false);
@@ -63,6 +185,24 @@ export default function Staff() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // The catalogue is a constant on the server and never changes while this screen is
+  // open, so it is fetched once rather than with every roster reload.
+  useEffect(() => {
+    api
+      .get("/permissions")
+      .then((r) => setCatalogue(r.data))
+      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
+  }, []);
+
+  // Narrowing somebody's work areas has to narrow their ticks with it: a screen outside
+  // them is a 400 on save, and leaving the box ticked would show a grant that the next
+  // save refuses. Dropped here, where it is visible, rather than in the payload.
+  const keepGrantable = (permissions, domains) =>
+    permissions.filter((k) => {
+      const screen = catalogue.find((s) => s.key === k);
+      return screen ? screenInDomains(screen, domains) : true;
+    });
 
   const run = async (fn) => {
     setBusy(true);
@@ -92,7 +232,16 @@ export default function Staff() {
       return;
     }
     run(async () => {
-      await api.post("/staff", creating);
+      // An admin is never permission-checked and nothing is ticked for them, so the field
+      // is left off entirely; sending [] would be somebody deliberately granting nothing.
+      // For everyone else, no ticks means "the screens this role has always had" — the
+      // server's own default — which is why an empty list is omitted rather than sent.
+      const { permissions, ...rest } = creating;
+      const screens = keepGrantable(permissions, creating.domains);
+      await api.post("/staff", {
+        ...rest,
+        ...(creating.role !== "admin" && screens.length ? { permissions: screens } : {}),
+      });
       setCreating(BLANK);
       toast.success("Staff member added");
     });
@@ -107,11 +256,19 @@ export default function Staff() {
       toast.error("Pick at least one work domain");
       return;
     }
+    const screens = keepGrantable(editing.permissions, editing.domains);
+    if (editing.role !== "admin" && screens.length === 0) {
+      toast.error("Tick at least one screen — an account that reaches nothing is a mistake");
+      return;
+    }
     run(async () => {
       await api.put(`/staff/${editing.id}`, {
         name: editing.name,
         role: editing.role,
         domains: editing.domains,
+        // Omitted for an admin, so their stored screens are carried over untouched rather
+        // than being rewritten from boxes that decide nothing.
+        ...(editing.role === "admin" ? {} : { permissions: screens }),
       });
       setEditing(null);
       toast.success("Saved");
@@ -187,7 +344,13 @@ export default function Staff() {
             <div className="mt-2">
               <DomainPicker
                 value={creating.domains}
-                onChange={(d) => setCreating({ ...creating, domains: d })}
+                onChange={(d) =>
+                  setCreating({
+                    ...creating,
+                    domains: d,
+                    permissions: keepGrantable(creating.permissions, d),
+                  })
+                }
                 disabled={creating.role === "admin"}
               />
             </div>
@@ -200,12 +363,38 @@ export default function Staff() {
             Add
           </button>
         </div>
-        <p className="text-xs text-stone-500 mt-4">
+
+        <div className="mt-8 pt-6 border-t border-stone-800">
+          <div className="text-xs tracking-widest uppercase text-stone-500 mb-4">
+            Screens they can open
+          </div>
+          <ScreenPicker
+            catalogue={catalogue}
+            value={creating.permissions}
+            onChange={(p) => setCreating({ ...creating, permissions: p })}
+            role={creating.role}
+            domains={creating.domains}
+          />
+        </div>
+
+        <p className="text-xs text-stone-500 mt-6 max-w-3xl">
           An admin reaches everything regardless of domains. Everyone else reaches only the
-          areas selected here — enforced by the API, not just hidden in the menu. Passwords
-          are at least 8 characters.
+          areas selected here — enforced by the API, not just hidden in the menu. Leave every
+          screen clear and they start with the ones their role has always had. Passwords are
+          at least 8 characters.
         </p>
       </div>
+
+      {/* Said here rather than discovered on the first 403. A manager ticked for Rates can
+          read the rate sheet and will be refused the moment they change a figure. */}
+      <p className="text-xs text-stone-500 mb-8 max-w-3xl">
+        <span className="text-stone-300">Editing configuration is admin-only.</span> Ticking a
+        screen grants the screen, not the right to change what is set up on it: rooms, room
+        types, rates, seasons, meal plans, tax slabs, the menu and stock items can only be
+        edited by an administrator, and anyone else gets a 403 saying so. Taking a booking,
+        checking a guest in, opening and settling a bill are operational, not configuration,
+        and follow the ticks as normal.
+      </p>
 
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
@@ -215,6 +404,7 @@ export default function Staff() {
               <th className="text-left py-2 px-3 border-b border-stone-800">Email</th>
               <th className="text-left py-2 px-3 border-b border-stone-800">Role</th>
               <th className="text-left py-2 px-3 border-b border-stone-800">Works in</th>
+              <th className="text-left py-2 px-3 border-b border-stone-800">Screens</th>
               <th className="text-left py-2 px-3 border-b border-stone-800">Status</th>
               <th className="border-b border-stone-800" />
             </tr>
@@ -241,6 +431,11 @@ export default function Staff() {
                   <td className="py-2 px-3 border-b border-stone-800 text-xs text-stone-400">
                     {u.role === "admin" ? "everything" : (u.domains || []).join(", ") || "—"}
                   </td>
+                  <td className="py-2 px-3 border-b border-stone-800 text-xs text-stone-400 tabular-nums">
+                    {u.role === "admin"
+                      ? "every screen"
+                      : `${(u.permissions || []).length} of ${catalogue.length || "—"}`}
+                  </td>
                   <td className="py-2 px-3 border-b border-stone-800">
                     <span
                       className={`text-[10px] tracking-widest uppercase border rounded-full px-2 py-1 ${
@@ -263,6 +458,7 @@ export default function Staff() {
                           name: u.name,
                           role: u.role,
                           domains: u.domains || [],
+                          permissions: u.permissions || [],
                         })
                       }
                       disabled={busy || isSelf}
@@ -295,7 +491,7 @@ export default function Staff() {
       </div>
 
       {editing && (
-        <div className="mt-8 border border-stone-800 bg-stone-900 rounded p-5 max-w-2xl">
+        <div className="mt-8 border border-stone-800 bg-stone-900 rounded p-5 max-w-4xl">
           <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
             Edit {editing.name}
           </h3>
@@ -327,11 +523,30 @@ export default function Staff() {
               <div className="mt-2">
                 <DomainPicker
                   value={editing.domains}
-                  onChange={(d) => setEditing({ ...editing, domains: d })}
+                  onChange={(d) =>
+                    setEditing({
+                      ...editing,
+                      domains: d,
+                      permissions: keepGrantable(editing.permissions, d),
+                    })
+                  }
                   disabled={editing.role === "admin"}
                 />
               </div>
             </div>
+          </div>
+
+          <div className="mt-8 pt-6 border-t border-stone-800">
+            <div className="text-xs tracking-widest uppercase text-stone-500 mb-4">
+              Screens they can open
+            </div>
+            <ScreenPicker
+              catalogue={catalogue}
+              value={editing.permissions}
+              onChange={(p) => setEditing({ ...editing, permissions: p })}
+              role={editing.role}
+              domains={editing.domains}
+            />
           </div>
           <div className="flex gap-3 mt-5">
             <button
