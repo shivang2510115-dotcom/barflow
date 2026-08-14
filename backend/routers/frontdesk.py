@@ -11,7 +11,12 @@ from services.clock import today
 
 router = APIRouter()
 
-DESK = require_access("hotel", "admin", "manager", "front_desk")
+# Arrivals, departures and the in-house board, plus checking a guest in and out. All
+# operational: the desk runs the day, the admin sets the rates.
+DESK = require_access("hotel", "admin", "manager", "front_desk", permission="hotel.front_desk")
+# Checking out is reached from the booking as well as from the board, so it takes either.
+CHECK_OUT = require_access("hotel", "admin", "manager", "front_desk",
+                           permission=("hotel.front_desk", "hotel.bookings"))
 # A waiter needs to find the in-house guest to charge at the POS, and nothing more:
 # not the front-desk board, not check-in, not check-out.
 #
@@ -26,7 +31,8 @@ DESK = require_access("hotel", "admin", "manager", "front_desk")
 # The booking and the folio go through _pos_booking and _pos_folio for the same reason:
 # widening the domain without projecting them would hand every outlet waiter the
 # booking notes and the folio balance of every in-house guest.
-IN_HOUSE_LOOKUP = require_access(SHARED, "admin", "manager", "front_desk", "waiter")
+IN_HOUSE_LOOKUP = require_access(SHARED, "admin", "manager", "front_desk", "waiter",
+                                 permission=("outlet.pos", "hotel.front_desk"))
 
 
 def _today() -> str:
@@ -179,7 +185,7 @@ async def check_in(booking_id: str, payload: CheckInIn, user: dict = Depends(DES
 
 
 @router.post("/bookings/{booking_id}/check-out")
-async def check_out(booking_id: str, payload: CheckOutIn, user: dict = Depends(DESK)):
+async def check_out(booking_id: str, payload: CheckOutIn, user: dict = Depends(CHECK_OUT)):
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(404, "Booking not found")

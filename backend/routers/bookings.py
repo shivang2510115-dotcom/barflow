@@ -19,7 +19,12 @@ router = APIRouter()
 # the right domain, and is refused. The rest of the call sites move to require_access in
 # the migration task; this one moves early because the staff API is what finally makes a
 # domain-scoped user creatable, and therefore makes the refusal testable.
-BOOK = require_access("hotel", "admin", "manager", "front_desk")
+# Taking, amending and cancelling a booking is operational, not configuration: a
+# receptionist who cannot take a booking is not a receptionist. Availability is the
+# search behind the new-booking screen, so it carries the same key.
+BOOK = require_access("hotel", "admin", "manager", "front_desk", permission="hotel.bookings")
+# The occupancy chart is its own screen and its own tick.
+CALENDAR = require_access("hotel", "admin", "manager", "front_desk", permission="hotel.calendar")
 LIVE = list(CONSUMING_STATUSES)
 
 
@@ -112,7 +117,7 @@ async def availability(check_in: str, check_out: str, adults: int = 2, children:
 
 
 @router.get("/bookings/calendar")
-async def calendar(start: str, end: str, user: dict = Depends(BOOK)):
+async def calendar(start: str, end: str, user: dict = Depends(CALENDAR)):
     """Per-room-type occupancy for each night in the window."""
     _validate_window(start, end)
 

@@ -8,7 +8,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 
 from db import db
-from services.access import can_access, normalise_domains
+from services.access import can_access, normalise_domains, normalise_permissions
 
 JWT_ALGORITHM = "HS256"
 JWT_SECRET = os.environ.get("JWT_SECRET", "supersecret-key-123456789")
@@ -63,8 +63,17 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-def require_access(domains: str | tuple[str, ...], *roles: str):
-    """Dependency: the caller must be active, hold one of `roles`, and hold a domain.
+# What a non-admin is told when they try to change configuration. Not a bare
+# "Forbidden": the person reading it is a manager who can take a booking and post a
+# payment, so the useful information is that this particular thing is the owner's to
+# change, not that they are locked out generally.
+CONFIGURATION_ONLY_ADMIN = "Editing this is restricted to an administrator"
+
+
+def require_access(domains: str | tuple[str, ...], *roles: str,
+                   permission: str | tuple[str, ...] | None = None):
+    """Dependency: the caller must be active, hold one of `roles`, hold a domain, and
+    hold the screen this endpoint sits behind.
 
     The only authorization dependency. `require_roles` — role-only, no domain — is gone
     rather than deprecated: leaving both in place means the next endpoint gets written
@@ -72,15 +81,46 @@ def require_access(domains: str | tuple[str, ...], *roles: str):
     greppable — you can read any route and see exactly who reaches it. Inferring it from
     the router or the URL would make a misfiled endpoint silently inherit the wrong
     permission.
+
+    `permission` names the screen key, or keys, this endpoint serves. Several endpoints
+    behind one screen share its key; one endpoint read by two screens names both, and
+    holding either is enough.
     """
     # Validated where this is called (route declaration, i.e. import time), not inside
-    # the checker: a typo in a domain must break startup loudly, not silently deny every
-    # user at request time.
+    # the checker: a typo in a domain or a screen key must break startup loudly, not
+    # silently deny every user at request time.
+    domains = normalise_domains(domains)
+    if permission is not None:
+        permission = normalise_permissions(permission)
+
+    async def checker(user: dict = Depends(get_current_user)) -> dict:
+        if not can_access(user, domains, roles, permission=permission):
+            raise HTTPException(status_code=403, detail="Not permitted")
+        return user
+
+    return checker
+
+
+def require_configuration(domains: str | tuple[str, ...]):
+    """Dependency for a write that changes how the property is *configured*.
+
+    Room types, rooms, rates, rate periods, meal plans, tax slabs, menu items and
+    inventory items: the settings every operational number is derived from. Admin only.
+
+    Declared per endpoint rather than inferred from the HTTP verb, because the verb does
+    not carry the distinction: `POST /bookings` and `POST /rates` are both writes and
+    only one of them is configuration. Taking a booking, checking a guest in or out,
+    posting a charge, opening and settling an order and seating a table stay on
+    `require_access` — a receptionist who cannot take a booking is not a receptionist.
+
+    No `permission` argument: the screens are already reachable by anyone ticked for
+    them, and what this adds is that only the admin may change what is on them.
+    """
     domains = normalise_domains(domains)
 
     async def checker(user: dict = Depends(get_current_user)) -> dict:
-        if not can_access(user, domains, roles):
-            raise HTTPException(status_code=403, detail="Not permitted")
+        if not can_access(user, domains, ("admin",)):
+            raise HTTPException(status_code=403, detail=CONFIGURATION_ONLY_ADMIN)
         return user
 
     return checker

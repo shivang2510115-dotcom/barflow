@@ -66,6 +66,18 @@ class SettleIn(BaseModel):
 
 
 # ----------------- Helpers -----------------
+# Opening, adding to and settling a bill is the POS; the kitchen's board is its own
+# screen. `GET /orders/{id}` is read by both, so it names both.
+#
+# The two routes below with no dependency at all are the QR menu: a guest at the table
+# scans and orders without an account, and gating them on a staff screen would break the
+# product's front door.
+POS = require_access(OUTLET, permission="outlet.pos")
+POS_SETTLE = require_access(OUTLET, "admin", "manager", "waiter", permission="outlet.pos")
+KOT = require_access(OUTLET, permission="outlet.kot")
+ORDER_READ = require_access(OUTLET, permission=("outlet.pos", "outlet.kot"))
+
+
 def compute_totals(order: dict) -> dict:
     subtotal = sum(i["price"] * i["quantity"] for i in order.get("items", []))
     tax = round(subtotal * 0.10, 2)
@@ -125,7 +137,7 @@ async def current_order(table_id: str):
 
 
 @router.get("/orders/kot")
-async def list_kot(user: dict = Depends(require_access(OUTLET))):
+async def list_kot(user: dict = Depends(KOT)):
     """All pending/preparing items across open orders."""
     open_orders = await db.orders.find({"status": "open"}, {"_id": 0}).to_list(500)
     tickets = []
@@ -146,7 +158,7 @@ class UpdateItemStatusIn(BaseModel):
 
 
 @router.put("/orders/{order_id}/items/{item_id}/status")
-async def update_item_status(order_id: str, item_id: str, payload: UpdateItemStatusIn, user: dict = Depends(require_access(OUTLET))):
+async def update_item_status(order_id: str, item_id: str, payload: UpdateItemStatusIn, user: dict = Depends(KOT)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -162,7 +174,7 @@ async def update_item_status(order_id: str, item_id: str, payload: UpdateItemSta
 
 
 @router.get("/orders/{order_id}")
-async def get_order(order_id: str, user: dict = Depends(require_access(OUTLET))):
+async def get_order(order_id: str, user: dict = Depends(ORDER_READ)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -170,7 +182,7 @@ async def get_order(order_id: str, user: dict = Depends(require_access(OUTLET)))
 
 
 @router.post("/orders/{order_id}/settle")
-async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter"))):
+async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(POS_SETTLE)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -215,7 +227,7 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(re
 
 
 @router.delete("/orders/{order_id}/items/{item_id}")
-async def remove_item(order_id: str, item_id: str, user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter"))):
+async def remove_item(order_id: str, item_id: str, user: dict = Depends(POS_SETTLE)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")

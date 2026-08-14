@@ -5,21 +5,26 @@ from db import db
 from models.hotel import (
     MealPlan, MealPlanIn, Rate, RateIn, RatePeriod, RatePeriodIn, TaxSlab,
 )
-from security import require_access
+from security import require_access, require_configuration
 
 router = APIRouter()
 
-MANAGE = require_access("hotel", "admin", "manager")
+# Rates, rate periods, meal plans and tax slabs are what every tariff on every folio is
+# derived from: configuration, admin only.
+CONFIG = require_configuration("hotel")
+
+# All four lists are read by the one Rates screen.
+READ = require_access("hotel", permission="hotel.rates")
 
 
 # --------------------------- meal plans ---------------------------
 @router.get("/meal-plans")
-async def list_meal_plans(user: dict = Depends(require_access("hotel"))):
+async def list_meal_plans(user: dict = Depends(READ)):
     return await db.meal_plans.find({}, {"_id": 0}).to_list(50)
 
 
 @router.post("/meal-plans")
-async def create_meal_plan(payload: MealPlanIn, user: dict = Depends(MANAGE)):
+async def create_meal_plan(payload: MealPlanIn, user: dict = Depends(CONFIG)):
     plan = MealPlan(**payload.model_dump()).model_dump()
     await db.meal_plans.insert_one(plan)
     plan.pop("_id", None)
@@ -27,7 +32,7 @@ async def create_meal_plan(payload: MealPlanIn, user: dict = Depends(MANAGE)):
 
 
 @router.put("/meal-plans/{plan_id}")
-async def update_meal_plan(plan_id: str, payload: MealPlanIn, user: dict = Depends(MANAGE)):
+async def update_meal_plan(plan_id: str, payload: MealPlanIn, user: dict = Depends(CONFIG)):
     result = await db.meal_plans.update_one({"id": plan_id}, {"$set": payload.model_dump()})
     if result.matched_count == 0:
         raise HTTPException(404, "Meal plan not found")
@@ -36,12 +41,12 @@ async def update_meal_plan(plan_id: str, payload: MealPlanIn, user: dict = Depen
 
 # -------------------------- rate periods --------------------------
 @router.get("/rate-periods")
-async def list_rate_periods(user: dict = Depends(require_access("hotel"))):
+async def list_rate_periods(user: dict = Depends(READ)):
     return await db.rate_periods.find({}, {"_id": 0}).to_list(200)
 
 
 @router.post("/rate-periods")
-async def create_rate_period(payload: RatePeriodIn, user: dict = Depends(MANAGE)):
+async def create_rate_period(payload: RatePeriodIn, user: dict = Depends(CONFIG)):
     if payload.end_date <= payload.start_date:
         raise HTTPException(400, "end_date must be after start_date")
 
@@ -64,7 +69,7 @@ async def create_rate_period(payload: RatePeriodIn, user: dict = Depends(MANAGE)
 
 
 @router.put("/rate-periods/{period_id}")
-async def update_rate_period(period_id: str, payload: RatePeriodIn, user: dict = Depends(MANAGE)):
+async def update_rate_period(period_id: str, payload: RatePeriodIn, user: dict = Depends(CONFIG)):
     if payload.end_date <= payload.start_date:
         raise HTTPException(400, "end_date must be after start_date")
     result = await db.rate_periods.update_one({"id": period_id}, {"$set": payload.model_dump()})
@@ -74,7 +79,7 @@ async def update_rate_period(period_id: str, payload: RatePeriodIn, user: dict =
 
 
 @router.delete("/rate-periods/{period_id}")
-async def delete_rate_period(period_id: str, user: dict = Depends(MANAGE)):
+async def delete_rate_period(period_id: str, user: dict = Depends(CONFIG)):
     # Deleting a period must not orphan the rates that reference it.
     await db.rates.delete_many({"period_id": period_id})
     await db.rate_periods.delete_one({"id": period_id})
@@ -83,12 +88,12 @@ async def delete_rate_period(period_id: str, user: dict = Depends(MANAGE)):
 
 # ------------------------------ rates -----------------------------
 @router.get("/rates")
-async def list_rates(user: dict = Depends(require_access("hotel"))):
+async def list_rates(user: dict = Depends(READ)):
     return await db.rates.find({}, {"_id": 0}).to_list(500)
 
 
 @router.post("/rates")
-async def create_rate(payload: RateIn, user: dict = Depends(MANAGE)):
+async def create_rate(payload: RateIn, user: dict = Depends(CONFIG)):
     if not await db.room_types.find_one({"id": payload.room_type_id}):
         raise HTTPException(400, "Unknown room_type_id")
     if payload.period_id and not await db.rate_periods.find_one({"id": payload.period_id}):
@@ -110,19 +115,19 @@ async def create_rate(payload: RateIn, user: dict = Depends(MANAGE)):
 
 
 @router.delete("/rates/{rate_id}")
-async def delete_rate(rate_id: str, user: dict = Depends(MANAGE)):
+async def delete_rate(rate_id: str, user: dict = Depends(CONFIG)):
     await db.rates.delete_one({"id": rate_id})
     return {"ok": True}
 
 
 # ---------------------------- tax slabs ---------------------------
 @router.get("/tax-slabs")
-async def list_tax_slabs(user: dict = Depends(require_access("hotel"))):
+async def list_tax_slabs(user: dict = Depends(READ)):
     return await db.tax_slabs.find({}, {"_id": 0}).to_list(20)
 
 
 @router.put("/tax-slabs")
-async def replace_tax_slabs(slabs: list[TaxSlab], user: dict = Depends(MANAGE)):
+async def replace_tax_slabs(slabs: list[TaxSlab], user: dict = Depends(CONFIG)):
     """Replace the whole band table. Statutory GST rates change; they must never be
     hardcoded, so the entire table is editable data rather than a fixed set of rows."""
     if not slabs:

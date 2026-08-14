@@ -58,9 +58,22 @@ class Reservation(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+# The floor plan is read by three screens — Tables, the POS and Reservations all need
+# to know what the tables are — so the one endpoint names all three.
+FLOOR = require_access(OUTLET, permission=("outlet.tables", "outlet.pos", "outlet.reservations"))
+# Adding or removing a table is not configuration in the sense the admin lock covers:
+# nothing is priced off it, and a floor that cannot be rearranged by the manager on duty
+# is a floor plan that goes stale. Room types, rates and menu items are the settings that
+# turn into money on a bill; a table is furniture.
+FLOOR_EDIT = require_access(OUTLET, "admin", "manager", permission="outlet.tables")
+BOOK_TABLE = require_access(OUTLET, "admin", "manager", "waiter", permission="outlet.reservations")
+READ_RESERVATIONS = require_access(OUTLET, permission="outlet.reservations")
+CANCEL_RESERVATION = require_access(OUTLET, "admin", "manager", permission="outlet.reservations")
+
+
 # ----------------- Tables -----------------
 @router.get("/tables")
-async def list_tables(user: dict = Depends(require_access(OUTLET))):
+async def list_tables(user: dict = Depends(FLOOR)):
     return await db.tables.find({}, {"_id": 0}).sort("label", 1).to_list(500)
 
 
@@ -73,7 +86,7 @@ async def get_table_public(table_id: str):
 
 
 @router.post("/tables")
-async def create_table(payload: TableIn, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
+async def create_table(payload: TableIn, user: dict = Depends(FLOOR_EDIT)):
     t = Table(**payload.model_dump()).model_dump()
     await db.tables.insert_one(t)
     t.pop("_id", None)
@@ -81,14 +94,14 @@ async def create_table(payload: TableIn, user: dict = Depends(require_access(OUT
 
 
 @router.delete("/tables/{table_id}")
-async def delete_table(table_id: str, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
+async def delete_table(table_id: str, user: dict = Depends(FLOOR_EDIT)):
     await db.tables.delete_one({"id": table_id})
     return {"ok": True}
 
 
 # ----------------- Reservations -----------------
 @router.get("/reservations")
-async def list_reservations(date: Optional[str] = None, user: dict = Depends(require_access(OUTLET))):
+async def list_reservations(date: Optional[str] = None, user: dict = Depends(READ_RESERVATIONS)):
     query = {"date": date} if date else {}
     return await db.reservations.find(query, {"_id": 0}).sort("time", 1).to_list(500)
 
@@ -96,7 +109,7 @@ async def list_reservations(date: Optional[str] = None, user: dict = Depends(req
 @router.post("/reservations")
 async def create_reservation(
     payload: ReservationIn,
-    user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter")),
+    user: dict = Depends(BOOK_TABLE),
 ):
     data = payload.model_dump()
     hold = data.pop("hold_table", False)
@@ -118,7 +131,7 @@ async def create_reservation(
 async def set_reservation_status(
     reservation_id: str,
     payload: StatusIn,
-    user: dict = Depends(require_access(OUTLET, "admin", "manager", "waiter")),
+    user: dict = Depends(BOOK_TABLE),
 ):
     res = await db.reservations.find_one({"id": reservation_id}, {"_id": 0})
     if not res:
@@ -142,7 +155,7 @@ async def set_reservation_status(
 @router.delete("/reservations/{reservation_id}")
 async def delete_reservation(
     reservation_id: str,
-    user: dict = Depends(require_access(OUTLET, "admin", "manager")),
+    user: dict = Depends(CANCEL_RESERVATION),
 ):
     res = await db.reservations.find_one({"id": reservation_id}, {"_id": 0})
     if res and res.get("table_id"):
