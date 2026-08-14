@@ -1,8 +1,9 @@
 """Pure authorization tests — no server, no database."""
 import pytest
 from services.access import (
-    DOMAINS, LIVE, PENDING, PLATFORM_ADMIN, SHARED, SUSPENDED,
-    AccessError, can_access, normalise_domains,
+    DOMAINS, LIVE, PENDING, PLATFORM_ADMIN, SCREENS, SCREEN_KEYS, SHARED, SUSPENDED,
+    AccessError, can_access, normalise_domains, normalise_permissions,
+    permission_in_domains,
 )
 
 
@@ -273,3 +274,117 @@ def test_omitting_the_property_leaves_the_pre_tenancy_rules_alone():
     # rather than a route anyone can reach.
     assert can_access(u(), "restaurant", MGR) is True
     assert can_access(u(active=False), "restaurant", MGR) is False
+
+
+# --- screen permissions -------------------------------------------------------------
+#
+# Domains say which part of the business a person works in; permissions say which
+# screens within it. A tick is only meaningful inside a domain the user holds, so the
+# domain check still runs first — ticking a screen must never widen anybody.
+
+def p(role="manager", domains=("hotel",), permissions=("hotel.bookings",), active=True):
+    user = u(role, domains, active)
+    user["permissions"] = list(permissions)
+    return user
+
+
+def test_holding_the_permission_and_the_domain_is_allowed():
+    assert can_access(p(), "hotel", MGR, permission="hotel.bookings") is True
+
+
+def test_holding_the_domain_but_not_the_permission_is_refused():
+    assert can_access(p(permissions=("hotel.guests",)), "hotel", MGR,
+                      permission="hotel.bookings") is False
+
+
+def test_an_admin_is_allowed_regardless_of_permissions():
+    admin = p(role="admin", domains=(), permissions=())
+    assert can_access(admin, "hotel", MGR, permission="hotel.bookings") is True
+    assert can_access(admin, SHARED, MGR, permission="admin.staff") is True
+
+
+def test_a_permission_cannot_widen_someone_past_their_domains():
+    # The whole point of running the domain check first: a restaurant-only manager who
+    # has somehow been given a hotel screen key still reaches no hotel endpoint.
+    outsider = p(domains=("restaurant",), permissions=("hotel.bookings",))
+    assert can_access(outsider, "hotel", MGR, permission="hotel.bookings") is False
+
+
+def test_an_inactive_user_with_both_is_still_refused():
+    assert can_access(p(active=False), "hotel", MGR, permission="hotel.bookings") is False
+
+
+def test_a_user_with_no_permissions_field_reaches_a_permissioned_endpoint_never():
+    # An account the migration has not reached must fail closed, not open.
+    assert can_access(u(domains=("hotel",)), "hotel", MGR, permission="hotel.bookings") is False
+
+
+def test_an_endpoint_declaring_no_permission_is_unaffected():
+    # Every endpoint that predates the catalogue keeps answering exactly as before.
+    assert can_access(u(domains=("hotel",)), "hotel", MGR) is True
+    assert can_access(p(permissions=()), "hotel", MGR) is True
+
+
+def test_an_endpoint_read_by_two_screens_accepts_either_key():
+    # GET /rooms is read by the Rooms screen and by the front desk's room picker.
+    both = ("hotel.rooms", "hotel.front_desk")
+    assert can_access(p(permissions=("hotel.rooms",)), "hotel", MGR, permission=both) is True
+    assert can_access(p(permissions=("hotel.front_desk",)), "hotel", MGR, permission=both) is True
+    assert can_access(p(permissions=("hotel.bookings",)), "hotel", MGR, permission=both) is False
+
+
+def test_the_role_check_still_runs_ahead_of_the_permission():
+    waiter = p(role="waiter", domains=("hotel",), permissions=("hotel.bookings",))
+    assert can_access(waiter, "hotel", MGR, permission="hotel.bookings") is False
+
+
+def test_a_permission_is_refused_inside_a_suspended_property():
+    holder = p(permissions=("hotel.bookings",))
+    holder["property_id"] = "p1"
+    assert can_access(holder, "hotel", MGR, prop(SUSPENDED),
+                      permission="hotel.bookings") is False
+
+
+def test_an_unknown_screen_key_raises_rather_than_denying_silently():
+    # A typo in an endpoint's declared permission must break startup, exactly as a typo
+    # in its declared domain does — not silently refuse every user at runtime.
+    with pytest.raises(AccessError):
+        normalise_permissions("hotel.spa")
+    with pytest.raises(AccessError):
+        can_access(p(), "hotel", MGR, permission="hotel.spa")
+
+
+def test_the_catalogue_is_well_formed():
+    assert set(SCREENS) == set(SCREEN_KEYS)
+    for key, screen in SCREENS.items():
+        assert screen["label"] and screen["section"]
+        # Each key's domains must be a declaration the domain checker accepts, or the
+        # key names a screen no endpoint could serve.
+        assert normalise_domains(screen["domains"]) == tuple(screen["domains"])
+
+
+def test_the_catalogue_covers_the_keys_the_design_named():
+    assert set(SCREENS) == {
+        "hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.rooms",
+        "hotel.rates", "hotel.guests",
+        "outlet.tables", "outlet.pos", "outlet.kot", "outlet.reservations",
+        "outlet.menu", "outlet.inventory", "outlet.reports",
+        "admin.staff", "admin.analytics",
+    }
+
+
+def test_a_screen_is_within_a_users_domains_only_when_they_hold_one_of_them():
+    assert permission_in_domains("hotel.bookings", ["hotel"]) is True
+    assert permission_in_domains("hotel.bookings", ["restaurant"]) is False
+    assert permission_in_domains("outlet.pos", ["bar"]) is True
+    assert permission_in_domains("outlet.pos", ["hotel"]) is False
+    # A shared screen sits behind endpoints any domain reaches, so any domain will do.
+    assert permission_in_domains("hotel.guests", ["bar"]) is True
+    assert permission_in_domains("outlet.inventory", ["hotel"]) is True
+    # ...but holding no domain at all still reaches nothing.
+    assert permission_in_domains("hotel.guests", []) is False
+
+
+def test_permission_in_domains_rejects_an_unknown_key():
+    with pytest.raises(AccessError):
+        permission_in_domains("hotel.spa", ["hotel"])
