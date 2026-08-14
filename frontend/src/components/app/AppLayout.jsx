@@ -1,8 +1,7 @@
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  LayoutGrid,
   Grid3x3,
   CalendarClock,
   Receipt,
@@ -25,80 +24,76 @@ import {
 } from "lucide-react";
 
 import { OUTLET } from "@/lib/domains";
+import { SectionProvider } from "@/contexts/SectionContext";
+import {
+  availableSections,
+  firstPathIn,
+  navForSection,
+  resolveSection,
+  sectionByKey,
+  sectionStorageKey,
+} from "@/lib/sections";
 
+// Every item carries the screen key from GET /api/permissions that the endpoints behind
+// it are declared with. The key is the join between this array and the catalogue, not a
+// second copy of it: the catalogue says what exists and what it is called, this says
+// which route opens it. A key that no longer exists in the catalogue takes its link with
+// it — nobody holds a retired key, so the item is filtered out for everyone but an admin.
+//
+// The Overview entry is gone: /app is the section chooser now, and the top bar's section
+// switch is how you go back to it.
 const NAV = [
-  // Overview carries no domains: it is the landing page every signed-in role gets.
-  { to: "/app", label: "Overview", icon: LayoutGrid, roles: ["admin", "manager", "waiter", "kitchen"], end: true },
   { section: "Restaurant", roles: ["admin", "manager", "waiter", "kitchen"] },
-  { to: "/app/tables", label: "Tables", icon: Grid3x3, roles: ["admin", "manager", "waiter"], domains: OUTLET },
-  { to: "/app/reservations", label: "Reservations", icon: CalendarClock, roles: ["admin", "manager", "waiter"], domains: OUTLET },
-  { to: "/app/pos", label: "POS / Bill", icon: Receipt, roles: ["admin", "manager", "waiter"], domains: OUTLET },
-  { to: "/app/kot", label: "KOT Board", icon: ChefHat, roles: ["admin", "manager", "kitchen", "waiter"], domains: OUTLET },
-  { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"], domains: OUTLET },
-  { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"], domains: OUTLET },
+  { to: "/app/tables", label: "Tables", icon: Grid3x3, roles: ["admin", "manager", "waiter"], domains: OUTLET, screen: "outlet.tables" },
+  { to: "/app/reservations", label: "Reservations", icon: CalendarClock, roles: ["admin", "manager", "waiter"], domains: OUTLET, screen: "outlet.reservations" },
+  { to: "/app/pos", label: "POS / Bill", icon: Receipt, roles: ["admin", "manager", "waiter"], domains: OUTLET, screen: "outlet.pos" },
+  { to: "/app/kot", label: "KOT Board", icon: ChefHat, roles: ["admin", "manager", "kitchen", "waiter"], domains: OUTLET, screen: "outlet.kot" },
+  { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"], domains: OUTLET, screen: "outlet.menu" },
+  { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"], domains: OUTLET, screen: "outlet.reports" },
   { section: "Hotel", roles: ["admin", "manager", "front_desk"] },
-  { to: "/app/hotel/front-desk", label: "Front desk", icon: UserCheck, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
-  { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"], domains: ["hotel"] },
-  { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
+  { to: "/app/hotel/front-desk", label: "Front desk", icon: UserCheck, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.front_desk" },
+  { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"], domains: ["hotel"], screen: "hotel.rooms" },
+  { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.bookings" },
   // "Bookings" is a path-prefix of "New booking" (/app/hotel/bookings/new starts with
   // /app/hotel/bookings) — exclude that sibling so the two links don't both light up.
-  { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], exclude: ["/app/hotel/bookings/new"] },
-  { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"], domains: ["hotel"] },
-  { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"], domains: ["hotel"] },
+  { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.bookings", exclude: ["/app/hotel/bookings/new"] },
+  { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.calendar" },
+  { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"], domains: ["hotel"], screen: "hotel.rates" },
   // Endpoints the server declares SHARED, so they carry no `domains` here either — the
-  // nav must not hide a route that answers the caller 200. They get a heading of their
+  // nav must not hide a route that answers the caller 200. They keep a heading of their
   // own rather than sitting under Restaurant or Hotel, because a shared item filed under
   // a domain heading is what produced the bug: "Guests" under Hotel read as hotel-only
-  // and was tagged that way, and Inventory under Restaurant would leave a hotel-only
-  // manager staring at a "Restaurant" heading with one unrelated link beneath it.
+  // and was tagged that way. Under section scoping the heading earns its keep twice
+  // over — lib/sections.js shows this group in both the Hotel and the Restaurant
+  // sidebar, so the desk keeps the store room and the bar keeps the guest list.
   { section: "Property", roles: ["admin", "manager", "front_desk", "kitchen"] },
   // guests.py declares SHARED: a bar regular and a hotel guest are the same person, and
   // splitting the records by domain would stop the desk seeing an arrival's bar history.
-  { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"] },
+  { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"], screen: "hotel.guests" },
   // inventory.py declares SHARED too — one store room supplies the kitchen, the bar and
   // housekeeping.
-  { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"] },
+  { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"], screen: "outlet.inventory" },
   // Analytics is open to managers as well as admins, so the heading over it has to be
   // too — otherwise a manager's Analytics link renders with the Staff heading dropped and
   // appears to belong to the Hotel group above it.
   { section: "Admin", roles: ["admin", "manager"] },
   // "Console" is a path-prefix of both admin children, so exclude them: the same reason
-  // "Bookings" excludes "New booking" above.
+  // "Bookings" excludes "New booking" above. It is the one link with no screen key —
+  // there is none for it in the catalogue — so it is admin-only twice over, by its role
+  // list and by the fail-closed rule in holdsScreen.
   { to: "/app/admin", label: "Console", icon: LayoutDashboard, roles: ["admin"], exclude: ["/app/admin/staff", "/app/admin/analytics"] },
-  { to: "/app/admin/staff", label: "Staff", icon: ShieldCheck, roles: ["admin"] },
+  { to: "/app/admin/staff", label: "Staff", icon: ShieldCheck, roles: ["admin"], screen: "admin.staff" },
   // No `domains`: analytics spans them, and the server answers whichever ones the caller
   // holds. A manager with any single domain still has a report to read.
-  { to: "/app/admin/analytics", label: "Analytics", icon: TrendingUp, roles: ["admin", "manager"] },
+  { to: "/app/admin/analytics", label: "Analytics", icon: TrendingUp, roles: ["admin", "manager"], screen: "admin.analytics" },
 ];
 
-// A nav item is visible when the user is an admin, or holds any domain the item serves.
-// This mirrors the server's rule rather than inventing a second one — the API is the real
-// boundary, and a mismatch here shows a menu entry that 403s when clicked.
-function visibleFor(item, user) {
-  if (!item.to) return true; // section headings: kept or dropped by dropEmptySections
-  if (user?.role === "admin") return true;
-  if (!item.domains) return true; // unscoped items, e.g. Overview
-  const held = user?.domains || [];
-  return item.domains.some((d) => held.includes(d));
-}
+export { NAV };
 
-// A heading whose items were all filtered out must not render — a "Hotel" label with
-// nothing under it reads as a bug. A heading survives only if a link follows it before
-// the next heading, i.e. the very next entry is a link.
-function dropEmptySections(list) {
-  return list.filter((item, i) => {
-    if (!item.section) return true;
-    const next = list[i + 1];
-    return Boolean(next) && !next.section;
-  });
-}
-
-// Both renderings below map over this, so the filtering lives here only once.
-export function visibleNavFor(user) {
-  const allowed = NAV.filter(
-    (n) => (!user || n.roles.includes(user.role)) && visibleFor(n, user)
-  );
-  return dropEmptySections(allowed);
+// The nav, narrowed for this user in this section. Both renderings below map over it, so
+// the filtering lives in lib/sections.js and is called once here.
+export function visibleNavFor(user, section) {
+  return section ? navForSection(NAV, user, section) : [];
 }
 
 function isNavItemActive(item, pathname) {
@@ -107,118 +102,242 @@ function isNavItemActive(item, pathname) {
   return !(item.exclude || []).some((p) => pathname.startsWith(p));
 }
 
+/**
+ * The chosen section, remembered per user id so two people sharing the terminal behind
+ * the bar do not inherit each other's shift.
+ *
+ * Reading localStorage in a lazy initialiser would be wrong here: `user` arrives after
+ * the first render, when /auth/me answers, so the key to read under is not known yet.
+ */
+function useSectionState(user) {
+  const sections = useMemo(() => availableSections(NAV, user), [user]);
+  const [section, setStored] = useState(null);
+  const id = user?.id;
+  // The identities of the sections, not the array, so a re-render that rebuilds the same
+  // list does not re-run the effect and throw away a choice made a moment ago.
+  const keys = sections.map((s) => s.key).join(",");
+
+  useEffect(() => {
+    if (!id) {
+      setStored(null);
+      return;
+    }
+    let remembered = null;
+    try {
+      remembered = localStorage.getItem(sectionStorageKey(id));
+    } catch {
+      // Private browsing, a full quota, a locked-down device: the section is a
+      // convenience, so losing it costs a click and must never cost the app.
+    }
+    setStored(resolveSection(NAV, user, remembered));
+    // `user` is read inside but `id` and `keys` are what change the answer; depending on
+    // the object itself would re-run this on every render of the provider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, keys]);
+
+  const setSection = useCallback(
+    (key) => {
+      setStored(key);
+      if (!id) return;
+      try {
+        if (key) localStorage.setItem(sectionStorageKey(id), key);
+        else localStorage.removeItem(sectionStorageKey(id));
+      } catch {
+        // As above.
+      }
+    },
+    [id],
+  );
+
+  const pathFor = useCallback((key) => firstPathIn(NAV, user, key), [user]);
+
+  return useMemo(
+    () => ({ section, sections, setSection, pathFor }),
+    [section, sections, setSection, pathFor],
+  );
+}
+
+/**
+ * Switching sections without logging out. Rendered only when there is more than one to
+ * switch between — a single pill that cannot be unpicked is furniture, not a control.
+ */
+function SectionSwitch({ value, sections, onPick, className = "" }) {
+  if (sections.length < 2) return null;
+  return (
+    <div className={`flex items-center gap-2 ${className}`}>
+      <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-stone-600 hidden sm:inline">
+        Section
+      </span>
+      {sections.map((s) => (
+        <button
+          key={s.key}
+          type="button"
+          data-testid={`section-switch-${s.key}`}
+          aria-pressed={value === s.key}
+          onClick={() => onPick(s.key)}
+          className={`text-[10px] font-mono uppercase tracking-widest border rounded-full px-3 py-1 transition-colors ${
+            value === s.key
+              ? "border-orange-500 text-orange-400 bg-orange-500/10"
+              : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
+          }`}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AppLayout({ children }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
+  const value = useSectionState(user);
+  const { section, sections, setSection, pathFor } = value;
 
-  const items = visibleNavFor(user);
+  const items = visibleNavFor(user, section);
+  const current = sectionByKey(section);
+
+  // Picking a section from the top bar takes you into it, rather than leaving you on a
+  // page belonging to the section you just left with a sidebar that no longer lists it.
+  const pick = (key) => {
+    setSection(key);
+    const to = pathFor(key);
+    if (to) nav(to);
+  };
+
+  const signOut = () => {
+    logout();
+    nav("/login");
+  };
 
   return (
-    <div className="min-h-screen flex bg-stone-950 text-stone-100 relative z-[2]">
-      {/* Sidebar */}
-      <aside className="hidden md:flex flex-col w-60 border-r border-stone-800 bg-stone-950/80 backdrop-blur-2xl sticky top-0 h-screen">
-        <div className="p-6 border-b border-stone-800 flex items-center gap-2">
-          <Wine className="text-orange-500" size={22} />
-          <div>
-            <div className="font-display text-lg tracking-tight uppercase leading-none">BarFlow</div>
-            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500 mt-1">
-              Ops Console
+    <SectionProvider value={value}>
+      <div className="min-h-screen flex bg-stone-950 text-stone-100 relative z-[2]">
+        {/* Sidebar */}
+        <aside className="hidden md:flex flex-col w-60 border-r border-stone-800 bg-stone-950/80 backdrop-blur-2xl sticky top-0 h-screen">
+          <div className="p-6 border-b border-stone-800 flex items-center gap-2">
+            <Wine className="text-orange-500" size={22} />
+            <div>
+              <div className="font-display text-lg tracking-tight uppercase leading-none">BarFlow</div>
+              <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500 mt-1">
+                {current ? current.label : "Ops Console"}
+              </div>
             </div>
           </div>
-        </div>
-        <nav className="flex-1 py-4">
-          {items.map((item) => {
-            if (item.section) {
+          {/* Empty until a section is chosen: the chooser is the page, and a sidebar
+              offering everything defeats the point of asking. */}
+          <nav className="flex-1 py-4">
+            {items.map((item) => {
+              if (item.section) {
+                return (
+                  <div
+                    key={`section-${item.section}`}
+                    className="px-6 pt-6 pb-2 text-[10px] font-mono uppercase tracking-[0.3em] text-stone-600"
+                  >
+                    {item.section}
+                  </div>
+                );
+              }
+              const { to, label, icon: Icon, end } = item;
+              const active = isNavItemActive(item, loc.pathname);
               return (
-                <div
-                  key={`section-${item.section}`}
-                  className="px-6 pt-6 pb-2 text-[10px] font-mono uppercase tracking-[0.3em] text-stone-600"
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={end}
+                  data-testid={`nav-${label.toLowerCase().replace(/[^a-z]/g, "-")}`}
+                  className={() =>
+                    `flex items-center gap-3 px-6 py-3 text-sm border-l-2 transition-colors ${
+                      active
+                        ? "border-orange-500 bg-stone-900 text-orange-400"
+                        : "border-transparent text-stone-400 hover:text-stone-100 hover:bg-stone-900/50"
+                    }`
+                  }
                 >
-                  {item.section}
-                </div>
+                  <Icon size={16} />
+                  <span className="font-mono uppercase tracking-widest text-xs">{label}</span>
+                </NavLink>
               );
-            }
-            const { to, label, icon: Icon, end } = item;
-            const active = isNavItemActive(item, loc.pathname);
-            return (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                data-testid={`nav-${label.toLowerCase().replace(/[^a-z]/g, "-")}`}
-                className={() =>
-                  `flex items-center gap-3 px-6 py-3 text-sm border-l-2 transition-colors ${
-                    active
-                      ? "border-orange-500 bg-stone-900 text-orange-400"
-                      : "border-transparent text-stone-400 hover:text-stone-100 hover:bg-stone-900/50"
-                  }`
-                }
-              >
-                <Icon size={16} />
-                <span className="font-mono uppercase tracking-widest text-xs">{label}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
-        <div className="p-4 border-t border-stone-800">
-          <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500">
-            Signed in as
+            })}
+          </nav>
+          <div className="p-4 border-t border-stone-800">
+            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500">
+              Signed in as
+            </div>
+            <div className="mt-1 text-sm">{user?.name}</div>
+            <div className="text-xs font-mono text-orange-500 uppercase mt-0.5">{user?.role}</div>
+            <button
+              data-testid="logout-button"
+              onClick={signOut}
+              className="mt-4 w-full flex items-center justify-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+            >
+              <LogOut size={14} /> Sign out
+            </button>
           </div>
-          <div className="mt-1 text-sm">{user?.name}</div>
-          <div className="text-xs font-mono text-orange-500 uppercase mt-0.5">{user?.role}</div>
-          <button
-            data-testid="logout-button"
-            onClick={() => {
-              logout();
-              nav("/login");
-            }}
-            className="mt-4 w-full flex items-center justify-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
-          >
-            <LogOut size={14} /> Sign out
-          </button>
-        </div>
-      </aside>
+        </aside>
 
-      {/* Mobile top bar */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-stone-950/90 backdrop-blur-xl border-b border-stone-800">
-        <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Wine className="text-orange-500" size={18} />
-            <span className="font-display uppercase">BarFlow</span>
+        {/* Mobile top bar */}
+        <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-stone-950/90 backdrop-blur-xl border-b border-stone-800">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Wine className="text-orange-500" size={18} />
+              <span className="font-display uppercase">BarFlow</span>
+            </div>
+            <button
+              data-testid="logout-button-mobile"
+              onClick={signOut}
+              className="text-xs font-mono uppercase text-stone-400"
+            >
+              Sign out
+            </button>
           </div>
-          <button
-            data-testid="logout-button-mobile"
-            onClick={() => {
-              logout();
-              nav("/login");
-            }}
-            className="text-xs font-mono uppercase text-stone-400"
-          >
-            Sign out
-          </button>
+          {sections.length > 1 && (
+            <div className="px-4 pb-3 overflow-x-auto no-scrollbar">
+              <SectionSwitch value={section} sections={sections} onPick={pick} />
+            </div>
+          )}
+          <div className="flex overflow-x-auto no-scrollbar border-t border-stone-800">
+            {items
+              .filter((item) => item.to)
+              .map((item) => {
+                const { to, label, end } = item;
+                const active = isNavItemActive(item, loc.pathname);
+                return (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    end={end}
+                    className={`px-4 py-3 text-[10px] font-mono uppercase tracking-widest whitespace-nowrap border-b-2 ${
+                      active ? "text-orange-400 border-orange-500" : "text-stone-500 border-transparent"
+                    }`}
+                  >
+                    {label}
+                  </NavLink>
+                );
+              })}
+          </div>
         </div>
-        <div className="flex overflow-x-auto no-scrollbar border-t border-stone-800">
-          {items.filter((item) => item.to).map((item) => {
-            const { to, label, end } = item;
-            const active = isNavItemActive(item, loc.pathname);
-            return (
-              <NavLink
-                key={to}
-                to={to}
-                end={end}
-                className={`px-4 py-3 text-[10px] font-mono uppercase tracking-widest whitespace-nowrap border-b-2 ${
-                  active ? "text-orange-400 border-orange-500" : "text-stone-500 border-transparent"
-                }`}
+
+        <main className="flex-1 min-w-0 pt-24 md:pt-0">
+          {/* The desktop counterpart of the mobile switch above. Both render the same
+              control, so a section can be changed without signing out on either. */}
+          {sections.length > 1 && (
+            <div className="hidden md:flex items-center justify-between gap-4 border-b border-stone-800 bg-stone-950/80 backdrop-blur-xl px-6 py-3 sticky top-0 z-10">
+              <SectionSwitch value={section} sections={sections} onPick={pick} />
+              <button
+                type="button"
+                data-testid="section-chooser-link"
+                onClick={() => nav("/app")}
+                className="text-[10px] font-mono uppercase tracking-widest text-stone-500 hover:text-orange-400"
               >
-                {label}
-              </NavLink>
-            );
-          })}
-        </div>
+                All sections
+              </button>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
-
-      <main className="flex-1 md:ml-0 pt-24 md:pt-0">{children}</main>
-    </div>
+    </SectionProvider>
   );
 }

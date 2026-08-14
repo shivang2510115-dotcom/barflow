@@ -27,8 +27,17 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.post("/auth/login", { email, password });
       localStorage.setItem(TOKEN_KEY, data.token);
-      setUser(data.user);
-      return { ok: true, user: data.user };
+      // The login response is a summary of the account; /auth/me is the payload the rest
+      // of the app is written against — it carries the screen permissions the navigation
+      // filters on. Reading it once here means a session that has just signed in and one
+      // that reloaded an hour later are the same object, rather than the sidebar being
+      // empty until the first refresh. If it fails, the summary still gets somebody in.
+      const me = await api
+        .get("/auth/me")
+        .then((r) => r.data)
+        .catch(() => data.user);
+      setUser(me);
+      return { ok: true, user: me };
     } catch (e) {
       const msg = formatApiErrorDetail(e.response?.data?.detail) || e.message;
       setError(msg);
