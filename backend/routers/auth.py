@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 
 from db import db
 from security import verify_password, create_access_token, require_access
-from services.access import SHARED
+from services.access import SCREENS, SHARED
 
 router = APIRouter()
 
@@ -35,6 +35,9 @@ async def login(payload: LoginIn):
             "role": user["role"],
             "domains": user.get("domains", []),
             "active": user.get("active", True),
+            # Filtered against the catalogue: a key retired in code must stop granting
+            # a screen the moment it is retired, not linger on old user records.
+            "permissions": [k for k in (user.get("permissions") or []) if k in SCREENS],
         },
     }
 
@@ -53,6 +56,7 @@ async def me(user: dict = Depends(require_access(SHARED))):
         "role": user["role"],
         "domains": user.get("domains", []),
         "active": user.get("active", True),
+        "permissions": [k for k in (user.get("permissions") or []) if k in SCREENS],
     }
 
 
