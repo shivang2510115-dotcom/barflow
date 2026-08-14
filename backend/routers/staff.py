@@ -14,12 +14,16 @@ from pymongo.errors import DuplicateKeyError
 
 from db import db
 from security import Role, hash_password, require_access
-from services.access import DOMAINS, SHARED
+from services.access import (
+    DOMAINS, SCREENS, SHARED, default_permissions, permission_in_domains)
 
 router = APIRouter()
 
 # Staff administration is admin-only, and is not tied to any one area of the business.
-ADMIN = require_access(SHARED, "admin")
+# The screen key is declared for completeness — an admin bypasses the permission check
+# exactly as they bypass domains, so `admin.staff` gates nothing here; it exists so the
+# catalogue and the sidebar agree that this screen is one of the fifteen.
+ADMIN = require_access(SHARED, "admin", permission="admin.staff")
 
 # Pydantic needs a Literal to refuse an unknown domain with a 422, and a Literal cannot
 # be built from a runtime tuple — so the vocabulary is spelled out once more here. It is
@@ -45,12 +49,23 @@ class StaffIn(BaseModel):
     # security.Role is the one list of roles; duplicating it here would let the two drift.
     role: Role
     domains: List[Domain] = []
+    # Not a Literal, so an unknown key reaches the handler and is refused with a 422 that
+    # names it — "screen key 'hotel.spa' does not exist" is what an owner can act on,
+    # where pydantic's enum error would recite all fifteen valid keys instead.
+    #
+    # None is not the empty list. Omitted means "the screens this role has always had"
+    # (see _stored_permissions); an explicit `[]` is somebody deliberately ticking
+    # nothing, which is an account that reaches nothing, and is refused.
+    permissions: List[str] | None = None
 
 
 class StaffUpdateIn(BaseModel):
     name: str
     role: Role
     domains: List[Domain] = []
+    # Omitted means "leave their screens alone" here rather than "reset to the role's",
+    # so that an edit which only renames somebody cannot quietly widen them back out.
+    permissions: List[str] | None = None
 
 
 class ActiveIn(BaseModel):
@@ -70,6 +85,9 @@ def _public(user: dict) -> dict:
         "email": user.get("email"),
         "role": user.get("role"),
         "domains": user.get("domains") or [],
+        # Filtered to the catalogue on the way out: a key retired from the code is
+        # ignored on read rather than shown as a tick for a screen that no longer exists.
+        "permissions": [k for k in (user.get("permissions") or []) if k in SCREENS],
         "active": user.get("active", True),
         "created_at": user.get("created_at"),
     }
@@ -95,6 +113,50 @@ def _stored_domains(role: str, domains: List[str]) -> List[str]:
     return picked
 
 
+def _stored_permissions(submitted: List[str] | None, role: str, domains: List[str],
+                        existing: List[str] | None = None) -> List[str]:
+    """The screen keys to persist, validated against the catalogue and the domains.
+
+    Three refusals, each because the alternative is a stored record that lies about what
+    somebody can reach:
+
+    * an unknown key is a 422 naming it — a typo in a tick would otherwise be saved and
+      quietly do nothing;
+    * a key outside the person's work domains is a 400, because the domain check runs
+      first at request time so that screen could never open, and the owner would go on
+      believing they had granted it;
+    * a non-admin with nothing ticked is a 400 — an account that reaches no screen at
+      all is a mistake, not a state worth storing.
+    """
+    if submitted is None:
+        # Nothing was sent. On a create that means the role's usual screens; on an edit
+        # it means the ones already held, minus any that this edit's domains or a
+        # retirement in the code have made unreachable — a save drops what it cannot keep
+        # rather than refusing an edit the owner did not make.
+        if existing is None:
+            return default_permissions(role, domains)
+        return [k for k in existing
+                if k in SCREENS and permission_in_domains(k, domains)]
+
+    picked = list(dict.fromkeys(submitted))
+    for key in picked:
+        if key not in SCREENS:
+            raise HTTPException(422, f"Unknown screen: {key}")
+        if not permission_in_domains(key, domains):
+            raise HTTPException(
+                400, f"{key} is outside this staff member's work domains, so it would "
+                     f"never take effect")
+
+    # Same reasoning as `_stored_domains`: an admin is never permission-checked, so an
+    # empty list costs them nothing until the day they are demoted and it costs them
+    # everything.
+    if role == "admin" and not picked:
+        return default_permissions(role, domains)
+    if not picked:
+        raise HTTPException(400, "A non-admin needs at least one screen")
+    return picked
+
+
 @router.get("/staff")
 async def list_staff(user: dict = Depends(ADMIN)):
     users = await db.users.find({}, {"_id": 0}).to_list(10000)
@@ -113,12 +175,14 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     if await db.users.find_one({"email": email}):
         raise HTTPException(409, DUPLICATE_EMAIL)
 
+    domains = _stored_domains(payload.role, payload.domains)
     doc = {
         "id": str(uuid.uuid4()),
         "name": payload.name.strip(),
         "email": email,
         "role": payload.role,
-        "domains": _stored_domains(payload.role, payload.domains),
+        "domains": domains,
+        "permissions": _stored_permissions(payload.permissions, payload.role, domains),
         "active": True,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -144,6 +208,8 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
         raise HTTPException(400, "A non-admin needs at least one work domain")
 
     domains = _stored_domains(payload.role, payload.domains)
+    permissions = _stored_permissions(payload.permissions, payload.role, domains,
+                                      existing=list(target.get("permissions") or []))
 
     # Editing your own *permissions* is refused — without this, one edit locks the owner
     # out of their own system with no recovery short of editing the database by hand.
@@ -157,16 +223,23 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
             blocked.append("role")
         if domains != list(target.get("domains") or []):
             blocked.append("domains")
+        # Only when they actually sent a list: an edit that leaves the field out carries
+        # the stored screens over, and refusing that would stop an admin renaming
+        # themselves — the very thing this guard was narrowed to allow.
+        if payload.permissions is not None and permissions != list(target.get("permissions") or []):
+            blocked.append("screens")
         if blocked:
             raise HTTPException(409, f"You cannot change your own {' or '.join(blocked)}")
 
     previous = {"name": target.get("name"), "role": target.get("role"),
-                "domains": list(target.get("domains") or [])}
+                "domains": list(target.get("domains") or []),
+                "permissions": list(target.get("permissions") or [])}
 
     await db.users.update_one({"id": staff_id}, {"$set": {
         "name": payload.name.strip(),
         "role": payload.role,
         "domains": domains,
+        "permissions": permissions,
     }})
 
     # The same compensating check `set_active` makes below, for the other way to reach
