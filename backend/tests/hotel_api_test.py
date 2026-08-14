@@ -906,9 +906,14 @@ def test_void_requires_a_reason(admin):
 
 # ------------------------- Task 6: charge to room at the POS -------------------------
 def _open_order(admin):
-    """Open a bar order on a free table and return it."""
-    tables = admin.get(f"{API}/tables").json()
-    table = next(t for t in tables if t["status"] == "free")
+    """Open a bar order on a table of this test's own, and return it.
+
+    It creates the table rather than picking a free one. Reusing whatever happened to
+    be free made the whole suite fail with StopIteration against a busy property — the
+    tests broke because the restaurant was full, which says nothing about the code.
+    """
+    table = admin.post(f"{API}/tables", json={
+        "label": f"T{uuid.uuid4().hex[:5].upper()}", "capacity": 4, "zone": "Test"}).json()
     menu = admin.get(f"{API}/menu").json()
     return admin.post(f"{API}/orders/table/{table['id']}/items", json={
         "items": [{"menu_item_id": menu[0]["id"], "quantity": 2}], "source": "pos"}).json()
