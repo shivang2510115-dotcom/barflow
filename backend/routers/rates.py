@@ -11,10 +11,13 @@ router = APIRouter()
 
 # Rates, rate periods, meal plans and tax slabs are what every tariff on every folio is
 # derived from: configuration, admin only.
-CONFIG = require_configuration("hotel")
+#
+# All four are setup-time: a hotel prices its rooms before it is approved to sell them,
+# and a room type with no rate is refused at booking rather than priced at zero.
+CONFIG = require_configuration("hotel", setup_time=True)
 
 # All four lists are read by the one Rates screen.
-READ = require_access("hotel", permission="hotel.rates")
+READ = require_access("hotel", permission="hotel.rates", setup_time=True)
 
 
 # --------------------------- meal plans ---------------------------

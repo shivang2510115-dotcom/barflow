@@ -60,12 +60,19 @@ class Reservation(BaseModel):
 
 # The floor plan is read by three screens — Tables, the POS and Reservations all need
 # to know what the tables are — so the one endpoint names all three.
-FLOOR = require_access(OUTLET, permission=("outlet.tables", "outlet.pos", "outlet.reservations"))
+#
+# Setup-time: drawing the floor plan is part of describing the outlet. Reading it is
+# harmless while pending — the POS that also reads it cannot open an order anyway.
+FLOOR = require_access(OUTLET, permission=("outlet.tables", "outlet.pos", "outlet.reservations"),
+                       setup_time=True)
 # Adding or removing a table is not configuration in the sense the admin lock covers:
 # nothing is priced off it, and a floor that cannot be rearranged by the manager on duty
 # is a floor plan that goes stale. Room types, rates and menu items are the settings that
 # turn into money on a bill; a table is furniture.
-FLOOR_EDIT = require_access(OUTLET, "admin", "manager", permission="outlet.tables")
+FLOOR_EDIT = require_access(OUTLET, "admin", "manager", permission="outlet.tables",
+                            setup_time=True)
+# Reservations are operating, not setup: a table booked at an unapproved property is a
+# guest expecting a seat the hotel is not yet cleared to sell.
 BOOK_TABLE = require_access(OUTLET, "admin", "manager", "waiter", permission="outlet.reservations")
 READ_RESERVATIONS = require_access(OUTLET, permission="outlet.reservations")
 CANCEL_RESERVATION = require_access(OUTLET, "admin", "manager", permission="outlet.reservations")

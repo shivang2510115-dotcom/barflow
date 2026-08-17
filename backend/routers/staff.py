@@ -23,7 +23,10 @@ router = APIRouter()
 # The screen key is declared for completeness — an admin bypasses the permission check
 # exactly as they bypass domains, so `admin.staff` gates nothing here; it exists so the
 # catalogue and the sidebar agree that this screen is one of the fifteen.
-ADMIN = require_access(SHARED, "admin", permission="admin.staff")
+# Setup-time: hiring the first receptionist is part of setting a hotel up, and a
+# property still awaiting approval that could not create a login would have nobody to
+# do the rest of the setup with.
+ADMIN = require_access(SHARED, "admin", permission="admin.staff", setup_time=True)
 
 # Pydantic needs a Literal to refuse an unknown domain with a 422, and a Literal cannot
 # be built from a runtime tuple — so the vocabulary is spelled out once more here. It is
@@ -183,6 +186,11 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
         "role": payload.role,
         "domains": domains,
         "permissions": _stored_permissions(payload.permissions, payload.role, domains),
+        # The hotel doing the hiring, taken from the admin's own record and never from
+        # the request: a staff list is the one place where "which hotel" could otherwise
+        # be typed in. Without it the new account would be refused every endpoint, since
+        # a user naming no property is unplaceable and therefore refused.
+        "property_id": user.get("property_id"),
         "active": True,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),

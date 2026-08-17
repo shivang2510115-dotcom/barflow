@@ -11,12 +11,20 @@ router = APIRouter()
 # Room types and rooms are configuration — what everything else is priced and booked
 # against — so only the admin changes them. Marking a room out of order is not: a burst
 # pipe at 2am is housekeeping, and it stays with the manager on duty (see below).
-CONFIG = require_configuration("hotel")
+#
+# Setup-time: rooms and room types are the first thing a new hotel enters, and a
+# property waiting for approval that could not describe its own rooms would have nothing
+# to be approved on.
+CONFIG = require_configuration("hotel", setup_time=True)
 
 # The Rooms screen reads both lists; the front desk reads /rooms too, to pick the room a
 # guest is checked into, so that one endpoint names both screens.
-READ_ROOM_TYPES = require_access("hotel", permission=("hotel.rooms", "hotel.rates"))
-READ_ROOMS = require_access("hotel", permission=("hotel.rooms", "hotel.front_desk"))
+READ_ROOM_TYPES = require_access("hotel", permission=("hotel.rooms", "hotel.rates"),
+                                 setup_time=True)
+READ_ROOMS = require_access("hotel", permission=("hotel.rooms", "hotel.front_desk"),
+                            setup_time=True)
+# Not setup-time: blocking a room for a burst pipe is running the hotel, not describing
+# it, and a property that cannot take a booking has nothing to protect from the block.
 OUT_OF_ORDER = require_access("hotel", "admin", "manager", permission="hotel.rooms")
 
 # Statuses that mean a booking still matters when deleting inventory or warning

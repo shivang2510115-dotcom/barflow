@@ -56,8 +56,12 @@ async def login(payload: LoginIn):
 # replaces it and is the only way to create a user.
 
 
+# Setup-time: this is the caller reading their own identity, and it carries nothing
+# about the hotel's guests or money. A pending property whose staff could log in but not
+# then be told who they are would be a hotel that cannot open its own app to set itself
+# up — the state approval is supposed to allow.
 @router.get("/auth/me")
-async def me(user: dict = Depends(require_access(SHARED))):
+async def me(user: dict = Depends(require_access(SHARED, setup_time=True))):
     return {
         "id": user["id"],
         "email": user["email"],

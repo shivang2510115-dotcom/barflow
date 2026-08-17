@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import db, client, check_connection
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -27,11 +27,12 @@ from models.hotel import Rate, Room, RoomType
 from services.access import DOMAINS
 from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
+from migrations.backfill_property import backfill as backfill_property
 
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router):
     api_router.include_router(module.router)
 
 
@@ -52,6 +53,24 @@ app.add_middleware(
 
 
 # ----------------- Seed -----------------
+def demo_content_enabled() -> bool:
+    """Whether to seed the showcase bar — its tables, menu, stock, rooms and rates.
+
+    Off unless asked for, the opposite of `DEMO_LOGINS`' default, and for a reason the
+    two do not share: a demo login is a door that a public deployment must not leave
+    open, while demo content is furniture that a *real* hotel would have to delete by
+    hand, item by item, before it could trust a single number on its own dashboard.
+    Three room types it never had make its occupancy wrong on day one.
+
+    So a fresh production start creates only what every property needs regardless of who
+    they are: the admin account, the GST bands and the three meal plans. Those are
+    reference data — statutory rates and the standard Indian board codes — not somebody
+    else's inventory. Set SEED_DEMO_CONTENT=true for a clone you want usable in one
+    command.
+    """
+    return os.environ.get("SEED_DEMO_CONTENT", "false").lower() == "true"
+
+
 async def seed_data():
     # Indexes
     await db.users.create_index("email", unique=True)
@@ -112,6 +131,36 @@ async def seed_data():
         # An existing account keeps whatever password it currently has. Re-hashing the
         # seed value here would silently undo every password change on each restart.
 
+    # Room GST bands. Editable, because these change by statute.
+    if await db.tax_slabs.count_documents({}) == 0:
+        await db.tax_slabs.insert_many([
+            {"id": str(uuid.uuid4()), "min_tariff": 0.0, "max_tariff": 7500.0,
+             "rate_percent": 12.0, "active": True},
+            {"id": str(uuid.uuid4()), "min_tariff": 7500.0, "max_tariff": None,
+             "rate_percent": 18.0, "active": True},
+        ])
+
+    if await db.meal_plans.count_documents({}) == 0:
+        await db.meal_plans.insert_many([
+            {"id": str(uuid.uuid4()), "code": "EP", "name": "Room only",
+             "price_per_adult_per_night": 0.0, "price_per_child_per_night": 0.0, "active": True},
+            {"id": str(uuid.uuid4()), "code": "CP", "name": "With breakfast",
+             "price_per_adult_per_night": 500.0, "price_per_child_per_night": 250.0, "active": True},
+            {"id": str(uuid.uuid4()), "code": "MAP", "name": "Half board",
+             "price_per_adult_per_night": 1200.0, "price_per_child_per_night": 600.0, "active": True},
+        ])
+
+    if demo_content_enabled():
+        await seed_demo_content()
+
+
+async def seed_demo_content():
+    """The showcase bar-and-hotel: tables, a menu, stock, room types, rooms and rates.
+
+    Only ever reached through `demo_content_enabled()`. Each block still checks that its
+    collection is empty, so turning the flag on against a property that has already
+    started entering its own data adds nothing on top of it.
+    """
     # Seed tables
     if await db.tables.count_documents({}) == 0:
         zones = [("Bar", 6, 4), ("Lounge", 4, 4), ("Patio", 3, 6)]
@@ -194,30 +243,12 @@ async def seed_data():
             item = InventoryItem(**i).model_dump()
             await db.inventory.insert_one(item)
 
-    # Room GST bands. Editable, because these change by statute.
-    if await db.tax_slabs.count_documents({}) == 0:
-        await db.tax_slabs.insert_many([
-            {"id": str(uuid.uuid4()), "min_tariff": 0.0, "max_tariff": 7500.0,
-             "rate_percent": 12.0, "active": True},
-            {"id": str(uuid.uuid4()), "min_tariff": 7500.0, "max_tariff": None,
-             "rate_percent": 18.0, "active": True},
-        ])
-
-    if await db.meal_plans.count_documents({}) == 0:
-        await db.meal_plans.insert_many([
-            {"id": str(uuid.uuid4()), "code": "EP", "name": "Room only",
-             "price_per_adult_per_night": 0.0, "price_per_child_per_night": 0.0, "active": True},
-            {"id": str(uuid.uuid4()), "code": "CP", "name": "With breakfast",
-             "price_per_adult_per_night": 500.0, "price_per_child_per_night": 250.0, "active": True},
-            {"id": str(uuid.uuid4()), "code": "MAP", "name": "Half board",
-             "price_per_adult_per_night": 1200.0, "price_per_child_per_night": 600.0, "active": True},
-        ])
-
-    # Room types, rooms and a default rate for each — without this a fresh deploy has
-    # zero hotel inventory, availability returns nothing, and no booking can be made
-    # until someone creates it over the API by hand. Rates use period_id=None (the
+    # Demo room types, rooms and a default rate for each. Rates use period_id=None (the
     # year-round default) so every type is immediately bookable; a type with no rate
     # is refused rather than priced at zero (see services/pricing.py).
+    #
+    # A real property starts with none of this and builds its own from the Rooms and
+    # Rates screens, which are open while it is still pending approval.
     if await db.room_types.count_documents({}) == 0:
         room_type_specs = [
             {"name": "Deluxe Room", "code": "DLX", "block": "Main",
@@ -280,6 +311,14 @@ async def on_startup():
     logger.info(
         "Screen backfill: %d user(s) updated, %d already current, %d left with no screens.",
         updated, current, stranded)
+    # Tenancy. After seed_data so the admin it may have just created is stamped too, and
+    # before the first request either way: a user with no property_id now reaches
+    # nothing, so an unmigrated database is one where every existing login is locked out.
+    # Order against the two backfills above does not matter — they touch other fields.
+    created, property_id, stamped, current = await backfill_property()
+    logger.info(
+        "Property backfill: property %s (%s), %d user(s) stamped, %d already current.",
+        "created" if created else "already present", property_id, stamped, current)
     if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
         asyncio.create_task(daily_brief_scheduler())
         logger.info("Daily brief scheduler started (%s).", os.environ.get("OWNER_BRIEF_TIME", "23:00"))

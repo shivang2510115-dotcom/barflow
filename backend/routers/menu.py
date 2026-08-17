@@ -12,7 +12,9 @@ from services.access import OUTLET
 # The menu itself is configuration — prices on it become money on a bill — so only the
 # admin edits it. Reading it is deliberately unauthenticated below: the QR code on the
 # table is a guest's menu, not a staff screen.
-CONFIG = require_configuration(OUTLET)
+# Setup-time: typing the menu in is setting the outlet up. Selling from it is not — the
+# POS and the KOT board stay locked until the property is approved.
+CONFIG = require_configuration(OUTLET, setup_time=True)
 
 router = APIRouter()
 
