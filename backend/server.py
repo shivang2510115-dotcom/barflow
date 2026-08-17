@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
-from db import db, client, check_connection
+from db import db, client, check_connection, using_mock
 from security import hash_password
 from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router
 from routers.tables import Table
@@ -28,6 +28,20 @@ from services.access import DOMAINS
 from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
 from migrations.backfill_property import backfill as backfill_property
+
+# Same reasoning as JWT_SECRET in security.py: this password is published in a public
+# repository, so seeding it against a real database hands the first admin account to
+# anyone who has read the source. Checked at import, before any database call, so an
+# unreachable database cannot mask it — the connection error would be the last thing
+# anyone saw, and the account would be seeded wide open on the retry that succeeds.
+DEFAULT_ADMIN_PASSWORD = "admin123"
+
+if os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD) == DEFAULT_ADMIN_PASSWORD \
+        and not using_mock:
+    raise RuntimeError(
+        "ADMIN_PASSWORD is still the default published in this repository, and MONGO_URL "
+        "points at a real database. Set ADMIN_PASSWORD to something private and restart."
+    )
 
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
@@ -96,7 +110,7 @@ async def seed_data():
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
-    admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_pw = os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
 
     default_users = [
         {"email": admin_email, "name": "Alex Mercer", "role": "admin", "password": admin_pw},

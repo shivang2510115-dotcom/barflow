@@ -7,12 +7,24 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 
-from db import db
+from db import db, using_mock
 from services.access import (
     PENDING, can_access, normalise_domains, normalise_permissions)
 
 JWT_ALGORITHM = "HS256"
-JWT_SECRET = os.environ.get("JWT_SECRET", "supersecret-key-123456789")
+
+# This value is published in a public repository. Anyone holding it can mint a token for
+# any user of any hotel — not guess a password, forge an admin session outright. It stays
+# as a convenience for local work against the JSON mock, and is fatal anywhere else.
+_DEFAULT_JWT_SECRET = "supersecret-key-123456789"
+JWT_SECRET = os.environ.get("JWT_SECRET", _DEFAULT_JWT_SECRET)
+
+if JWT_SECRET == _DEFAULT_JWT_SECRET and not using_mock:
+    raise RuntimeError(
+        "JWT_SECRET is still the default published in this repository, and MONGO_URL "
+        "points at a real database. Every login token would be forgeable by anyone who "
+        "has read the source. Set JWT_SECRET to a long random value and restart."
+    )
 
 Role = Literal["admin", "manager", "waiter", "kitchen", "front_desk"]
 
