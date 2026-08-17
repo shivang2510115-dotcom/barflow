@@ -8,7 +8,10 @@ from services.access import SHARED
 
 router = APIRouter()
 
-MANAGE = require_access(SHARED, "admin", "manager", "front_desk")
+# Guests are shared: a bar regular and a hotel guest are the same person. The
+# new-booking screen creates one mid-booking, so it reaches these too — hence both keys.
+MANAGE = require_access(SHARED, "admin", "manager", "front_desk",
+                        permission=("hotel.guests", "hotel.bookings"))
 
 
 @router.get("/guests")

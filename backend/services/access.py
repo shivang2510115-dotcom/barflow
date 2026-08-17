@@ -47,6 +47,121 @@ class AccessError(Exception):
     """Raised when an access rule is configured with something meaningless."""
 
 
+# The screens an owner ticks per staff member, and what each one takes to reach.
+#
+# These keys are STABLE IDENTIFIERS. They are stored on user records, so renaming one
+# does not move anybody across: it silently revokes that screen from everyone who held
+# it, because the tick stays ticked on a key no endpoint answers to any more. Add keys,
+# retire keys, but never rename one that has shipped.
+#
+# `section` is presentation only — `hotel.guests` and `outlet.inventory` sit behind
+# `shared` endpoints and are filed under a section so the sidebar has somewhere to put
+# them, not because they belong to that half of the business.
+#
+# `domains` is what the endpoints behind the screen declare. It is here so that a tick
+# outside somebody's work domains can be refused when it is saved (see
+# `permission_in_domains`): the domain check runs first at request time, so such a tick
+# could never take effect, and storing it silently would be a lie the owner would rely on.
+SCREENS: dict[str, dict] = {
+    "hotel.front_desk":   {"label": "Front desk",   "section": "Hotel",      "domains": ("hotel",)},
+    "hotel.bookings":     {"label": "Bookings",     "section": "Hotel",      "domains": ("hotel",)},
+    "hotel.calendar":     {"label": "Occupancy",    "section": "Hotel",      "domains": ("hotel",)},
+    "hotel.rooms":        {"label": "Rooms",        "section": "Hotel",      "domains": ("hotel",)},
+    "hotel.rates":        {"label": "Rates",        "section": "Hotel",      "domains": ("hotel",)},
+    "hotel.guests":       {"label": "Guests",       "section": "Hotel",      "domains": (SHARED,)},
+    "outlet.tables":      {"label": "Tables",       "section": "Restaurant", "domains": OUTLET},
+    "outlet.pos":         {"label": "POS / Bill",   "section": "Restaurant", "domains": OUTLET},
+    "outlet.kot":         {"label": "KOT board",    "section": "Restaurant", "domains": OUTLET},
+    "outlet.reservations": {"label": "Reservations", "section": "Restaurant", "domains": OUTLET},
+    "outlet.menu":        {"label": "Menu",         "section": "Restaurant", "domains": OUTLET},
+    "outlet.inventory":   {"label": "Inventory",    "section": "Restaurant", "domains": (SHARED,)},
+    "outlet.reports":     {"label": "Reports",      "section": "Restaurant", "domains": OUTLET},
+    # Grantable rather than implied by the role, so a manager can be given the analytics
+    # screen without being made an admin.
+    "admin.staff":        {"label": "Staff",        "section": "Admin",      "domains": (SHARED,)},
+    "admin.analytics":    {"label": "Analytics",    "section": "Admin",      "domains": DOMAINS},
+}
+
+SCREEN_KEYS = tuple(SCREENS)
+
+
+# What each role reached before the ticks existed — read off the sidebar in
+# frontend/src/components/app/AppLayout.jsx, which is what actually decided it, rather
+# than from anybody's memory of what a role name ought to mean.
+#
+# This is NOT consulted at request time: permissions decide what a person reaches, roles
+# decide who may edit. It is used twice, both times to answer "what should this account
+# start with" — by the startup backfill, so nobody loses access on deploy, and as the
+# default when a staff member is created without ticks. Frozen: it describes the old
+# navigation, so it does not grow when a new screen is added.
+ROLE_SCREENS: dict[str, tuple[str, ...]] = {
+    "admin": SCREEN_KEYS,
+    # Everything the admin console has except staff administration, which stays admin-only.
+    "manager": tuple(k for k in SCREEN_KEYS if k != "admin.staff"),
+    "front_desk": ("hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.guests"),
+    "waiter": ("outlet.tables", "outlet.reservations", "outlet.pos", "outlet.kot"),
+    "kitchen": ("outlet.kot", "outlet.inventory"),
+}
+
+
+def default_permissions(role: str, held: list[str] | tuple[str, ...]) -> list[str]:
+    """The screens an account of this role, working in these domains, should start with.
+
+    Intersected with the domains rather than handed over whole: a screen outside
+    somebody's domains is refused at request time anyway, so storing it would put a tick
+    on the staff screen that does nothing — the exact lie `permission_in_domains` exists
+    to prevent — and the next save of that record would be refused for containing it.
+    """
+    if role == "admin":
+        # An admin is never permission-checked, so this costs them nothing today. It is
+        # stored for the same reason `_stored_domains` stores every domain for them: a
+        # later demotion to manager must not silently produce an account reaching nothing.
+        held = held or DOMAINS
+    return [k for k in ROLE_SCREENS.get(role, ()) if permission_in_domains(k, held)]
+
+
+def normalise_permissions(permission: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    """Accept one screen key or several, and reject an unknown one loudly.
+
+    Several because one endpoint can sit behind more than one screen — GET /rooms is
+    read by the Rooms screen and by the front desk's room picker — and holding any one
+    of them is enough, the same any-of rule the declared domains already use.
+
+    A typo must fail where the endpoint declares it (import time), not silently deny
+    every user at runtime; this is `normalise_domains`' reasoning applied to the ticks.
+    """
+    if isinstance(permission, str):
+        permission = (permission,)
+    try:
+        out = tuple(permission)
+    except TypeError:
+        raise AccessError(f"invalid permission: {permission!r}") from None
+    if not out:
+        raise AccessError("an endpoint that declares a permission must name one")
+    for key in out:
+        if key not in SCREENS:
+            raise AccessError(f"unknown screen key: {key}")
+    return out
+
+
+def permission_in_domains(key: str, held: list[str] | tuple[str, ...]) -> bool:
+    """Whether ticking this screen for someone holding `held` could ever take effect.
+
+    Used when permissions are saved. The request-time rule is the one in `can_access`;
+    this is the same question asked ahead of time, so the owner is told at the moment
+    they tick rather than discovering later that the screen never opened.
+    """
+    if key not in SCREENS:
+        raise AccessError(f"unknown screen key: {key}")
+    held = tuple(held or ())
+    if not held:
+        return False
+    required = SCREENS[key]["domains"]
+    if tuple(required) == (SHARED,):
+        return True
+    return any(d in held for d in required)
+
+
 def normalise_domains(domains: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
     """Accept a single domain or several, and reject unknown values loudly.
 
@@ -117,6 +232,7 @@ def can_access(
     property_record=UNSCOPED,
     *,
     setup_time: bool = False,
+    permission: str | tuple[str, ...] | list[str] | None = None,
 ) -> bool:
     """True when this user may reach an endpoint requiring these roles and domains.
 
@@ -129,8 +245,16 @@ def can_access(
     locked while pending without anyone having to remember to say so, and the handful
     that unlock read that way at the call site — the same explicitness the declared
     domain already has.
+
+    `permission` is the screen this endpoint sits behind, one key or several. It is
+    checked last, after the domain, because a tick is only meaningful inside a domain
+    the user holds — checking it first, or instead, would let a ticked screen widen
+    somebody past the part of the business they work in.
     """
     required = normalise_domains(domains)
+    # Validated before anything is decided, so a typo cannot pass unnoticed on the
+    # requests that are refused earlier for some other reason.
+    wanted = normalise_permissions(permission) if permission is not None else ()
 
     # A bare string is convenient shorthand for a single role, same as for domains —
     # but left unwrapped, `role not in roles` becomes substring matching on the str,
@@ -160,7 +284,14 @@ def can_access(
     if not held:
         return False
 
-    if required == (SHARED,):
+    # A shared endpoint is satisfied by any domain at all; otherwise one of the declared
+    # ones has to be held.
+    if required != (SHARED,) and not any(d in held for d in required):
+        return False
+
+    if not wanted:
         return True
 
-    return any(d in held for d in required)
+    # Ticks are what the owner actually decided, so a user the migration has not reached
+    # — no `permissions` key at all — fails closed rather than open.
+    return any(key in (user.get("permissions") or ()) for key in wanted)

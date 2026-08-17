@@ -12,7 +12,7 @@ import { Toaster } from "sonner";
 
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
-import Dashboard from "@/pages/Dashboard";
+import SectionChooser from "@/pages/SectionChooser";
 import Tables from "@/pages/Tables";
 import Reservations from "@/pages/Reservations";
 import POS from "@/pages/POS";
@@ -54,7 +54,9 @@ function AppShell() {
   return (
     <AppLayout>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        {/* /app is the section chooser, not a dashboard: a property running both halves
+            of the business asks which one you are in before it shows a menu. */}
+        <Route path="/" element={<SectionChooser />} />
         <Route path="/tables" element={<Tables />} />
         <Route path="/reservations" element={<Reservations />} />
         <Route path="/pos/:tableId?" element={<POS />} />

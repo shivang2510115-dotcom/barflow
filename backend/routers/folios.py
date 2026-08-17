@@ -15,8 +15,13 @@ from services.folio import direction_for, folio_balance, unposted_nights, void_d
 
 router = APIRouter()
 
-DESK = require_access("hotel", "admin", "manager", "front_desk")
-MANAGER = require_access("hotel", "admin", "manager")
+# A folio is opened from the front-desk board and from the booking, so both keys reach
+# it. Posting a charge or a payment is operational — money moving during a stay — and
+# stays with the desk.
+DESK = require_access("hotel", "admin", "manager", "front_desk",
+                      permission=("hotel.front_desk", "hotel.bookings"))
+MANAGER = require_access("hotel", "admin", "manager",
+                         permission=("hotel.front_desk", "hotel.bookings"))
 
 # `_today` is the property's local date, not UTC. It decides which room nights are due,
 # and before 05:30 local the UTC date is still yesterday's — so a folio read at 2am would

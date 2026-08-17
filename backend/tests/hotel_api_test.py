@@ -906,9 +906,14 @@ def test_void_requires_a_reason(admin):
 
 # ------------------------- Task 6: charge to room at the POS -------------------------
 def _open_order(admin):
-    """Open a bar order on a free table and return it."""
-    tables = admin.get(f"{API}/tables").json()
-    table = next(t for t in tables if t["status"] == "free")
+    """Open a bar order on a table of this test's own, and return it.
+
+    It creates the table rather than picking a free one. Reusing whatever happened to
+    be free made the whole suite fail with StopIteration against a busy property — the
+    tests broke because the restaurant was full, which says nothing about the code.
+    """
+    table = admin.post(f"{API}/tables", json={
+        "label": f"T{uuid.uuid4().hex[:5].upper()}", "capacity": 4, "zone": "Test"}).json()
     menu = admin.get(f"{API}/menu").json()
     return admin.post(f"{API}/orders/table/{table['id']}/items", json={
         "items": [{"menu_item_id": menu[0]["id"], "quantity": 2}], "source": "pos"}).json()
@@ -1127,12 +1132,19 @@ def test_seeded_admin_has_all_domains_and_is_active(admin):
     assert set(body["domains"]) == {"hotel", "restaurant", "bar"}
 
 
-def _staff_session(admin, email, password, role, domains):
-    """Create a staff user directly via the seeded admin, and return a logged-in session."""
+def _staff_session(admin, email, password, role, domains, permissions=None):
+    """Create a staff user directly via the seeded admin, and return a logged-in session.
+
+    `permissions` left as None sends no ticks at all, which the API reads as "the screens
+    this role has always reached" — the same set the startup backfill gives an existing
+    account. Pass a list to narrow somebody deliberately.
+    """
     import requests as _rq
-    admin.post(f"{API}/staff", json={
-        "name": email.split("@")[0], "email": email, "password": password,
-        "role": role, "domains": domains})
+    body = {"name": email.split("@")[0], "email": email, "password": password,
+            "role": role, "domains": domains}
+    if permissions is not None:
+        body["permissions"] = permissions
+    admin.post(f"{API}/staff", json=body)
     s = _rq.Session()
     r = s.post(f"{API}/auth/login", json={"email": email, "password": password})
     assert r.status_code == 200, r.text
@@ -1843,3 +1855,327 @@ def test_you_can_rename_yourself_but_not_change_your_own_role_or_domains(admin):
     still = me.get(f"{API}/auth/me").json()
     assert still["role"] == "admin"
     assert set(still["domains"]) == set(my["domains"])
+
+
+# ------------------------ screen permissions ------------------------
+# Domains say which part of the business somebody works in; the ticks say which screens
+# within it. Both are enforced at the API, because hiding a sidebar entry protects
+# against an accident, not against intent.
+
+def _staff_id(admin, email):
+    return next(u["id"] for u in admin.get(f"{API}/staff").json() if u["email"] == email)
+
+
+def test_the_screen_catalogue_is_readable_by_any_signed_in_user(admin):
+    """Served rather than duplicated in the frontend, so the staff screen and the
+    sidebar cannot disagree about which screens exist."""
+    email = f"cat-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "cat12345678", "waiter", ["bar"])
+    r = s.get(f"{API}/permissions")
+    assert r.status_code == 200, r.text
+    catalogue = r.json()
+    keys = {row["key"] for row in catalogue}
+    assert keys == {
+        "hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.rooms",
+        "hotel.rates", "hotel.guests", "outlet.tables", "outlet.pos", "outlet.kot",
+        "outlet.reservations", "outlet.menu", "outlet.inventory", "outlet.reports",
+        "admin.staff", "admin.analytics"}
+    for row in catalogue:
+        assert row["label"] and row["section"] and row["domains"]
+    assert {row["section"] for row in catalogue} == {"Hotel", "Restaurant", "Admin"}
+
+
+def test_a_manager_reaches_the_screens_ticked_and_no_others(admin):
+    """The headline case: one manager, one domain, one screen. Bookings opens, rates
+    does not — and the role is identical in both, so only the tick can explain it."""
+    email = f"perm-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "perm12345678", "manager", ["hotel"],
+                       permissions=["hotel.bookings"])
+    assert s.get(f"{API}/bookings").status_code == 200
+    assert s.get(f"{API}/rates").status_code == 403
+    assert s.get(f"{API}/bookings/calendar",
+                 params={"start": "2030-01-01", "end": "2030-01-07"}).status_code == 403
+
+
+def test_granting_a_screen_takes_effect_without_a_re_login(admin):
+    """Permissions are read from the user record on every request, not baked into the
+    token — so an owner who ticks a box does not have to tell somebody to sign out."""
+    email = f"grant-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "grant12345678", "manager", ["hotel"],
+                       permissions=["hotel.bookings"])
+    assert s.get(f"{API}/rates").status_code == 403
+
+    uid = _staff_id(admin, email)
+    r = admin.put(f"{API}/staff/{uid}", json={
+        "name": "Granted", "role": "manager", "domains": ["hotel"],
+        "permissions": ["hotel.bookings", "hotel.rates"]})
+    assert r.status_code == 200, r.text
+    assert set(r.json()["permissions"]) == {"hotel.bookings", "hotel.rates"}
+
+    # Same session, same token.
+    assert s.get(f"{API}/rates").status_code == 200
+
+
+def test_removing_a_screen_takes_effect_on_the_next_request(admin):
+    email = f"revoke-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "revoke12345678", "manager", ["hotel"],
+                       permissions=["hotel.bookings", "hotel.rates"])
+    assert s.get(f"{API}/rates").status_code == 200
+
+    uid = _staff_id(admin, email)
+    admin.put(f"{API}/staff/{uid}", json={
+        "name": "Narrowed", "role": "manager", "domains": ["hotel"],
+        "permissions": ["hotel.bookings"]})
+    assert s.get(f"{API}/rates").status_code == 403
+    assert s.get(f"{API}/bookings").status_code == 200
+
+
+def test_a_tick_cannot_widen_someone_past_their_work_domains(admin):
+    """Saved at all, this would be a lie the owner relies on: the domain check runs
+    first, so the screen could never open."""
+    email = f"wide-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Too Wide", "email": email, "password": "wide12345678",
+        "role": "manager", "domains": ["restaurant"],
+        "permissions": ["outlet.pos", "hotel.rates"]})
+    assert r.status_code == 400, r.text
+    assert "hotel.rates" in r.json()["detail"]
+    # And nothing was created.
+    assert not any(u["email"] == email for u in admin.get(f"{API}/staff").json())
+
+
+def test_an_unknown_screen_key_is_refused_by_name(admin):
+    r = admin.post(f"{API}/staff", json={
+        "name": "Typo", "email": f"typo-{uuid.uuid4().hex[:6]}@barflow.io",
+        "password": "typo12345678", "role": "manager", "domains": ["hotel"],
+        "permissions": ["hotel.bookings", "hotel.spa"]})
+    assert r.status_code == 422, r.text
+    assert "hotel.spa" in str(r.json()["detail"])
+
+
+def test_a_non_admin_with_no_screens_at_all_is_refused(admin):
+    """An account that reaches nothing is a mistake, not a state worth storing."""
+    r = admin.post(f"{API}/staff", json={
+        "name": "Nobody", "email": f"noscreen-{uuid.uuid4().hex[:6]}@barflow.io",
+        "password": "none12345678", "role": "manager", "domains": ["hotel"],
+        "permissions": []})
+    assert r.status_code == 400, r.text
+
+
+def test_an_admin_needs_no_ticks_and_is_stored_holding_every_screen(admin):
+    """Ignored for an admin exactly as `domains` is — but stored anyway, so a later
+    demotion to manager does not silently produce an account that reaches nothing."""
+    email = f"adminperm-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "New Admin", "email": email, "password": "admin12345678",
+        "role": "admin", "domains": [], "permissions": []})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["permissions"]) == 15
+
+
+def test_a_staff_member_created_without_ticks_gets_what_their_role_implied(admin):
+    email = f"implied-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Implied", "email": email, "password": "implied12345",
+        "role": "front_desk", "domains": ["hotel"]})
+    assert r.status_code == 200, r.text
+    assert set(r.json()["permissions"]) == {
+        "hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.guests"}
+
+
+def test_screens_outside_the_new_domains_are_dropped_when_domains_narrow(admin):
+    """Narrowing somebody's domains must not refuse the edit for screens the edit itself
+    made unreachable — it drops them, and the record stops claiming what it cannot do."""
+    email = f"narrow-{uuid.uuid4().hex[:6]}@barflow.io"
+    admin.post(f"{API}/staff", json={
+        "name": "Narrow", "email": email, "password": "narrow12345",
+        "role": "manager", "domains": ["hotel", "restaurant"]})
+    uid = _staff_id(admin, email)
+
+    r = admin.put(f"{API}/staff/{uid}", json={
+        "name": "Narrow", "role": "manager", "domains": ["hotel"]})
+    assert r.status_code == 200, r.text
+    kept = set(r.json()["permissions"])
+    assert "hotel.bookings" in kept
+    assert not any(k.startswith("outlet.") and k != "outlet.inventory" for k in kept), kept
+
+
+def test_the_migration_left_every_existing_account_reaching_what_it_did(admin):
+    """The seeded demo logins predate the ticks. After the startup backfill each one
+    still opens the screens their role opened before, and nothing else."""
+    import requests as _rq
+
+    def session(email, password):
+        s = _rq.Session()
+        r = s.post(f"{API}/auth/login", json={"email": email, "password": password})
+        assert r.status_code == 200, r.text
+        s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+        return s
+
+    desk = session("frontdesk@barflow.io", "desk123")
+    assert desk.get(f"{API}/front-desk").status_code == 200
+    assert desk.get(f"{API}/bookings").status_code == 200
+    assert desk.get(f"{API}/guests").status_code == 200
+
+    waiter_s = session("waiter@barflow.io", "waiter123")
+    assert waiter_s.get(f"{API}/tables").status_code == 200
+    assert waiter_s.get(f"{API}/orders/kot").status_code == 200
+    assert waiter_s.get(f"{API}/reservations").status_code == 200
+
+    kitchen = session("kitchen@barflow.io", "kitchen123")
+    assert kitchen.get(f"{API}/orders/kot").status_code == 200
+    assert kitchen.get(f"{API}/inventory").status_code == 200
+
+    manager = session("manager@barflow.io", "manager123")
+    for path in ("/bookings", "/rates", "/rooms", "/tables", "/inventory",
+                 "/reports/summary", "/guests"):
+        assert manager.get(f"{API}{path}").status_code == 200, path
+
+
+# ------------------------ configuration is the admin's ------------------------
+def test_configuration_writes_are_refused_for_a_manager_who_holds_the_screen(admin):
+    """The manager below holds every domain and every screen these endpoints sit behind,
+    so a 403 here can only be the configuration rule — and it has to say so, or the
+    message reads as a bug to somebody who can see the screen it came from."""
+    email = f"cfg-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "cfg12345678", "manager",
+                       ["hotel", "restaurant", "bar"])
+
+    code = f"C{uuid.uuid4().hex[:6].upper()}"
+    room_type = admin.post(f"{API}/room-types", json={
+        "name": f"Config {code}", "code": code, "base_occupancy": 2,
+        "max_occupancy": 3, "max_extra_beds": 1}).json()
+    item = admin.get(f"{API}/inventory").json()[0]
+    plan = admin.get(f"{API}/meal-plans").json()[0]
+
+    writes = [
+        ("post", "/room-types", {"name": "Nope", "code": f"N{uuid.uuid4().hex[:5].upper()}",
+                                 "base_occupancy": 2, "max_occupancy": 2, "max_extra_beds": 0}),
+        ("put", f"/room-types/{room_type['id']}", {
+            "name": "Renamed", "code": room_type["code"], "base_occupancy": 2,
+            "max_occupancy": 3, "max_extra_beds": 1}),
+        ("delete", f"/room-types/{room_type['id']}", None),
+        ("post", "/rooms", {"number": "X-99", "room_type_id": room_type["id"]}),
+        ("post", "/rates", {"room_type_id": room_type["id"], "period_id": None,
+                            "base_rate": 1.0, "extra_adult_rate": 0.0,
+                            "extra_child_rate": 0.0}),
+        ("post", "/rate-periods", {"name": "Peak", "start_date": "2033-01-01",
+                                   "end_date": "2033-01-10", "priority": 1}),
+        ("post", "/meal-plans", {"code": "XX", "name": "Nope",
+                                 "price_per_adult_per_night": 0.0,
+                                 "price_per_child_per_night": 0.0}),
+        ("put", f"/meal-plans/{plan['id']}", {
+            "code": plan["code"], "name": "Renamed",
+            "price_per_adult_per_night": plan["price_per_adult_per_night"],
+            "price_per_child_per_night": plan["price_per_child_per_night"]}),
+        ("put", "/tax-slabs", [{"min_tariff": 0.0, "max_tariff": None,
+                                "rate_percent": 5.0, "active": True}]),
+        ("post", "/menu", {"name": "Nope", "category": "Cocktails", "price": 100,
+                           "station": "bar", "description": ""}),
+        ("post", "/inventory", {"name": "Nope", "unit": "bottle", "stock": 1,
+                                "threshold": 1, "cost_per_unit": 1, "category": "spirits"}),
+        ("put", f"/inventory/{item['id']}", {**{k: item[k] for k in
+                 ("name", "unit", "stock", "threshold", "cost_per_unit", "category")},
+                 "name": "Renamed"}),
+        ("delete", f"/inventory/{item['id']}", None),
+    ]
+    for method, path, body in writes:
+        call = getattr(s, method)
+        r = call(f"{API}{path}") if body is None else call(f"{API}{path}", json=body)
+        assert r.status_code == 403, f"{method} {path} -> {r.status_code} {r.text}"
+        assert "administrator" in r.json()["detail"], f"{method} {path}: {r.text}"
+
+    # The reads behind those same screens still work — they are the manager's to see.
+    assert s.get(f"{API}/rates").status_code == 200
+    assert s.get(f"{API}/room-types").status_code == 200
+    assert s.get(f"{API}/inventory").status_code == 200
+    # ...and nothing was actually written by any of the refusals.
+    assert admin.get(f"{API}/inventory").json(), "the inventory item survived"
+    assert any(i["id"] == item["id"] for i in admin.get(f"{API}/inventory").json())
+
+
+def test_operational_writes_still_work_for_a_permitted_non_admin(admin):
+    """A receptionist who cannot take a booking is not a receptionist. Everything here
+    is a write, and none of it is configuration."""
+    email = f"ops-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "ops12345678", "front_desk", ["hotel"])
+
+    # The room type, room and rate are the admin's to set up; the desk uses them.
+    stay = _stay(admin, "2033-05-05", "2033-05-08")
+
+    guest = s.post(f"{API}/guests", json={
+        "name": "Walk In", "phone": f"97{uuid.uuid4().int % 100000000:08d}"})
+    assert guest.status_code == 200, guest.text
+
+    ep = next(p for p in admin.get(f"{API}/meal-plans").json() if p["code"] == "EP")
+    booking = s.post(f"{API}/bookings", json={
+        "guest_id": guest.json()["id"], "room_type_id": stay["room_type"]["id"],
+        "meal_plan_id": ep["id"], "check_in": "2033-06-05", "check_out": "2033-06-07",
+        "adults": 2, "children": 0})
+    assert booking.status_code == 200, booking.text
+
+    checked_in = s.post(f"{API}/bookings/{booking.json()['id']}/check-in", json={
+        "room_id": stay["room"]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1111-2222-3333"})
+    assert checked_in.status_code == 200, checked_in.text
+    folio_id = checked_in.json()["folio"]["id"]
+
+    charge = s.post(f"{API}/folios/{folio_id}/charges",
+                    json={"amount": 250.0, "description": "Laundry"})
+    assert charge.status_code == 200, charge.text
+    balance = admin.get(f"{API}/folios/{folio_id}").json()["balance"]
+    payment = s.post(f"{API}/folios/{folio_id}/payments",
+                     json={"amount": balance, "method": "cash", "kind": "payment"})
+    assert payment.status_code == 200, payment.text
+
+    checked_out = s.post(f"{API}/bookings/{booking.json()['id']}/check-out", json={})
+    assert checked_out.status_code == 200, checked_out.text
+
+
+def test_an_outlet_waiter_can_seat_a_table_and_settle_a_bill_but_not_edit_the_menu(admin):
+    """The other half of the same distinction, on the restaurant side: opening and
+    settling an order is the job, and the menu it prices from is the owner's."""
+    email = f"pos-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "pos12345678", "waiter", ["restaurant", "bar"])
+
+    # Reading the menu is not gated at all — the QR code on the table is a guest's menu.
+    assert s.get(f"{API}/menu").status_code == 200
+    refused = s.post(f"{API}/menu", json={
+        "name": "Nope", "category": "Cocktails", "price": 100,
+        "station": "bar", "description": ""})
+    assert refused.status_code == 403, refused.text
+    assert "administrator" in refused.json()["detail"]
+
+    seated = s.post(f"{API}/reservations", json={
+        "guest_name": "Walk In", "phone": "9800000000", "party_size": 2,
+        "date": "2033-07-01", "time": "20:00"})
+    assert seated.status_code == 200, seated.text
+
+    order = _open_order(admin)
+    settled = s.post(f"{API}/orders/{order['id']}/settle", json={"payment_method": "cash"})
+    assert settled.status_code == 200, settled.text
+
+
+def test_a_waiter_without_the_kot_screen_keeps_the_pos(admin):
+    """Two screens, one domain, one role: only the ticks separate them."""
+    email = f"nokot-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "nokot12345678", "waiter", ["bar"],
+                       permissions=["outlet.pos", "outlet.tables"])
+    assert s.get(f"{API}/orders/kot").status_code == 403
+    assert s.get(f"{API}/tables").status_code == 200
+
+    order = _open_order(admin)
+    assert s.get(f"{API}/orders/{order['id']}").status_code == 200
+    assert s.post(f"{API}/orders/{order['id']}/settle",
+                  json={"payment_method": "cash"}).status_code == 200
+
+
+def test_a_manager_can_be_given_analytics_without_being_made_an_admin(admin):
+    email = f"anl-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "anl12345678", "manager", ["restaurant"],
+                       permissions=["outlet.pos", "admin.analytics"])
+    r = s.get(f"{API}/analytics/revenue", params={"start": "2026-03-01", "end": "2026-03-05"})
+    assert r.status_code == 200, r.text
+    # Analytics is not staff administration: the console stays shut.
+    assert s.get(f"{API}/staff").status_code == 403
+    assert s.get(f"{API}/reports/summary").status_code == 403

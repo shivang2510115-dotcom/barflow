@@ -6,8 +6,13 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from db import db
-from security import require_access
+from security import require_configuration
 from services.access import OUTLET
+
+# The menu itself is configuration — prices on it become money on a bill — so only the
+# admin edits it. Reading it is deliberately unauthenticated below: the QR code on the
+# table is a guest's menu, not a staff screen.
+CONFIG = require_configuration(OUTLET)
 
 router = APIRouter()
 
@@ -33,7 +38,7 @@ async def list_menu():
 
 
 @router.post("/menu")
-async def create_menu_item(payload: MenuItemIn, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
+async def create_menu_item(payload: MenuItemIn, user: dict = Depends(CONFIG)):
     m = MenuItem(**payload.model_dump()).model_dump()
     await db.menu.insert_one(m)
     m.pop("_id", None)
@@ -41,13 +46,13 @@ async def create_menu_item(payload: MenuItemIn, user: dict = Depends(require_acc
 
 
 @router.put("/menu/{item_id}")
-async def update_menu_item(item_id: str, payload: MenuItemIn, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
+async def update_menu_item(item_id: str, payload: MenuItemIn, user: dict = Depends(CONFIG)):
     await db.menu.update_one({"id": item_id}, {"$set": payload.model_dump()})
     doc = await db.menu.find_one({"id": item_id}, {"_id": 0})
     return doc
 
 
 @router.delete("/menu/{item_id}")
-async def delete_menu_item(item_id: str, user: dict = Depends(require_access(OUTLET, "admin", "manager"))):
+async def delete_menu_item(item_id: str, user: dict = Depends(CONFIG)):
     await db.menu.delete_one({"id": item_id})
     return {"ok": True}

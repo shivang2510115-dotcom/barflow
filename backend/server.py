@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import db, client, check_connection
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -26,11 +26,12 @@ from routers.reports import daily_brief_scheduler
 from models.hotel import Rate, Room, RoomType
 from services.access import DOMAINS
 from migrations.backfill_domains import backfill as backfill_domains
+from migrations.backfill_permissions import backfill as backfill_permissions
 
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions):
     api_router.include_router(module.router)
 
 
@@ -272,6 +273,13 @@ async def on_startup():
     # which is far harder to diagnose than a refused start.
     updated, current = await backfill_domains()
     logger.info("Domain backfill: %d user(s) updated, %d already current.", updated, current)
+    # After the domain backfill, never before it: the screens each account is given are
+    # intersected with its domains, so a user whose domains this run repaired must be
+    # holding them by the time their screens are worked out.
+    updated, current, stranded = await backfill_permissions()
+    logger.info(
+        "Screen backfill: %d user(s) updated, %d already current, %d left with no screens.",
+        updated, current, stranded)
     if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
         asyncio.create_task(daily_brief_scheduler())
         logger.info("Daily brief scheduler started (%s).", os.environ.get("OWNER_BRIEF_TIME", "23:00"))

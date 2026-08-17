@@ -27,7 +27,7 @@ _TZ_SLACK = timedelta(days=1)
 # business reading the property's revenue. "admin" must appear here — can_access checks
 # the role before it applies the admin domain bypass, so a tuple without it locks admins
 # out of their own analytics.
-ANALYTICS = require_access(DOMAINS, "admin", "manager")
+ANALYTICS = require_access(DOMAINS, "admin", "manager", permission="admin.analytics")
 
 
 def _held_domains(user: dict) -> list[str]:
