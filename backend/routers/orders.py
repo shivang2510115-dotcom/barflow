@@ -72,6 +72,12 @@ class SettleIn(BaseModel):
 # The two routes below with no dependency at all are the QR menu: a guest at the table
 # scans and orders without an account, and gating them on a staff screen would break the
 # product's front door.
+#
+# They are therefore the one place the property gate does not reach: with no caller there
+# is no `property_id` to resolve, so a pending or suspended hotel's QR link still opens an
+# order. Closing that needs the property to come from the *table* rather than from the
+# request, which is the scoped-handle task — once `tables` carries `property_id`, these
+# two look the owning property up from the record and refuse on its status.
 POS = require_access(OUTLET, permission="outlet.pos")
 POS_SETTLE = require_access(OUTLET, "admin", "manager", "waiter", permission="outlet.pos")
 KOT = require_access(OUTLET, permission="outlet.kot")
