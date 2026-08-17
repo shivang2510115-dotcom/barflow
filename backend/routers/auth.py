@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from db import db
-from security import verify_password, create_access_token, require_access
-from services.access import SCREENS, SHARED
+from security import (
+    create_access_token, require_access, resolve_property, verify_password)
+from services.access import SCREENS, SHARED, SUSPENDED
 
 router = APIRouter()
 
@@ -24,6 +25,14 @@ async def login(payload: LoginIn):
     # a wrong password on purpose: revealing that an account exists but is disabled tells
     # a former employee their guess was right.
     if not user.get("active", True):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    # And the same one level up: a suspended hotel refuses its whole staff, its admin
+    # included. Byte-identical to the two refusals above, deliberately — "this hotel is
+    # suspended" tells whoever typed the address that the hotel is on this platform and
+    # that this email is one of its logins, which is more than a wrong password reveals.
+    # A pending hotel logs in normally: setting the place up is exactly what it is for.
+    property_record = await resolve_property(user)
+    if property_record and property_record.get("status") == SUSPENDED:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     token = create_access_token(user["id"], user["email"], user["role"])
     return {
