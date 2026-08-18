@@ -4,7 +4,8 @@ from pydantic import BaseModel, EmailStr
 
 from db import unscoped_db
 from security import (
-    create_access_token, require_access, resolve_property, verify_password)
+    create_access_token, get_current_user, require_access, resolve_property,
+    verify_password)
 from services.access import SCREENS, SHARED, SUSPENDED
 
 router = APIRouter()
@@ -61,7 +62,19 @@ async def login(payload: LoginIn):
 # then be told who they are would be a hotel that cannot open its own app to set itself
 # up — the state approval is supposed to allow.
 @router.get("/auth/me")
-async def me(user: dict = Depends(require_access(SHARED, setup_time=True))):
+async def me(user: dict = Depends(get_current_user)):
+    """Who the caller is — their own record, and nothing about any hotel.
+
+    Deliberately `get_current_user` rather than `require_access`: this is the one route
+    the platform operator needs, and `require_access` refuses them by design because they
+    belong to no property. Without it the client has no verified way to learn who it is
+    signed in as, and a page refresh would either sign the operator out or push the
+    frontend into trusting an unverified claim off the token.
+
+    `get_current_user` still refuses a deactivated account, so this is not a way around
+    that. It carries no guest, money or staff data, so there is nothing here to gate on a
+    property being live.
+    """
     return {
         "id": user["id"],
         "email": user["email"],

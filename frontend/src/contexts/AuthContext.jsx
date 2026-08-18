@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { api, TOKEN_KEY, formatApiErrorDetail } from "@/lib/api";
-import { operatorFromToken } from "@/lib/tenancy";
 
 const AuthContext = createContext(null);
 
@@ -18,17 +17,8 @@ export function AuthProvider({ children }) {
       .get("/auth/me")
       .then((r) => setUser(r.data))
       .catch(() => {
-        // The platform operator is refused /auth/me — the server resolves the caller's
-        // property first and a `platform_admin` has none, by design. So a failure here is
-        // two different things, and telling them apart is the difference between an
-        // operator being able to reload their own console and being signed out by it.
-        // Their token is the only identity left to read; see lib/tenancy.js for why
-        // reading it is sound and what it is and is not allowed to decide.
-        const operator = operatorFromToken(token);
-        if (operator) {
-          setUser(operator);
-          return;
-        }
+        // /auth/me answers everyone the server still recognises, including the platform
+        // operator, so a failure here means the token is genuinely no good.
         localStorage.removeItem(TOKEN_KEY);
         setUser(false);
       });
