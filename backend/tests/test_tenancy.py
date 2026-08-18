@@ -28,13 +28,14 @@ def run(coro):
 def db(tmp_path, monkeypatch):
     """A real mock database on a throwaway file, bound into every module under test.
 
-    The three modules each hold their own `from db import db`, so the patch has to name
-    all three; a missed one would quietly read the developer's own db.json.
+    The three modules each hold their own `from db import unscoped_db` — the whole
+    database, under the name that says so — so the patch has to name all three; a missed
+    one would quietly read the developer's own db.json.
     """
     handle = MockDatabase(str(tmp_path / "db.json"))
-    monkeypatch.setattr(backfill_property, "db", handle)
-    monkeypatch.setattr(security, "db", handle)
-    monkeypatch.setattr(auth, "db", handle)
+    monkeypatch.setattr(backfill_property, "unscoped_db", handle)
+    monkeypatch.setattr(security, "unscoped_db", handle)
+    monkeypatch.setattr(auth, "unscoped_db", handle)
     return handle
 
 
@@ -253,12 +254,12 @@ def test_the_property_is_read_once_per_request(db):
                 find_one = staticmethod(counting)
             return C()
 
-    security_db = security.db
+    security_db = security.unscoped_db
     try:
-        security.db = Counting()
+        security.unscoped_db = Counting()
         check(require_access("hotel", *HOTEL_MGR), user)
     finally:
-        security.db = security_db
+        security.unscoped_db = security_db
     assert len(reads) == 1
 
 

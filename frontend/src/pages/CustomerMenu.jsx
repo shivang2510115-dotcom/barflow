@@ -33,7 +33,10 @@ export default function CustomerMenu() {
 
   useEffect(() => {
     publicApi.get(`/tables/public/${tableId}`).then((r) => setTable(r.data)).catch(() => setTable(false));
-    publicApi.get("/menu").then((r) => {
+    // The table id says which hotel's card this is: the QR page has no login, so the
+    // scanned table is the only thing that names the tenant. Without it the API can only
+    // fall back to the founding property, which is another hotel's menu.
+    publicApi.get("/menu", { params: { table_id: tableId } }).then((r) => {
       const arr = r.data.filter((m) => m.available);
       setMenu(arr);
       if (arr.length && !cat) setCat(arr[0].category);
