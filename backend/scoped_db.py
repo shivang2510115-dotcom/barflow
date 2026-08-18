@@ -25,7 +25,6 @@ collection, so a router cannot believe it is scoped when it is not. Everything e
 scoped, including a collection nobody has invented yet: an unknown name is scoped rather
 than passed through, because the safe default for tenancy is to fail closed.
 """
-import logging
 from typing import Any, Optional
 
 from fastapi import Depends, HTTPException, Request
@@ -33,8 +32,6 @@ from fastapi import Depends, HTTPException, Request
 import db as _db_module
 from security import get_current_user
 from services.access import LIVE
-
-logger = logging.getLogger(__name__)
 
 # The field every scoped document carries. One constant, so the migration, the indexes
 # and this module cannot disagree about the name.

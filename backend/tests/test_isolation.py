@@ -39,7 +39,7 @@ import routers.tables as tables
 from mock_db import MockDatabase
 from models.folio import ChargeIn, PaymentIn, VoidIn
 from models.hotel import (
-    BookingIn, BookingUpdateIn, CancelIn, GuestIn, MealPlanIn, RateIn, RoomIn, RoomTypeIn)
+    BookingIn, BookingUpdateIn, CancelIn, GuestIn, MealPlanIn, RoomIn, TaxSlab)
 from scoped_db import PropertyScopedDatabase, UnscopedCollectionError, tenant_db
 from services.access import DOMAINS, LIVE, PENDING, SCREEN_KEYS, SUSPENDED
 from services.clock import today as local_today
@@ -380,7 +380,6 @@ def test_rate_meal_plan_and_slab_lists_hold_none_of_bs(world):
 
 def test_replacing_the_tax_table_leaves_the_other_hotels_bands_alone(world):
     a, b = world
-    from models.hotel import TaxSlab
     call(rates.replace_tax_slabs,
          slabs=[TaxSlab(min_tariff=0.0, max_tariff=None, rate_percent=5.0)],
          user=a.admin, db=a.db)
