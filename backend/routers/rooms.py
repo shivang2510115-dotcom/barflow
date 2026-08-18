@@ -41,7 +41,7 @@ def _validate_occupancy(base_occupancy: int, max_occupancy: int) -> None:
 @router.get("/room-types")
 async def list_room_types(user: dict = Depends(READ_ROOM_TYPES),
                           db: PropertyScopedDatabase = Depends(tenant_db)):
-    return await db.room_types.find({}, {"_id": 0}).to_list(200)
+    return await db.room_types.find({}, {"_id": 0}).to_list(5000)
 
 
 @router.post("/room-types")

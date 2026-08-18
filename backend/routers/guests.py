@@ -52,10 +52,10 @@ async def get_guest(guest_id: str, user: dict = Depends(MANAGE),
     if not guest:
         raise HTTPException(404, "Guest not found")
 
-    stays = await db.bookings.find({"guest_id": guest_id}, {"_id": 0}).to_list(200)
+    stays = await db.bookings.find({"guest_id": guest_id}, {"_id": 0}).to_list(5000)
     orders = await db.orders.find(
         {"customer_phone": guest["phone"], "status": "settled"}, {"_id": 0}
-    ).to_list(200)
+    ).to_list(5000)
 
     return {
         **guest,

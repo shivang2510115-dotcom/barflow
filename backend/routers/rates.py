@@ -49,7 +49,7 @@ async def update_meal_plan(plan_id: str, payload: MealPlanIn, user: dict = Depen
 @router.get("/rate-periods")
 async def list_rate_periods(user: dict = Depends(READ),
                             db: PropertyScopedDatabase = Depends(tenant_db)):
-    return await db.rate_periods.find({}, {"_id": 0}).to_list(200)
+    return await db.rate_periods.find({}, {"_id": 0}).to_list(5000)
 
 
 @router.post("/rate-periods")
@@ -67,7 +67,7 @@ async def create_rate_period(payload: RatePeriodIn, user: dict = Depends(CONFIG)
     # in this range.
     others = await db.rate_periods.find(
         {"id": {"$ne": period["id"]}, "active": True}, {"_id": 0}
-    ).to_list(200)
+    ).to_list(5000)
     clashes = [
         p["name"] for p in others
         if p["start_date"] < period["end_date"] and p["end_date"] > period["start_date"]

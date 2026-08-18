@@ -31,7 +31,7 @@ LIVE = list(CONSUMING_STATUSES)
 async def _load_pricing_context(db) -> tuple[list, list, list]:
     """Rates, periods and tax slabs — everything quote_stay needs."""
     rates = await db.rates.find({}, {"_id": 0}).to_list(500)
-    periods = await db.rate_periods.find({"active": True}, {"_id": 0}).to_list(200)
+    periods = await db.rate_periods.find({"active": True}, {"_id": 0}).to_list(5000)
     slabs = await db.tax_slabs.find({"active": True}, {"_id": 0}).to_list(20)
     return rates, periods, slabs
 
@@ -86,7 +86,7 @@ async def availability(check_in: str, check_out: str, adults: int = 2, children:
     """Free rooms and a priced quote per room type per meal plan."""
     _validate_window(check_in, check_out)
 
-    room_types = await db.room_types.find({"active": True}, {"_id": 0}).to_list(200)
+    room_types = await db.room_types.find({"active": True}, {"_id": 0}).to_list(5000)
     rooms = await db.rooms.find({}, {"_id": 0}).to_list(500)
     bookings = await db.bookings.find({"status": {"$in": LIVE}}, {"_id": 0}).to_list(5000)
     meal_plans = await db.meal_plans.find({"active": True}, {"_id": 0}).to_list(50)
@@ -123,7 +123,7 @@ async def calendar(start: str, end: str, user: dict = Depends(CALENDAR),
     """Per-room-type occupancy for each night in the window."""
     _validate_window(start, end)
 
-    room_types = await db.room_types.find({"active": True}, {"_id": 0}).to_list(200)
+    room_types = await db.room_types.find({"active": True}, {"_id": 0}).to_list(5000)
     rooms = await db.rooms.find({}, {"_id": 0}).to_list(500)
     bookings = await db.bookings.find({"status": {"$in": LIVE}}, {"_id": 0}).to_list(5000)
 
