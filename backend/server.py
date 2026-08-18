@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
-from db import db, client, check_connection, using_mock
+from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
 from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router
 from routers.tables import Table
@@ -28,6 +28,7 @@ from services.access import DOMAINS
 from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
 from migrations.backfill_property import backfill as backfill_property
+from migrations.backfill_tenancy import backfill as backfill_tenancy
 
 # Same reasoning as JWT_SECRET in security.py: this password is published in a public
 # repository, so seeding it against a real database hands the first admin account to
@@ -86,17 +87,33 @@ def demo_content_enabled() -> bool:
 
 
 async def seed_data():
-    # Indexes
-    await db.users.create_index("email", unique=True)
-    await db.tables.create_index("label")
-    await db.reservations.create_index("date")
-    await db.menu.create_index("category")
-    await db.guests.create_index("phone", unique=True)
-    await db.bookings.create_index([("room_type_id", 1), ("check_in", 1), ("check_out", 1), ("status", 1)])
-    await db.bookings.create_index("reference", unique=True)
-    await db.rooms.create_index("room_type_id")
-    await db.folios.create_index("booking_id", unique=True)
-    await db.folio_entries.create_index("folio_id")
+    # Indexes.
+    #
+    # Every one of these is now compound on property_id, and every unique one is unique
+    # *per property* rather than globally. Two hotels genuinely do both have a room 101, a
+    # guest whose phone number is the same person eating in both, and a booking numbered
+    # BF-2608-0001 — a global unique index would let whichever hotel signed up first stop
+    # the second from entering its own data, with a duplicate-key error naming a record
+    # they cannot see. Leading with property_id also matches how every query now reads:
+    # the scoped handle puts it in the filter, so an index that does not start there is
+    # one the planner cannot use.
+    #
+    # `users.email` stays globally unique on purpose. A login is found by email before
+    # anyone knows which hotel it belongs to, so two hotels cannot share one.
+    #
+    # None of this takes effect against the JSON mock, whose create_index is a no-op —
+    # locally the routers' own duplicate checks (now scoped) are what enforce it.
+    await unscoped_db.users.create_index("email", unique=True)
+    await unscoped_db.tables.create_index([("property_id", 1), ("label", 1)])
+    await unscoped_db.reservations.create_index([("property_id", 1), ("date", 1)])
+    await unscoped_db.menu.create_index([("property_id", 1), ("category", 1)])
+    await unscoped_db.guests.create_index([("property_id", 1), ("phone", 1)], unique=True)
+    await unscoped_db.bookings.create_index([("property_id", 1), ("room_type_id", 1), ("check_in", 1), ("check_out", 1), ("status", 1)])
+    await unscoped_db.bookings.create_index([("property_id", 1), ("reference", 1)], unique=True)
+    await unscoped_db.rooms.create_index([("property_id", 1), ("room_type_id", 1)])
+    await unscoped_db.rooms.create_index([("property_id", 1), ("number", 1)], unique=True)
+    await unscoped_db.folios.create_index([("property_id", 1), ("booking_id", 1)], unique=True)
+    await unscoped_db.folio_entries.create_index([("property_id", 1), ("folio_id", 1)])
     # Unique against real MongoDB; mocked create_index is a no-op.
     # Actual idempotency comes from services/folio.py::unposted_nights.
     # Partial, not sparse: a compound sparse index only skips a document missing ALL of
@@ -104,8 +121,8 @@ async def seed_data():
     # cover every payment/misc_charge/outlet/void entry (all with charge_date: null) and
     # the second such entry on a folio would raise a duplicate-key error. The partial
     # filter limits uniqueness to the room-night rows that actually need it.
-    await db.folio_entries.create_index(
-        [("folio_id", 1), ("charge_date", 1)], unique=True,
+    await unscoped_db.folio_entries.create_index(
+        [("property_id", 1), ("folio_id", 1), ("charge_date", 1)], unique=True,
         partialFilterExpression={"kind": "room_night"})
 
     # Seed admin + staff
@@ -128,9 +145,9 @@ async def seed_data():
         ]
 
     for u in default_users:
-        existing = await db.users.find_one({"email": u["email"]})
+        existing = await unscoped_db.users.find_one({"email": u["email"]})
         if existing is None:
-            await db.users.insert_one({
+            await unscoped_db.users.insert_one({
                 "id": str(uuid.uuid4()),
                 "email": u["email"],
                 "name": u["name"],
@@ -146,16 +163,16 @@ async def seed_data():
         # seed value here would silently undo every password change on each restart.
 
     # Room GST bands. Editable, because these change by statute.
-    if await db.tax_slabs.count_documents({}) == 0:
-        await db.tax_slabs.insert_many([
+    if await unscoped_db.tax_slabs.count_documents({}) == 0:
+        await unscoped_db.tax_slabs.insert_many([
             {"id": str(uuid.uuid4()), "min_tariff": 0.0, "max_tariff": 7500.0,
              "rate_percent": 12.0, "active": True},
             {"id": str(uuid.uuid4()), "min_tariff": 7500.0, "max_tariff": None,
              "rate_percent": 18.0, "active": True},
         ])
 
-    if await db.meal_plans.count_documents({}) == 0:
-        await db.meal_plans.insert_many([
+    if await unscoped_db.meal_plans.count_documents({}) == 0:
+        await unscoped_db.meal_plans.insert_many([
             {"id": str(uuid.uuid4()), "code": "EP", "name": "Room only",
              "price_per_adult_per_night": 0.0, "price_per_child_per_night": 0.0, "active": True},
             {"id": str(uuid.uuid4()), "code": "CP", "name": "With breakfast",
@@ -176,13 +193,13 @@ async def seed_demo_content():
     started entering its own data adds nothing on top of it.
     """
     # Seed tables
-    if await db.tables.count_documents({}) == 0:
+    if await unscoped_db.tables.count_documents({}) == 0:
         zones = [("Bar", 6, 4), ("Lounge", 4, 4), ("Patio", 3, 6)]
         seq = 1
         for zone, count, cap in zones:
             for i in range(count):
                 t = Table(label=f"T{seq:02d}", capacity=cap, zone=zone).model_dump()
-                await db.tables.insert_one(t)
+                await unscoped_db.tables.insert_one(t)
                 seq += 1
 
     # Seed menu
@@ -204,7 +221,7 @@ async def seed_demo_content():
         "Bar Burger": "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=800&q=80&auto=format&fit=crop",
         "Crispy Chicken": "https://images.unsplash.com/photo-1562967914-608f82629710?w=800&q=80&auto=format&fit=crop",
     }
-    if await db.menu.count_documents({}) == 0:
+    if await unscoped_db.menu.count_documents({}) == 0:
         menu = [
             # Cocktails
             {"name": "Smoked Old Fashioned", "category": "Cocktails", "price": 14, "station": "bar", "description": "Bourbon, applewood smoke, orange bitters."},
@@ -231,17 +248,17 @@ async def seed_demo_content():
         for m in menu:
             m["image"] = menu_images.get(m["name"], "")
             item = MenuItem(**m).model_dump()
-            await db.menu.insert_one(item)
+            await unscoped_db.menu.insert_one(item)
     else:
         # Backfill images on existing docs that don't have one
         for name, url in menu_images.items():
-            await db.menu.update_one(
+            await unscoped_db.menu.update_one(
                 {"name": name, "$or": [{"image": ""}, {"image": None}, {"image": {"$exists": False}}]},
                 {"$set": {"image": url}},
             )
 
     # Seed inventory
-    if await db.inventory.count_documents({}) == 0:
+    if await unscoped_db.inventory.count_documents({}) == 0:
         inv = [
             {"name": "Bourbon 750ml", "unit": "bottle", "stock": 12, "threshold": 4, "cost_per_unit": 35, "category": "spirits"},
             {"name": "Gin 750ml", "unit": "bottle", "stock": 8, "threshold": 4, "cost_per_unit": 28, "category": "spirits"},
@@ -255,7 +272,7 @@ async def seed_demo_content():
         ]
         for i in inv:
             item = InventoryItem(**i).model_dump()
-            await db.inventory.insert_one(item)
+            await unscoped_db.inventory.insert_one(item)
 
     # Demo room types, rooms and a default rate for each. Rates use period_id=None (the
     # year-round default) so every type is immediately bookable; a type with no rate
@@ -263,7 +280,7 @@ async def seed_demo_content():
     #
     # A real property starts with none of this and builds its own from the Rooms and
     # Rates screens, which are open while it is still pending approval.
-    if await db.room_types.count_documents({}) == 0:
+    if await unscoped_db.room_types.count_documents({}) == 0:
         room_type_specs = [
             {"name": "Deluxe Room", "code": "DLX", "block": "Main",
              "base_occupancy": 2, "max_occupancy": 3, "max_extra_beds": 1,
@@ -286,7 +303,7 @@ async def seed_demo_content():
             extra_child_rate = spec.pop("extra_child_rate")
 
             room_type = RoomType(**spec).model_dump()
-            await db.room_types.insert_one(room_type)
+            await unscoped_db.room_types.insert_one(room_type)
 
             for i in range(1, room_count + 1):
                 room = Room(
@@ -294,14 +311,14 @@ async def seed_demo_content():
                     room_type_id=room_type["id"],
                     floor=str(floor),
                 ).model_dump()
-                await db.rooms.insert_one(room)
+                await unscoped_db.rooms.insert_one(room)
 
             rate = Rate(
                 room_type_id=room_type["id"], period_id=None,
                 base_rate=base_rate, extra_adult_rate=extra_adult_rate,
                 extra_child_rate=extra_child_rate,
             ).model_dump()
-            await db.rates.insert_one(rate)
+            await unscoped_db.rates.insert_one(rate)
 
 
 # ----------------- Startup -----------------
@@ -333,6 +350,15 @@ async def on_startup():
     logger.info(
         "Property backfill: property %s (%s), %d user(s) stamped, %d already current.",
         "created" if created else "already present", property_id, stamped, current)
+    # Immediately after, never before: the records are stamped with the property that
+    # migration has just made sure exists. Until this has run, every scoped read matches
+    # nothing — the data is not lost, it is invisible, which is harder to diagnose.
+    stamped_property, stamped_docs, per_collection = await backfill_tenancy()
+    logger.info(
+        "Tenancy backfill: %d document(s) stamped for property %s%s.",
+        stamped_docs, stamped_property,
+        f" ({', '.join(f'{k} {v}' for k, v in sorted(per_collection.items()))})"
+        if per_collection else "")
     if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
         asyncio.create_task(daily_brief_scheduler())
         logger.info("Daily brief scheduler started (%s).", os.environ.get("OWNER_BRIEF_TIME", "23:00"))
