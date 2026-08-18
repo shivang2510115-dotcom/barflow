@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -47,7 +47,7 @@ if os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD) == DEFAULT_ADMIN_PAS
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform):
     api_router.include_router(module.router)
 
 
@@ -143,6 +143,28 @@ async def seed_data():
             {"email": "kitchen@barflow.io", "name": "Sam Ash", "role": "kitchen", "password": "kitchen123"},
             {"email": "frontdesk@barflow.io", "name": "Nina Patel", "role": "front_desk", "password": "desk123"},
         ]
+
+    # The platform operator: belongs to no hotel, approves the ones that sign up. Seeded
+    # only when both variables are set — inventing a default password here would repeat
+    # exactly the mistake that JWT_SECRET and ADMIN_PASSWORD already guard against, and
+    # this account can approve every hotel on the platform.
+    op_email = (os.environ.get("PLATFORM_ADMIN_EMAIL") or "").strip().lower()
+    op_pw = os.environ.get("PLATFORM_ADMIN_PASSWORD") or ""
+    if op_email and op_pw:
+        if await unscoped_db.users.find_one({"email": op_email}) is None:
+            await unscoped_db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": op_email,
+                "name": "Platform Operator",
+                "role": "platform_admin",
+                "password_hash": hash_password(op_pw),
+                # No domains, no screens, and no property. Every hotel endpoint refuses
+                # them; they reach /api/platform/* and nothing else.
+                "domains": [], "permissions": [], "active": True,
+                "property_id": None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info("Platform operator seeded (%s).", op_email)
 
     for u in default_users:
         existing = await unscoped_db.users.find_one({"email": u["email"]})

@@ -703,6 +703,14 @@ SCOPE_FREE = {
     ("POST", "/api/payments/checkout/session"): "scope comes from the order",
     ("GET", "/api/payments/checkout/status/{session_id}"): "scope comes from the order",
     ("POST", "/api/webhook/stripe"): "Stripe delivers this; scope comes from the order",
+    # Signup is what CREATES a tenant, so there is none to bind yet.
+    ("POST", "/api/signup"): "creates the property; tenancy has not begun",
+    # The operator works across tenants by definition. These read the properties
+    # collection, which stands outside tenancy, and counts through a handle bound to the
+    # property being inspected — never a guest, booking or folio record.
+    ("GET", "/api/platform/properties"): "the operator's cross-tenant list",
+    ("GET", "/api/platform/properties/{property_id}"): "counts only, bound per property",
+    ("POST", "/api/platform/properties/{property_id}/status"): "the properties collection",
 }
 
 
