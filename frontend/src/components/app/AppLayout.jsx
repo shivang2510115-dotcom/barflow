@@ -25,6 +25,7 @@ import {
 
 import { OUTLET } from "@/lib/domains";
 import { SectionProvider } from "@/contexts/SectionContext";
+import PendingBanner from "@/components/app/PendingBanner";
 import {
   availableSections,
   firstPathIn,
@@ -335,6 +336,12 @@ export default function AppLayout({ children }) {
               </button>
             </div>
           )}
+          {/* Above every page rather than on one of them: the locked buttons are spread
+              across the front desk, the booking form and the till, and an explanation
+              that only appears on the screen you were not looking at explains nothing.
+              It renders null for a live property and for anyone with no property at all —
+              see lib/tenancy.js::showsPendingBanner. */}
+          <PendingBanner />
           {children}
         </main>
       </div>
