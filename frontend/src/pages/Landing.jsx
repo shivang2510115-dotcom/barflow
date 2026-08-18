@@ -23,13 +23,22 @@ export default function Landing() {
           <Wine className="text-orange-500" size={22} />
           <span className="font-display uppercase text-lg tracking-tight">BarFlow</span>
         </div>
-        <Link
-          to="/login"
-          data-testid="landing-login-btn"
-          className="rounded-full border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-5 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
-        >
-          Staff Sign in
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/signup"
+            data-testid="landing-signup-btn"
+            className="rounded-full border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-5 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+          >
+            Register a hotel
+          </Link>
+          <Link
+            to="/login"
+            data-testid="landing-login-btn"
+            className="rounded-full border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-5 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+          >
+            Staff Sign in
+          </Link>
+        </div>
       </header>
 
       {/* Hero */}
