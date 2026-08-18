@@ -7,8 +7,8 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import db
 from models.hotel import Booking, BookingIn, BookingUpdateIn, CancelIn
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.availability import CONSUMING_STATUSES, count_available
 from services.pricing import MissingRateError, daterange, quote_stay
@@ -28,7 +28,7 @@ CALENDAR = require_access("hotel", "admin", "manager", "front_desk", permission=
 LIVE = list(CONSUMING_STATUSES)
 
 
-async def _load_pricing_context() -> tuple[list, list, list]:
+async def _load_pricing_context(db) -> tuple[list, list, list]:
     """Rates, periods and tax slabs — everything quote_stay needs."""
     rates = await db.rates.find({}, {"_id": 0}).to_list(500)
     periods = await db.rate_periods.find({"active": True}, {"_id": 0}).to_list(200)
@@ -36,7 +36,7 @@ async def _load_pricing_context() -> tuple[list, list, list]:
     return rates, periods, slabs
 
 
-async def _reference() -> str:
+async def _reference(db) -> str:
     """Human-quotable code, e.g. BF-2608-0042."""
     stamp = datetime.now(timezone.utc).strftime("%y%m")
     count = await db.bookings.count_documents({})
@@ -60,9 +60,9 @@ def _validate_occupancy(room_type: dict, adults: int, children: int, extra_beds:
         raise HTTPException(400, "At least one adult is required")
 
 
-async def _quote_or_422(room_type: dict, check_in: str, check_out: str,
+async def _quote_or_422(db, room_type: dict, check_in: str, check_out: str,
                         adults: int, children: int, meal_plan: dict) -> dict:
-    rates, periods, slabs = await _load_pricing_context()
+    rates, periods, slabs = await _load_pricing_context(db)
     try:
         return quote_stay(
             check_in, check_out, room_type["id"], adults, children,
@@ -81,7 +81,8 @@ def _next_day(day: str) -> str:
 
 @router.get("/availability")
 async def availability(check_in: str, check_out: str, adults: int = 2, children: int = 0,
-                       user: dict = Depends(BOOK)):
+                       user: dict = Depends(BOOK),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     """Free rooms and a priced quote per room type per meal plan."""
     _validate_window(check_in, check_out)
 
@@ -89,7 +90,7 @@ async def availability(check_in: str, check_out: str, adults: int = 2, children:
     rooms = await db.rooms.find({}, {"_id": 0}).to_list(500)
     bookings = await db.bookings.find({"status": {"$in": LIVE}}, {"_id": 0}).to_list(5000)
     meal_plans = await db.meal_plans.find({"active": True}, {"_id": 0}).to_list(50)
-    rates, periods, slabs = await _load_pricing_context()
+    rates, periods, slabs = await _load_pricing_context(db)
 
     results = []
     for rt in room_types:
@@ -117,7 +118,8 @@ async def availability(check_in: str, check_out: str, adults: int = 2, children:
 
 
 @router.get("/bookings/calendar")
-async def calendar(start: str, end: str, user: dict = Depends(CALENDAR)):
+async def calendar(start: str, end: str, user: dict = Depends(CALENDAR),
+                   db: PropertyScopedDatabase = Depends(tenant_db)):
     """Per-room-type occupancy for each night in the window."""
     _validate_window(start, end)
 
@@ -139,7 +141,8 @@ async def calendar(start: str, end: str, user: dict = Depends(CALENDAR)):
 
 @router.get("/bookings")
 async def list_bookings(start: str = "", end: str = "", status: str = "", q: str = "",
-                        user: dict = Depends(BOOK)):
+                        user: dict = Depends(BOOK),
+                        db: PropertyScopedDatabase = Depends(tenant_db)):
     query: dict = {}
     if status:
         query["status"] = status
@@ -166,7 +169,8 @@ async def list_bookings(start: str = "", end: str = "", status: str = "", q: str
 
 
 @router.post("/bookings")
-async def create_booking(payload: BookingIn, user: dict = Depends(BOOK)):
+async def create_booking(payload: BookingIn, user: dict = Depends(BOOK),
+                         db: PropertyScopedDatabase = Depends(tenant_db)):
     _validate_window(payload.check_in, payload.check_out)
 
     room_type = await db.room_types.find_one({"id": payload.room_type_id}, {"_id": 0})
@@ -179,7 +183,7 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK)):
         raise HTTPException(400, "Unknown meal_plan_id")
 
     _validate_occupancy(room_type, payload.adults, payload.children, payload.extra_beds)
-    quote = await _quote_or_422(room_type, payload.check_in, payload.check_out,
+    quote = await _quote_or_422(db, room_type, payload.check_in, payload.check_out,
                                 payload.adults, payload.children, meal_plan)
 
     # Re-checked here, immediately before the write. The spec documents the residual
@@ -196,7 +200,7 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK)):
 
     booking = Booking(
         **payload.model_dump(),
-        reference=await _reference(),
+        reference=await _reference(db),
         quote=quote,
         created_by=user.get("id"),
     ).model_dump()
@@ -206,7 +210,8 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK)):
 
 
 @router.get("/bookings/{booking_id}")
-async def get_booking(booking_id: str, user: dict = Depends(BOOK)):
+async def get_booking(booking_id: str, user: dict = Depends(BOOK),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(404, "Booking not found")
@@ -219,7 +224,9 @@ async def get_booking(booking_id: str, user: dict = Depends(BOOK)):
 
 
 @router.put("/bookings/{booking_id}")
-async def update_booking(booking_id: str, payload: BookingUpdateIn, user: dict = Depends(BOOK)):
+async def update_booking(booking_id: str, payload: BookingUpdateIn,
+                         user: dict = Depends(BOOK),
+                         db: PropertyScopedDatabase = Depends(tenant_db)):
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(404, "Booking not found")
@@ -254,7 +261,7 @@ async def update_booking(booking_id: str, payload: BookingUpdateIn, user: dict =
             })
 
         changes["quote"] = await _quote_or_422(
-            room_type, merged["check_in"], merged["check_out"],
+            db, room_type, merged["check_in"], merged["check_out"],
             merged["adults"], merged["children"], meal_plan)
 
     await db.bookings.update_one({"id": booking_id}, {"$set": changes})
@@ -262,7 +269,9 @@ async def update_booking(booking_id: str, payload: BookingUpdateIn, user: dict =
 
 
 @router.post("/bookings/{booking_id}/cancel")
-async def cancel_booking(booking_id: str, payload: CancelIn, user: dict = Depends(BOOK)):
+async def cancel_booking(booking_id: str, payload: CancelIn,
+                         user: dict = Depends(BOOK),
+                         db: PropertyScopedDatabase = Depends(tenant_db)):
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(404, "Booking not found")

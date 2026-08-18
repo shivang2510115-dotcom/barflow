@@ -1,8 +1,8 @@
 """Room types and the physical rooms belonging to them."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import db
 from models.hotel import OutOfOrderIn, Room, RoomIn, RoomType, RoomTypeIn
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access, require_configuration
 from services.availability import count_available, ranges_overlap, room_is_available
 
@@ -39,12 +39,14 @@ def _validate_occupancy(base_occupancy: int, max_occupancy: int) -> None:
 
 # --------------------------- room types ---------------------------
 @router.get("/room-types")
-async def list_room_types(user: dict = Depends(READ_ROOM_TYPES)):
+async def list_room_types(user: dict = Depends(READ_ROOM_TYPES),
+                          db: PropertyScopedDatabase = Depends(tenant_db)):
     return await db.room_types.find({}, {"_id": 0}).to_list(200)
 
 
 @router.post("/room-types")
-async def create_room_type(payload: RoomTypeIn, user: dict = Depends(CONFIG)):
+async def create_room_type(payload: RoomTypeIn, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     _validate_occupancy(payload.base_occupancy, payload.max_occupancy)
     rt = RoomType(**payload.model_dump()).model_dump()
     await db.room_types.insert_one(rt)
@@ -53,7 +55,8 @@ async def create_room_type(payload: RoomTypeIn, user: dict = Depends(CONFIG)):
 
 
 @router.put("/room-types/{type_id}")
-async def update_room_type(type_id: str, payload: RoomTypeIn, user: dict = Depends(CONFIG)):
+async def update_room_type(type_id: str, payload: RoomTypeIn, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     _validate_occupancy(payload.base_occupancy, payload.max_occupancy)
     result = await db.room_types.update_one({"id": type_id}, {"$set": payload.model_dump()})
     if result.matched_count == 0:
@@ -62,7 +65,8 @@ async def update_room_type(type_id: str, payload: RoomTypeIn, user: dict = Depen
 
 
 @router.delete("/room-types/{type_id}")
-async def delete_room_type(type_id: str, user: dict = Depends(CONFIG)):
+async def delete_room_type(type_id: str, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     if not await db.room_types.find_one({"id": type_id}, {"_id": 0}):
         raise HTTPException(404, "Room type not found")
 
@@ -88,12 +92,14 @@ async def delete_room_type(type_id: str, user: dict = Depends(CONFIG)):
 
 # ------------------------------ rooms -----------------------------
 @router.get("/rooms")
-async def list_rooms(user: dict = Depends(READ_ROOMS)):
+async def list_rooms(user: dict = Depends(READ_ROOMS),
+                     db: PropertyScopedDatabase = Depends(tenant_db)):
     return await db.rooms.find({}, {"_id": 0}).to_list(500)
 
 
 @router.post("/rooms")
-async def create_room(payload: RoomIn, user: dict = Depends(CONFIG)):
+async def create_room(payload: RoomIn, user: dict = Depends(CONFIG),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     if not await db.room_types.find_one({"id": payload.room_type_id}, {"_id": 0}):
         raise HTTPException(400, "Unknown room_type_id")
     if await db.rooms.find_one({"number": payload.number}, {"_id": 0}):
@@ -106,7 +112,8 @@ async def create_room(payload: RoomIn, user: dict = Depends(CONFIG)):
 
 
 @router.put("/rooms/{room_id}")
-async def update_room(room_id: str, payload: RoomIn, user: dict = Depends(CONFIG)):
+async def update_room(room_id: str, payload: RoomIn, user: dict = Depends(CONFIG),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     clash = await db.rooms.find_one(
         {"number": payload.number, "id": {"$ne": room_id}}, {"_id": 0}
     )
@@ -122,7 +129,8 @@ async def update_room(room_id: str, payload: RoomIn, user: dict = Depends(CONFIG
 
 
 @router.delete("/rooms/{room_id}")
-async def delete_room(room_id: str, user: dict = Depends(CONFIG)):
+async def delete_room(room_id: str, user: dict = Depends(CONFIG),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     room = await db.rooms.find_one({"id": room_id}, {"_id": 0})
     if not room:
         raise HTTPException(404, "Room not found")
@@ -141,7 +149,8 @@ async def delete_room(room_id: str, user: dict = Depends(CONFIG)):
 
 
 @router.post("/rooms/{room_id}/out-of-order")
-async def mark_out_of_order(room_id: str, payload: OutOfOrderIn, user: dict = Depends(OUT_OF_ORDER)):
+async def mark_out_of_order(room_id: str, payload: OutOfOrderIn, user: dict = Depends(OUT_OF_ORDER),
+                            db: PropertyScopedDatabase = Depends(tenant_db)):
     """Block a room for a half-open date range [from, to).
 
     Warns if the block drops room-type availability below what existing live

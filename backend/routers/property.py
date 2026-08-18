@@ -10,7 +10,7 @@ in this file.
 """
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import db
+from db import unscoped_db
 from models.property import PropertyFields
 from security import require_access, resolve_property
 from services.access import SHARED
@@ -67,5 +67,5 @@ async def update_property(payload: PropertyFields, user: dict = Depends(WRITE)):
     # `PropertyFields` is the editable half of the record and holds none of `status`,
     # `approved_by` or the lifecycle stamps — which is why the body cannot carry them.
     # An admin who could PUT their own status would approve their own property.
-    await db.properties.update_one({"id": record["id"]}, {"$set": payload.model_dump()})
-    return await db.properties.find_one({"id": record["id"]}, {"_id": 0})
+    await unscoped_db.properties.update_one({"id": record["id"]}, {"$set": payload.model_dump()})
+    return await unscoped_db.properties.find_one({"id": record["id"]}, {"_id": 0})

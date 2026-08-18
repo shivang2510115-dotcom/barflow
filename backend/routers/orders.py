@@ -3,10 +3,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from db import db
+from scoped_db import PropertyScopedDatabase, db_for_table, tenant_db
 from security import require_access
 from models.folio import FolioEntry
 from services.access import OUTLET
@@ -73,11 +73,11 @@ class SettleIn(BaseModel):
 # scans and orders without an account, and gating them on a staff screen would break the
 # product's front door.
 #
-# They are therefore the one place the property gate does not reach: with no caller there
-# is no `property_id` to resolve, so a pending or suspended hotel's QR link still opens an
-# order. Closing that needs the property to come from the *table* rather than from the
-# request, which is the scoped-handle task — once `tables` carries `property_id`, these
-# two look the owning property up from the record and refuse on its status.
+# They resolve their hotel from the *table* instead of from the caller, through
+# `db_for_table`: a table belongs to exactly one property, so the QR link is itself the
+# tenant identifier and nothing a guest can type names another hotel. That also closes
+# what this comment used to describe as open — a pending or suspended hotel's QR link now
+# refuses, because `db_for_table` checks the owning property's status.
 POS = require_access(OUTLET, permission="outlet.pos")
 POS_SETTLE = require_access(OUTLET, "admin", "manager", "waiter", permission="outlet.pos")
 KOT = require_access(OUTLET, permission="outlet.kot")
@@ -96,10 +96,8 @@ def compute_totals(order: dict) -> dict:
 
 
 # ----------------- Orders -----------------
-async def _get_or_create_open_order(table_id: str, source: str = "pos") -> dict:
-    table = await db.tables.find_one({"id": table_id}, {"_id": 0})
-    if not table:
-        raise HTTPException(404, "Table not found")
+async def _get_or_create_open_order(db, table: dict, source: str = "pos") -> dict:
+    table_id = table["id"]
     if table.get("current_order_id"):
         order = await db.orders.find_one({"id": table["current_order_id"]}, {"_id": 0})
         if order and order["status"] == "open":
@@ -112,8 +110,11 @@ async def _get_or_create_open_order(table_id: str, source: str = "pos") -> dict:
 
 
 @router.post("/orders/table/{table_id}/items")
-async def add_items(table_id: str, payload: AddItemsIn):
-    order = await _get_or_create_open_order(table_id, payload.source)
+async def add_items(table_id: str, payload: AddItemsIn, request: Request = None):
+    # The scope comes from the table, and so does the menu: an item id from another
+    # hotel's card simply is not found, and is skipped like any unknown id.
+    db, table = await db_for_table(table_id, request)
+    order = await _get_or_create_open_order(db, table, payload.source)
     new_items = []
     for it in payload.items:
         m = await db.menu.find_one({"id": it.menu_item_id}, {"_id": 0})
@@ -133,17 +134,16 @@ async def add_items(table_id: str, payload: AddItemsIn):
 
 
 @router.get("/orders/table/{table_id}/current")
-async def current_order(table_id: str):
-    table = await db.tables.find_one({"id": table_id}, {"_id": 0})
-    if not table:
-        raise HTTPException(404, "Table not found")
+async def current_order(table_id: str, request: Request = None):
+    db, table = await db_for_table(table_id, request)
     if not table.get("current_order_id"):
         return None
     return await db.orders.find_one({"id": table["current_order_id"]}, {"_id": 0})
 
 
 @router.get("/orders/kot")
-async def list_kot(user: dict = Depends(KOT)):
+async def list_kot(user: dict = Depends(KOT),
+                   db: PropertyScopedDatabase = Depends(tenant_db)):
     """All pending/preparing items across open orders."""
     open_orders = await db.orders.find({"status": "open"}, {"_id": 0}).to_list(500)
     tickets = []
@@ -164,7 +164,8 @@ class UpdateItemStatusIn(BaseModel):
 
 
 @router.put("/orders/{order_id}/items/{item_id}/status")
-async def update_item_status(order_id: str, item_id: str, payload: UpdateItemStatusIn, user: dict = Depends(KOT)):
+async def update_item_status(order_id: str, item_id: str, payload: UpdateItemStatusIn, user: dict = Depends(KOT),
+                             db: PropertyScopedDatabase = Depends(tenant_db)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -180,7 +181,8 @@ async def update_item_status(order_id: str, item_id: str, payload: UpdateItemSta
 
 
 @router.get("/orders/{order_id}")
-async def get_order(order_id: str, user: dict = Depends(ORDER_READ)):
+async def get_order(order_id: str, user: dict = Depends(ORDER_READ),
+                    db: PropertyScopedDatabase = Depends(tenant_db)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -188,7 +190,8 @@ async def get_order(order_id: str, user: dict = Depends(ORDER_READ)):
 
 
 @router.post("/orders/{order_id}/settle")
-async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(POS_SETTLE)):
+async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(POS_SETTLE),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
@@ -233,7 +236,8 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(PO
 
 
 @router.delete("/orders/{order_id}/items/{item_id}")
-async def remove_item(order_id: str, item_id: str, user: dict = Depends(POS_SETTLE)):
+async def remove_item(order_id: str, item_id: str, user: dict = Depends(POS_SETTLE),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")

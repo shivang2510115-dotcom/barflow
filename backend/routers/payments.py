@@ -1,4 +1,13 @@
-"""Stripe checkout: session creation, status polling, and webhook handling."""
+"""Stripe checkout: session creation, status polling, and webhook handling.
+
+None of these three routes has a caller to scope from — the first two are reached by a
+guest paying from the QR page, and the third by Stripe itself — so the hotel is resolved
+from the **order** being paid for, exactly as the QR order routes resolve theirs from the
+table. `payment_transactions` stands outside tenancy: it is Stripe's session ledger,
+keyed by a session id, and it is what the property is looked up *through* rather than a
+record a hotel reads. Every order and table write below goes through the scoped handle
+that lookup produced.
+"""
 import os
 import uuid
 import logging
@@ -7,8 +16,9 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from db import db
+from db import unscoped_db
 from routers.orders import compute_totals
+from scoped_db import db_for_order
 from emergentintegrations.payments.stripe.checkout import (
     StripeCheckout,
     CheckoutSessionRequest,
@@ -31,9 +41,9 @@ class CheckoutStartIn(BaseModel):
 @router.post("/payments/checkout/session")
 async def create_checkout_session(payload: CheckoutStartIn, request: Request):
     """Server-driven: fetches order total from DB, creates Stripe Checkout session, persists a payment_transactions row."""
-    order = await db.orders.find_one({"id": payload.order_id}, {"_id": 0})
-    if not order:
-        raise HTTPException(404, "Order not found")
+    # 404 when the hotel is not live, the same answer an unknown order gets: a suspended
+    # property must not be able to take a rupee through this door.
+    db, order = await db_for_order(payload.order_id)
     if order["status"] != "open":
         raise HTTPException(400, "Order is not open")
 
@@ -80,15 +90,19 @@ async def create_checkout_session(payload: CheckoutStartIn, request: Request):
         "metadata": req.metadata,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    await db.payment_transactions.insert_one(tx)
+    await unscoped_db.payment_transactions.insert_one(tx)
     return {"url": session.url, "session_id": session.session_id}
 
 
 @router.get("/payments/checkout/status/{session_id}")
 async def checkout_status(session_id: str):
-    tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+    tx = await unscoped_db.payment_transactions.find_one(
+        {"session_id": session_id}, {"_id": 0})
     if not tx:
         raise HTTPException(404, "Session not found")
+    # The order the session was opened for names the hotel; everything written below is
+    # written through its handle.
+    db, _order = await db_for_order(tx["order_id"])
 
     stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY)
     try:
@@ -115,7 +129,8 @@ async def checkout_status(session_id: str):
                 {"$set": {"status": "free", "current_order_id": None}},
             )
         updates["settled_at"] = datetime.now(timezone.utc).isoformat()
-    await db.payment_transactions.update_one({"session_id": session_id}, {"$set": updates})
+    await unscoped_db.payment_transactions.update_one(
+        {"session_id": session_id}, {"$set": updates})
 
     return {
         "payment_status": status_resp.payment_status,
@@ -157,9 +172,11 @@ async def stripe_webhook(request: Request):
         pass
 
     if session_id and payment_status == "paid":
-        tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
+        tx = await unscoped_db.payment_transactions.find_one(
+            {"session_id": session_id}, {"_id": 0})
         if tx and tx.get("payment_status") != "paid":
-            await db.payment_transactions.update_one(
+            db, _order = await db_for_order(tx["order_id"])
+            await unscoped_db.payment_transactions.update_one(
                 {"session_id": session_id},
                 {"$set": {"payment_status": "paid", "settled_at": datetime.now(timezone.utc).isoformat()}},
             )

@@ -1,8 +1,8 @@
 """Guest records. Phone is the identity key across bar, restaurant and rooms."""
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import db
 from models.hotel import Guest, GuestIn
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.access import SHARED
 
@@ -15,7 +15,8 @@ MANAGE = require_access(SHARED, "admin", "manager", "front_desk",
 
 
 @router.get("/guests")
-async def list_guests(q: str = "", limit: int = 50, user: dict = Depends(MANAGE)):
+async def list_guests(q: str = "", limit: int = 50, user: dict = Depends(MANAGE),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     query = {}
     if q:
         query = {"$or": [
@@ -26,7 +27,8 @@ async def list_guests(q: str = "", limit: int = 50, user: dict = Depends(MANAGE)
 
 
 @router.post("/guests")
-async def create_guest(payload: GuestIn, user: dict = Depends(MANAGE)):
+async def create_guest(payload: GuestIn, user: dict = Depends(MANAGE),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     phone = payload.phone.strip()
     if not phone:
         raise HTTPException(400, "Phone is required")
@@ -44,7 +46,8 @@ async def create_guest(payload: GuestIn, user: dict = Depends(MANAGE)):
 
 
 @router.get("/guests/{guest_id}")
-async def get_guest(guest_id: str, user: dict = Depends(MANAGE)):
+async def get_guest(guest_id: str, user: dict = Depends(MANAGE),
+                    db: PropertyScopedDatabase = Depends(tenant_db)):
     guest = await db.guests.find_one({"id": guest_id}, {"_id": 0})
     if not guest:
         raise HTTPException(404, "Guest not found")
@@ -63,7 +66,8 @@ async def get_guest(guest_id: str, user: dict = Depends(MANAGE)):
 
 
 @router.put("/guests/{guest_id}")
-async def update_guest(guest_id: str, payload: GuestIn, user: dict = Depends(MANAGE)):
+async def update_guest(guest_id: str, payload: GuestIn, user: dict = Depends(MANAGE),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     clash = await db.guests.find_one({"phone": payload.phone.strip(), "id": {"$ne": guest_id}})
     if clash:
         raise HTTPException(409, "Another guest already uses this phone")

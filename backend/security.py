@@ -7,7 +7,7 @@ import bcrypt
 import jwt
 from fastapi import Depends, HTTPException, Request
 
-from db import db, using_mock
+from db import unscoped_db, using_mock
 from services.access import (
     PENDING, can_access, normalise_domains, normalise_permissions)
 
@@ -59,7 +59,7 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+        user = await unscoped_db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         # Tokens live for seven days, so refusing at login is not enough — a leaver
@@ -108,7 +108,7 @@ async def resolve_property(user: dict) -> dict | None:
     property_id = user.get("property_id")
     if not property_id:
         return None
-    return await db.properties.find_one({"id": property_id}, {"_id": 0})
+    return await unscoped_db.properties.find_one({"id": property_id}, {"_id": 0})
 
 
 def _refusal(user: dict, domains, roles, permission, setup_time: bool,

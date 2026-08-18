@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import db
 from models.folio import CheckInIn, CheckOutIn, Folio
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.access import SHARED
 from services.clock import today
@@ -47,7 +47,8 @@ def _today() -> str:
 
 
 @router.get("/front-desk")
-async def front_desk(user: dict = Depends(DESK)):
+async def front_desk(user: dict = Depends(DESK),
+                     db: PropertyScopedDatabase = Depends(tenant_db)):
     day = _today()
     arrivals = await db.bookings.find(
         {"check_in": day, "status": {"$in": ["tentative", "confirmed"]}}, {"_id": 0}
@@ -104,7 +105,8 @@ def _pos_folio(folio: dict | None) -> dict | None:
 
 
 @router.get("/in-house")
-async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP)):
+async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP),
+                   db: PropertyScopedDatabase = Depends(tenant_db)):
     """Checked-in guests, for the POS room search. Only in-house bookings are
     chargeable — a departed folio must never be reachable from the POS."""
     bookings = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(500)
@@ -138,7 +140,8 @@ async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP)):
 
 
 @router.post("/bookings/{booking_id}/check-in")
-async def check_in(booking_id: str, payload: CheckInIn, user: dict = Depends(DESK)):
+async def check_in(booking_id: str, payload: CheckInIn, user: dict = Depends(DESK),
+                   db: PropertyScopedDatabase = Depends(tenant_db)):
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(404, "Booking not found")
@@ -185,7 +188,8 @@ async def check_in(booking_id: str, payload: CheckInIn, user: dict = Depends(DES
 
 
 @router.post("/bookings/{booking_id}/check-out")
-async def check_out(booking_id: str, payload: CheckOutIn, user: dict = Depends(CHECK_OUT)):
+async def check_out(booking_id: str, payload: CheckOutIn, user: dict = Depends(CHECK_OUT),
+                    db: PropertyScopedDatabase = Depends(tenant_db)):
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(404, "Booking not found")
@@ -199,8 +203,8 @@ async def check_out(booking_id: str, payload: CheckOutIn, user: dict = Depends(C
     # Post any nights still due before deciding, or a departing guest is undercharged.
     # Imported here rather than at module scope to keep the two routers independent.
     from routers.folios import post_due_nights, _sync_balance
-    await post_due_nights(folio["id"])
-    balance = await _sync_balance(folio["id"])
+    await post_due_nights(db, folio["id"])
+    balance = await _sync_balance(db, folio["id"])
 
     if abs(balance) > 0.005:
         if not payload.force:

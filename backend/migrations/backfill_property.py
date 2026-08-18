@@ -22,7 +22,7 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from db import db  # noqa: E402
+from db import unscoped_db  # noqa: E402
 from models.property import Property  # noqa: E402
 from services.access import LIVE, PLATFORM_ADMIN  # noqa: E402
 
@@ -38,7 +38,7 @@ async def backfill() -> tuple[bool, str | None, int, int]:
     then does nothing at all, which is correct, because a database with several
     properties is one where signup has been creating them and every user arrived stamped.
     """
-    existing = await db.properties.find({}, {"_id": 0}).to_list(100)
+    existing = await unscoped_db.properties.find({}, {"_id": 0}).to_list(100)
     created = False
     if len(existing) > 1:
         return False, None, 0, 0
@@ -53,11 +53,11 @@ async def backfill() -> tuple[bool, str | None, int, int]:
             city=os.environ.get("PROPERTY_CITY") or None,
             status=LIVE,
         ).model_dump()
-        await db.properties.insert_one(record)
+        await unscoped_db.properties.insert_one(record)
         property_id = record["id"]
         created = True
 
-    users = await db.users.find({}, {"_id": 0}).to_list(10000)
+    users = await unscoped_db.users.find({}, {"_id": 0}).to_list(10000)
     stamped = current = 0
     for user in users:
         # The platform operator belongs to no hotel, by design. Stamping them would hand
@@ -68,7 +68,7 @@ async def backfill() -> tuple[bool, str | None, int, int]:
         if user.get("property_id"):
             current += 1
             continue
-        await db.users.update_one({"id": user["id"]}, {"$set": {"property_id": property_id}})
+        await unscoped_db.users.update_one({"id": user["id"]}, {"$set": {"property_id": property_id}})
         stamped += 1
     return created, property_id, stamped, current
 

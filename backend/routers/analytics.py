@@ -3,8 +3,8 @@ from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from db import db
 from routers.folios import post_due_nights
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.access import DOMAINS, OUTLET
 from services.clock import local_date
@@ -72,7 +72,7 @@ def _timestamp_bounds(start: str, end: str) -> tuple[str, str]:
     return lo, hi
 
 
-async def _post_due_nights_for_open_folios() -> int:
+async def _post_due_nights_for_open_folios(db) -> int:
     """Bring every open folio's room nights up to date, and report how many were posted.
 
     Room nights are posted lazily: `post_due_nights` writes them, and nothing schedules
@@ -90,11 +90,11 @@ async def _post_due_nights_for_open_folios() -> int:
     folios = await db.folios.find({"status": "open"}, {"_id": 0}).to_list(MAX_ROWS)
     posted = 0
     for folio in folios:
-        posted += await post_due_nights(folio["id"])
+        posted += await post_due_nights(db, folio["id"])
     return posted
 
 
-async def _hotel_entries(start: str, end: str) -> list[dict]:
+async def _hotel_entries(db, start: str, end: str) -> list[dict]:
     """Folio entries that could contribute to hotel revenue in [start, end].
 
     Bounded by date rather than read whole. An unfiltered read with a `to_list` cap
@@ -124,7 +124,7 @@ async def _hotel_entries(start: str, end: str) -> list[dict]:
     return entries + [v for v in voids if v.get("id") not in seen]
 
 
-async def _outlet_revenue(start: str, end: str, days: list[str]) -> dict:
+async def _outlet_revenue(db, start: str, end: str, days: list[str]) -> dict:
     """Settled outlet orders in the range, by day.
 
     Recognised when the order settles, whatever it was paid with. A bill charged to a
@@ -159,6 +159,7 @@ async def revenue(
     end: str = Query(...),
     domains: str | None = Query(None),
     user: dict = Depends(ANALYTICS),
+    db: PropertyScopedDatabase = Depends(tenant_db),
 ):
     # Who may ask is settled before what they asked is answered.
     picked = _parse_domains(domains, user)
@@ -186,14 +187,14 @@ async def revenue(
         #
         # Only when the hotel domain is actually selected: an outlets-only report has no
         # business touching the guest ledger. Safe to repeat — see the helper's docstring.
-        await _post_due_nights_for_open_folios()
-        hotel = hotel_revenue(await _hotel_entries(start, end), start, end)
+        await _post_due_nights_for_open_folios(db)
+        hotel = hotel_revenue(await _hotel_entries(db, start, end), start, end)
 
     # This property's bar and restaurant share one POS and one set of orders. Selecting
     # either shows outlet revenue; selecting both must not show it twice.
     outlets = None
     if any(d in picked for d in OUTLET):
-        outlets = await _outlet_revenue(start, end, days)
+        outlets = await _outlet_revenue(db, start, end, days)
 
     # Joined on the date, not on position. Both sides come from the same `days` list
     # today, so an index would work — but if they ever stopped agreeing, the failure

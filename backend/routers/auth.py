@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
-from db import db
+from db import unscoped_db
 from security import (
     create_access_token, require_access, resolve_property, verify_password)
 from services.access import SCREENS, SHARED, SUSPENDED
@@ -18,7 +18,7 @@ class LoginIn(BaseModel):
 @router.post("/auth/login")
 async def login(payload: LoginIn):
     email = payload.email.lower()
-    user = await db.users.find_one({"email": email})
+    user = await unscoped_db.users.find_one({"email": email})
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     # Refused at the door rather than on the first request. The message is identical to

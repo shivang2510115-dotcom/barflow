@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from db import db
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access, require_configuration
 from services.access import SHARED
 
@@ -40,12 +40,14 @@ class InventoryAdjustIn(BaseModel):
 
 # ----------------- Inventory -----------------
 @router.get("/inventory")
-async def list_inventory(user: dict = Depends(READ)):
+async def list_inventory(user: dict = Depends(READ),
+                         db: PropertyScopedDatabase = Depends(tenant_db)):
     return await db.inventory.find({}, {"_id": 0}).sort("name", 1).to_list(1000)
 
 
 @router.post("/inventory")
-async def create_inventory(payload: InventoryItemIn, user: dict = Depends(CONFIG)):
+async def create_inventory(payload: InventoryItemIn, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     item = InventoryItem(**payload.model_dump()).model_dump()
     await db.inventory.insert_one(item)
     item.pop("_id", None)
@@ -53,13 +55,15 @@ async def create_inventory(payload: InventoryItemIn, user: dict = Depends(CONFIG
 
 
 @router.put("/inventory/{item_id}")
-async def update_inventory(item_id: str, payload: InventoryItemIn, user: dict = Depends(CONFIG)):
+async def update_inventory(item_id: str, payload: InventoryItemIn, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     await db.inventory.update_one({"id": item_id}, {"$set": payload.model_dump()})
     return await db.inventory.find_one({"id": item_id}, {"_id": 0})
 
 
 @router.post("/inventory/{item_id}/adjust")
-async def adjust_inventory(item_id: str, payload: InventoryAdjustIn, user: dict = Depends(ADJUST)):
+async def adjust_inventory(item_id: str, payload: InventoryAdjustIn, user: dict = Depends(ADJUST),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     item = await db.inventory.find_one({"id": item_id}, {"_id": 0})
     if not item:
         raise HTTPException(404, "Item not found")
@@ -69,6 +73,7 @@ async def adjust_inventory(item_id: str, payload: InventoryAdjustIn, user: dict 
 
 
 @router.delete("/inventory/{item_id}")
-async def delete_inventory(item_id: str, user: dict = Depends(CONFIG)):
+async def delete_inventory(item_id: str, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     await db.inventory.delete_one({"id": item_id})
     return {"ok": True}

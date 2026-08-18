@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from db import db
 from models.folio import ChargeIn, FolioEntry, PaymentIn, VoidIn
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.clock import today as _today
 from services.folio import direction_for, folio_balance, unposted_nights, void_direction
@@ -29,18 +29,18 @@ MANAGER = require_access("hotel", "admin", "manager",
 # read zero. See services/clock.py.
 
 
-async def _entries(folio_id: str) -> list[dict]:
+async def _entries(db, folio_id: str) -> list[dict]:
     rows = await db.folio_entries.find({"folio_id": folio_id}, {"_id": 0}).to_list(5000)
     return sorted(rows, key=lambda e: e.get("posted_at") or "")
 
 
-async def _sync_balance(folio_id: str) -> float:
-    balance = folio_balance(await _entries(folio_id))
+async def _sync_balance(db, folio_id: str) -> float:
+    balance = folio_balance(await _entries(db, folio_id))
     await db.folios.update_one({"id": folio_id}, {"$set": {"balance": balance}})
     return balance
 
 
-async def _require_open(folio_id: str) -> dict:
+async def _require_open(db, folio_id: str) -> dict:
     folio = await db.folios.find_one({"id": folio_id}, {"_id": 0})
     if not folio:
         raise HTTPException(404, "Folio not found")
@@ -49,7 +49,7 @@ async def _require_open(folio_id: str) -> dict:
     return folio
 
 
-async def post_due_nights(folio_id: str) -> int:
+async def post_due_nights(db, folio_id: str) -> int:
     """Post every room night due but not yet posted. Called on every folio read.
 
     Lazy rather than scheduled: a server that slept cannot silently skip a night, and
@@ -66,7 +66,7 @@ async def post_due_nights(folio_id: str) -> int:
     if not booking:
         return 0
 
-    existing = await _entries(folio_id)
+    existing = await _entries(db, folio_id)
     due = unposted_nights(booking, _today(), existing)
     if not due:
         return 0
@@ -86,12 +86,13 @@ async def post_due_nights(folio_id: str) -> int:
         posted += 1
 
     if posted:
-        await _sync_balance(folio_id)
+        await _sync_balance(db, folio_id)
     return posted
 
 
 @router.get("/folios")
-async def list_folios(status: str = "", user: dict = Depends(DESK)):
+async def list_folios(status: str = "", user: dict = Depends(DESK),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     query = {"status": status} if status else {}
     folios = await db.folios.find(query, {"_id": 0}).to_list(1000)
     guests = {g["id"]: g for g in await db.guests.find({}, {"_id": 0}).to_list(5000)}
@@ -103,13 +104,14 @@ async def list_folios(status: str = "", user: dict = Depends(DESK)):
 
 
 @router.get("/folios/{folio_id}")
-async def get_folio(folio_id: str, user: dict = Depends(DESK)):
+async def get_folio(folio_id: str, user: dict = Depends(DESK),
+                    db: PropertyScopedDatabase = Depends(tenant_db)):
     folio = await db.folios.find_one({"id": folio_id}, {"_id": 0})
     if not folio:
         raise HTTPException(404, "Folio not found")
 
-    await post_due_nights(folio_id)
-    entries = await _entries(folio_id)
+    await post_due_nights(db, folio_id)
+    entries = await _entries(db, folio_id)
     balance = folio_balance(entries)
     await db.folios.update_one({"id": folio_id}, {"$set": {"balance": balance}})
 
@@ -121,8 +123,9 @@ async def get_folio(folio_id: str, user: dict = Depends(DESK)):
 
 
 @router.post("/folios/{folio_id}/charges")
-async def add_charge(folio_id: str, payload: ChargeIn, user: dict = Depends(DESK)):
-    await _require_open(folio_id)
+async def add_charge(folio_id: str, payload: ChargeIn, user: dict = Depends(DESK),
+                     db: PropertyScopedDatabase = Depends(tenant_db)):
+    await _require_open(db, folio_id)
     if payload.amount <= 0:
         raise HTTPException(400, "Amount must be greater than zero")
     if not payload.description.strip():
@@ -134,12 +137,13 @@ async def add_charge(folio_id: str, payload: ChargeIn, user: dict = Depends(DESK
         posted_by=user.get("id")).model_dump()
     await db.folio_entries.insert_one(entry)
     entry.pop("_id", None)
-    return {"entry": entry, "balance": await _sync_balance(folio_id)}
+    return {"entry": entry, "balance": await _sync_balance(db, folio_id)}
 
 
 @router.post("/folios/{folio_id}/payments")
-async def add_payment(folio_id: str, payload: PaymentIn, user: dict = Depends(DESK)):
-    await _require_open(folio_id)
+async def add_payment(folio_id: str, payload: PaymentIn, user: dict = Depends(DESK),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
+    await _require_open(db, folio_id)
     if payload.amount <= 0:
         raise HTTPException(400, "Amount must be greater than zero")
 
@@ -160,19 +164,20 @@ async def add_payment(folio_id: str, payload: PaymentIn, user: dict = Depends(DE
         posted_by=user.get("id")).model_dump()
     await db.folio_entries.insert_one(entry)
     entry.pop("_id", None)
-    return {"entry": entry, "balance": await _sync_balance(folio_id)}
+    return {"entry": entry, "balance": await _sync_balance(db, folio_id)}
 
 
 @router.post("/folios/{folio_id}/entries/{entry_id}/void")
 async def void_entry(folio_id: str, entry_id: str, payload: VoidIn,
-                     user: dict = Depends(MANAGER)):
+                     user: dict = Depends(MANAGER),
+                     db: PropertyScopedDatabase = Depends(tenant_db)):
     """Reverse an entry by writing a compensating one. Nothing is ever deleted, so a
     disputed bill keeps its audit trail.
 
     An outlet entry also voids the underlying order: outlet revenue was recognised when
     the bill was served, so leaving the order settled would permanently overstate it.
     """
-    await _require_open(folio_id)
+    await _require_open(db, folio_id)
 
     original = await db.folio_entries.find_one(
         {"id": entry_id, "folio_id": folio_id}, {"_id": 0})
@@ -205,5 +210,5 @@ async def void_entry(folio_id: str, entry_id: str, payload: VoidIn,
         voided_order = original["ref_order_id"]
 
     return {"entry": entry,
-            "balance": await _sync_balance(folio_id),
+            "balance": await _sync_balance(db, folio_id),
             "voided_order_id": voided_order}

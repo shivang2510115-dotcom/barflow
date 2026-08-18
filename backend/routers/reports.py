@@ -8,11 +8,12 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from db import db
+from db import unscoped_db
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 # Outlet sales analytics cover both the restaurant and the bar, so either domain grants
 # access. The hotel revenue report is a later sub-project and will declare "hotel".
-from services.access import OUTLET
+from services.access import LIVE, OUTLET
 # `settled_at` is stored in UTC; every report here is a report on the property's local
 # day. The same conversion the analytics endpoint uses, so the two screens can never
 # disagree about which day a bill belongs to. See services/clock.py.
@@ -28,7 +29,8 @@ REPORTS = require_access(OUTLET, "admin", "manager", permission="outlet.reports"
 
 # ----------------- Reports -----------------
 @router.get("/reports/summary")
-async def report_summary(user: dict = Depends(REPORTS)):
+async def report_summary(user: dict = Depends(REPORTS),
+                         db: PropertyScopedDatabase = Depends(tenant_db)):
     today = local_today()
     settled = await db.orders.find({"status": "settled"}, {"_id": 0}).to_list(2000)
     today_orders = [o for o in settled if local_date(o.get("settled_at")) == today]
@@ -68,7 +70,8 @@ async def report_summary(user: dict = Depends(REPORTS)):
 
 
 @router.get("/reports/orders")
-async def recent_orders(user: dict = Depends(REPORTS)):
+async def recent_orders(user: dict = Depends(REPORTS),
+                        db: PropertyScopedDatabase = Depends(tenant_db)):
     return await db.orders.find({"status": "settled"}, {"_id": 0}).sort("settled_at", -1).limit(50).to_list(50)
 
 
@@ -78,7 +81,7 @@ async def report_analytics(
     end: Optional[str] = None,
     granularity: str = "day",
     user: dict = Depends(REPORTS),
-):
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     """Sales analytics for a date range (inclusive, by settled_at date).
 
     - granularity "day" -> YYYY-MM-DD buckets; "month" -> YYYY-MM buckets.
@@ -210,8 +213,8 @@ def _money(v):
     return f"{'-' if n < 0 else ''}{CURRENCY_SYMBOL}{_indian_grouping(abs(n))}"
 
 
-async def build_daily_brief(date: Optional[str] = None) -> dict:
-    """Compute the owner's end-of-day summary for a single date (settled_at)."""
+async def build_daily_brief(db, date: Optional[str] = None) -> dict:
+    """Compute one property's end-of-day summary for a single date (settled_at)."""
     if not date:
         date = local_today()
 
@@ -305,8 +308,9 @@ def _send_whatsapp(to: str, text: str) -> dict:
 
 
 @router.get("/reports/daily-brief")
-async def daily_brief(date: Optional[str] = None, user: dict = Depends(REPORTS)):
-    return await build_daily_brief(date)
+async def daily_brief(date: Optional[str] = None, user: dict = Depends(REPORTS),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
+    return await build_daily_brief(db, date)
 
 
 class BriefSendIn(BaseModel):
@@ -315,8 +319,9 @@ class BriefSendIn(BaseModel):
 
 
 @router.post("/reports/daily-brief/send")
-async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(REPORTS)):
-    brief = await build_daily_brief(payload.date)
+async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(REPORTS),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
+    brief = await build_daily_brief(db, payload.date)
     to = (payload.to or os.environ.get("OWNER_PHONE") or "").strip()
     result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, brief["message"])
     return {"brief": brief, "delivery": result}
@@ -326,10 +331,19 @@ _last_brief_sent = {"date": None}
 
 
 async def daily_brief_scheduler():
-    """Once a day at OWNER_BRIEF_TIME, send the owner brief.
+    """Once a day at OWNER_BRIEF_TIME, send the owner brief — one per live property.
 
     The clock is the property's, not the server's: an 11pm brief must go out at 11pm
     where the bar is, and cover that same local day's trade.
+
+    Nothing here belongs to a request, so there is no caller to scope from: the loop
+    reads the tenant list from `unscoped_db` and builds each brief through a handle bound
+    to that one hotel, so no property's figures can be added to another's. Suspended and
+    pending hotels are skipped — a hotel that cannot trade has no day to report.
+
+    A hotel's brief still goes to the single OWNER_PHONE, which is the operator's, not
+    the hotel's. Per-hotel delivery belongs with the subscription record — the property
+    name is in the message so the two are at least distinguishable meanwhile.
     """
     send_time = os.environ.get("OWNER_BRIEF_TIME", "23:00")
     while True:
@@ -339,10 +353,17 @@ async def daily_brief_scheduler():
             today = now.date().isoformat()
             if hhmm == send_time and _last_brief_sent["date"] != today:
                 _last_brief_sent["date"] = today
-                brief = await build_daily_brief(today)
+                properties = await unscoped_db.properties.find(
+                    {"status": LIVE}, {"_id": 0}).to_list(1000)
                 to = (os.environ.get("OWNER_PHONE") or "").strip()
-                await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, brief["message"])
-                logger.info("[daily-brief] auto-sent for %s", today)
+                for record in properties:
+                    brief = await build_daily_brief(
+                        PropertyScopedDatabase(record["id"]), today)
+                    text = f"{record.get('name') or 'Property'}\n{brief['message']}"
+                    await asyncio.get_event_loop().run_in_executor(
+                        None, _send_whatsapp, to, text)
+                logger.info("[daily-brief] auto-sent for %s to %d propert(ies)",
+                            today, len(properties))
         except Exception as e:
             logger.warning("[daily-brief] scheduler error: %s", e)
         await asyncio.sleep(30)
