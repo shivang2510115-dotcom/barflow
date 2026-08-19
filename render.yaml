@@ -31,9 +31,12 @@ services:
       - key: CURRENCY_SYMBOL
         value: "₹"
       # Full origin WITH scheme, e.g. https://barflow-web.onrender.com
-      # Set by hand after the first deploy, once the site's real URL exists.
-      # Do not widen to "*" — allow_credentials is on, so a wildcard origin would let
-      # any website call this API with a logged-in user's token.
+      # Comma-separated if there is more than one. Set by hand after the first deploy,
+      # once the site's real URL exists — until it is set the API refuses to start and
+      # says so in the deploy log, because a browser CORS error on somebody else's
+      # machine is a far worse way to find out.
+      # "*" is refused outright: allow_credentials is on, so a wildcard origin would let
+      # any website call this API with a logged-in user's session.
       - key: CORS_ORIGINS
         sync: false
       - key: DAILY_BRIEF_ENABLED

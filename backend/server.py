@@ -45,6 +45,60 @@ if os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD) == DEFAULT_ADMIN_PAS
         "points at a real database. Set ADMIN_PASSWORD to something private and restart."
     )
 
+# The origins a browser may call this API from while carrying a session, when nobody has
+# said. Localhost only, and only ever reached under the JSON mock — see cors_origins().
+# Both hostnames because `localhost` and `127.0.0.1` are different origins to a browser
+# and the two dev servers are started either way; 3000 is Create React App's default and
+# 3001 is what it falls back to when 3000 is taken.
+CORS_DEV_ORIGINS = (
+    "http://localhost:3000", "http://127.0.0.1:3000",
+    "http://localhost:3001", "http://127.0.0.1:3001",
+)
+
+
+def cors_origins() -> list[str]:
+    """The websites allowed to call this API with a logged-in user's credentials.
+
+    `allow_credentials=True` is not negotiable here — the client sends a session — and
+    that makes `*` the whole hole rather than a loose end: the browser attaches the
+    session, the origin check passes for everybody, and any page a signed-in manager
+    opens in another tab can read their hotel's guest list and post to their folios. So
+    a wildcard is refused outright rather than narrowed or warned about. There is no
+    deployment of this application for which it is the right answer.
+
+    Unset splits on the same signal `JWT_SECRET` and `ADMIN_PASSWORD` already use:
+
+    * against the JSON mock this is a laptop, and the answer is the two local dev server
+      origins. A fresh clone runs `npm start` and works, which is the whole reason the
+      old default existed — it just did not have to be `*` to achieve it;
+    * against a real database this refuses to start, and says so by name. The alternative
+      considered was defaulting to same-origin only (an empty list). Both leave the
+      deployment needing the same one action, and they differ in how it is discovered:
+      an empty list surfaces as a CORS error in a browser console on somebody else's
+      machine, which reads like a frontend bug and is the classic afternoon lost; a
+      named RuntimeError in the deploy log says which variable to set. The louder
+      failure is the kinder one, and it matches the two guards already above.
+    """
+    configured = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",")
+                  if o.strip()]
+    if "*" in configured:
+        raise RuntimeError(
+            "CORS_ORIGINS contains '*' and this API allows credentials, so any website a "
+            "signed-in user visits could call it with their session. List the frontend's "
+            "full origins instead, comma-separated, e.g. https://barflow-web.onrender.com"
+        )
+    if configured:
+        return configured
+    if using_mock:
+        return list(CORS_DEV_ORIGINS)
+    raise RuntimeError(
+        "CORS_ORIGINS is not set and MONGO_URL points at a real database. Set it to the "
+        "frontend's full origin, with scheme and comma-separated if there is more than "
+        f"one, e.g. https://barflow-web.onrender.com — locally it defaults to "
+        f"{', '.join(CORS_DEV_ORIGINS)}."
+    )
+
+
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
@@ -62,7 +116,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
