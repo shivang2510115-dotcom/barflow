@@ -42,19 +42,37 @@ class RateLimiter:
     def limited(self, key: str, now: Optional[float] = None) -> bool:
         """True when this key has already had its allowance, and record it when it has not.
 
-        Recording only on admission is deliberate: a caller that is already being refused
-        does not extend its own penalty by keeping on trying, so the block always lifts
-        one window after the last *allowed* attempt rather than after the last attempt.
+        The everyday form: one call, asked before doing the thing. Recording only on
+        admission is deliberate — a caller that is already being refused does not extend
+        its own penalty by keeping on trying, so the block always lifts one window after
+        the last *allowed* attempt rather than after the last attempt.
+        """
+        now = time.time() if now is None else now
+        if self.blocked(key, now):
+            return True
+        self.record(key, now)
+        return False
+
+    def blocked(self, key: str, now: Optional[float] = None) -> bool:
+        """Whether this key is over its limit, counting nothing.
+
+        Separate from `limited` for the login door, which counts *failures* rather than
+        attempts: it has to ask before checking the password and count afterwards, and
+        only when the answer was no.
         """
         now = time.time() if now is None else now
         if len(self._hits) > _SWEEP_ABOVE_KEYS:
             self._sweep(now)
         recent = [t for t in self._hits.get(key, []) if now - t < self.window_seconds]
         self._hits[key] = recent
-        if len(recent) >= self.limit:
-            return True
+        return len(recent) >= self.limit
+
+    def record(self, key: str, now: Optional[float] = None) -> None:
+        """Count one against this key."""
+        now = time.time() if now is None else now
+        recent = [t for t in self._hits.get(key, []) if now - t < self.window_seconds]
         recent.append(now)
-        return False
+        self._hits[key] = recent
 
     def forget(self, key: str) -> None:
         """Clear one key's history.

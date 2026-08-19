@@ -1,5 +1,5 @@
 """Authentication: logging in and reading your own identity."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 
 from db import unscoped_db
@@ -7,8 +7,37 @@ from security import (
     create_access_token, get_current_user, require_access, resolve_property,
     verify_password)
 from services.access import SCREENS, SHARED, SUSPENDED
+from services.ratelimit import RateLimiter, client_ip
 
 router = APIRouter()
+
+# Both count *failures*, not attempts. A hotel's staff all sign in within a minute of
+# each other at the start of service and a busy front desk signs in on three devices;
+# counting successes would throttle the thing the door is for.
+#
+# Two limiters because each covers the other's weakness, and neither is enough alone:
+#
+# * per address stops one client spraying one password across every account on the
+#   platform — the attack the per-account limit cannot see, because each account is only
+#   tried once. It is the weaker of the two: `client_ip` prefers X-Forwarded-For, which
+#   the client sets, so an attacker who knows that can hand themselves a fresh
+#   allowance. See services/ratelimit.py for why reading the socket instead is worse.
+# * per email address is the half no header can move, and it is what actually bounds
+#   guessing at one known account — an owner's address is on the hotel's website.
+#
+# The cost of the second one is stated rather than hidden: an attacker who knows an
+# email can hold that one account out of its own system for as long as they keep failing
+# against it. That is a fifteen-minute nuisance that needs sustained traffic to maintain,
+# against unlimited guessing at every account on the platform, and it is the trade every
+# password door makes. It is a throttle, not a lockout: nothing is disabled, and the
+# window lifts by itself.
+LOGIN_FAILURES_PER_ADDRESS = RateLimiter(limit=50, window_seconds=900)
+LOGIN_FAILURES_PER_EMAIL = RateLimiter(limit=10, window_seconds=900)
+
+# One message for both limits. Which of the two stopped you is not information a caller
+# is owed — per-email throttling that announced itself would confirm that an address is
+# a real account here.
+TOO_MANY_ATTEMPTS = "Too many sign-in attempts. Try again in a few minutes."
 
 
 class LoginIn(BaseModel):
@@ -17,16 +46,34 @@ class LoginIn(BaseModel):
 
 
 @router.post("/auth/login")
-async def login(payload: LoginIn):
+async def login(payload: LoginIn, request: Request = None):
     email = payload.email.lower()
+    if (LOGIN_FAILURES_PER_ADDRESS.blocked(client_ip(request))
+            or LOGIN_FAILURES_PER_EMAIL.blocked(email)):
+        # Before the password is checked, never after: a throttle that still verifies is
+        # not a throttle, it only changes the status code the guesser reads.
+        raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS)
+
+    def refuse():
+        """Every way this door says no, counted identically.
+
+        Deliberately not "count only wrong passwords": a deactivated leaver and a
+        suspended hotel get the same 401 as a bad guess precisely so that the three
+        cannot be told apart, and an unthrottled path among them would tell them apart
+        by which one starts returning 429.
+        """
+        LOGIN_FAILURES_PER_ADDRESS.record(client_ip(request))
+        LOGIN_FAILURES_PER_EMAIL.record(email)
+        return HTTPException(status_code=401, detail="Invalid email or password")
+
     user = await unscoped_db.users.find_one({"email": email})
     if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise refuse()
     # Refused at the door rather than on the first request. The message is identical to
     # a wrong password on purpose: revealing that an account exists but is disabled tells
     # a former employee their guess was right.
     if not user.get("active", True):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise refuse()
     # And the same one level up: a suspended hotel refuses its whole staff, its admin
     # included. Byte-identical to the two refusals above, deliberately — "this hotel is
     # suspended" tells whoever typed the address that the hotel is on this platform and
@@ -34,7 +81,15 @@ async def login(payload: LoginIn):
     # A pending hotel logs in normally: setting the place up is exactly what it is for.
     property_record = await resolve_property(user)
     if property_record and property_record.get("status") == SUSPENDED:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise refuse()
+
+    # This address keeps whatever failures it has accumulated, and only the account
+    # forgets. An attacker holding one valid login of their own would otherwise clear
+    # their address's counter between every fifty guesses simply by signing into it;
+    # clearing the *email* needs the password to that email, which is the thing they are
+    # trying to find out. The person it helps is the front desk who mistyped twice
+    # before getting it right.
+    LOGIN_FAILURES_PER_EMAIL.forget(email)
     token = create_access_token(user["id"], user["email"], user["role"])
     return {
         "token": token,
