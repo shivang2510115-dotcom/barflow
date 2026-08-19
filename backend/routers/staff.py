@@ -24,6 +24,7 @@ from db import unscoped_db
 from security import Role, hash_password, require_access
 from services.access import (
     DOMAINS, SCREENS, SHARED, default_permissions, permission_in_domains)
+from services.password import password_problem
 
 router = APIRouter()
 
@@ -193,8 +194,9 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     # An account that can reach nothing is a mistake, not a state worth storing.
     if payload.role != "admin" and not payload.domains:
         raise HTTPException(400, "A non-admin needs at least one work domain")
-    if len(payload.password) < 8:
-        raise HTTPException(400, "Password must be at least 8 characters")
+    problem = password_problem(payload.password, str(payload.email))
+    if problem:
+        raise HTTPException(400, problem)
 
     email = payload.email.lower().strip()
     if await unscoped_db.users.find_one({"email": email}):
@@ -326,10 +328,15 @@ async def set_active(staff_id: str, payload: ActiveIn, user: dict = Depends(ADMI
 
 @router.post("/staff/{staff_id}/password")
 async def reset_password(staff_id: str, payload: PasswordIn, user: dict = Depends(ADMIN)):
-    if not await unscoped_db.users.find_one({"id": staff_id, **_mine(user)}):
+    target = await unscoped_db.users.find_one({"id": staff_id, **_mine(user)}, {"_id": 0})
+    if not target:
         raise HTTPException(404, "Staff member not found")
-    if len(payload.password) < 8:
-        raise HTTPException(400, "Password must be at least 8 characters")
+    # The same rule as creating them, against the account being reset rather than the
+    # admin doing it: a reset is the other half of "wherever a password is set", and it
+    # is the half that gets typed in a hurry because somebody is locked out and waiting.
+    problem = password_problem(payload.password, target.get("email"))
+    if problem:
+        raise HTTPException(400, problem)
 
     await unscoped_db.users.update_one({"id": staff_id, **_mine(user)}, {"$set": {
         "password_hash": hash_password(payload.password)}})

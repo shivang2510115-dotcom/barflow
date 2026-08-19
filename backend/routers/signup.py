@@ -17,12 +17,11 @@ from pydantic import BaseModel, EmailStr
 from db import unscoped_db
 from security import hash_password
 from services.access import DOMAINS, PENDING, ROLE_SCREENS
+from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
 from services.registration import GSTIN_SHAPE, validate_gstin
 
 router = APIRouter()
-
-MIN_PASSWORD = 8
 
 # Ten signups an hour from one address. High enough that a hotel retrying a mistyped form
 # never notices, low enough that filling the properties collection takes weeks.
@@ -59,8 +58,12 @@ async def signup(payload: SignupIn, request: Request):
     name = payload.hotel_name.strip()
     if not name:
         raise HTTPException(400, "The hotel needs a name")
-    if len(payload.admin_password) < MIN_PASSWORD:
-        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD} characters")
+    # The first account of a new hotel, and the one that can reach every screen in it.
+    # Checked against the email too: `thegrand@…` / `thegrand` is a real thing people do
+    # on a signup form.
+    problem = password_problem(payload.admin_password, str(payload.admin_email))
+    if problem:
+        raise HTTPException(400, problem)
     gstin = payload.gstin.strip().upper()
     if not validate_gstin(gstin):
         raise HTTPException(400, f"gstin is not a valid GSTIN — expected {GSTIN_SHAPE}")

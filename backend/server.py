@@ -26,6 +26,7 @@ from routers.payments import webhook_secret
 from routers.reports import daily_brief_scheduler
 from models.hotel import Rate, Room, RoomType
 from services.access import DOMAINS
+from services.password import password_problem
 from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
 from migrations.backfill_property import backfill as backfill_property
@@ -183,6 +184,21 @@ async def seed_data():
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
+
+    # Warned about, not refused. The strength rule guards the doors a person types a
+    # password into; this one comes from a deployment variable, and turning a weak value
+    # here into a failed start would take a hotel offline on a restart for something
+    # that was already true before it. Only against a real database, or every local
+    # clone would say this about the "admin123" it is meant to have.
+    if not using_mock:
+        for label, value in (("ADMIN_PASSWORD", admin_pw),
+                             ("PLATFORM_ADMIN_PASSWORD",
+                              os.environ.get("PLATFORM_ADMIN_PASSWORD") or "")):
+            if value and password_problem(value, admin_email if label ==
+                                          "ADMIN_PASSWORD" else None):
+                logger.warning(
+                    "%s would be refused if it were typed into the app: %s", label,
+                    password_problem(value))
 
     default_users = [
         {"email": admin_email, "name": "Alex Mercer", "role": "admin", "password": admin_pw},
