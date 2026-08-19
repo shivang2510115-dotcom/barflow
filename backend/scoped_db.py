@@ -32,6 +32,21 @@ from fastapi import Depends, HTTPException, Request
 import db as _db_module
 from security import get_current_user
 from services.access import LIVE
+from services.crypto import decrypt_secret, encrypt_secret
+
+# Fields that are stored encrypted, by collection. Bound to the handle for the same
+# reason the tenant filter is: there are eight places that read a guest record and one
+# of them forgetting to decrypt puts `enc:v1:gAAAA…` in front of a receptionist, while
+# one place forgetting to encrypt writes an identity document to disk in the clear and
+# nothing at all goes wrong until the day the database leaks. Neither is a mistake worth
+# leaving available.
+#
+# Only fields nothing queries or sorts by belong here — ciphertext is opaque to the
+# database, so a filter on one of these would match nothing. That is enforced below
+# rather than trusted.
+ENCRYPTED_FIELDS: dict[str, tuple[str, ...]] = {
+    "guests": ("id_proof_number",),
+}
 
 # The field every scoped document carries. One constant, so the migration, the indexes
 # and this module cannot disagree about the name.
@@ -59,6 +74,39 @@ class UnscopedCollectionError(RuntimeError):
     """
 
 
+class DecryptingCursor:
+    """The driver's own cursor, with the encrypted fields decoded on the way out.
+
+    Only ever wraps a cursor over a collection that has encrypted fields — one, today —
+    so no other query in the application changes shape. `sort` and `limit` are forwarded
+    and return this wrapper, which is what the two drivers' cursors do, and `__aiter__`
+    is forwarded for a caller that streams instead of collecting.
+    """
+
+    def __init__(self, cursor: Any, decrypt):
+        self._cursor = cursor
+        self._decrypt = decrypt
+
+    def sort(self, *args, **kwargs):
+        self._cursor = self._cursor.sort(*args, **kwargs)
+        return self
+
+    def limit(self, count: int):
+        self._cursor = self._cursor.limit(count)
+        return self
+
+    def skip(self, count: int):
+        self._cursor = self._cursor.skip(count)
+        return self
+
+    async def to_list(self, length=None):
+        return [self._decrypt(doc) for doc in await self._cursor.to_list(length)]
+
+    async def __aiter__(self):
+        async for doc in self._cursor:
+            yield self._decrypt(doc)
+
+
 class ScopedCollection:
     """One collection, bound to one property.
 
@@ -67,9 +115,42 @@ class ScopedCollection:
     document read elsewhere — cannot widen or redirect the scope by doing so.
     """
 
-    def __init__(self, collection: Any, property_id: str):
+    def __init__(self, collection: Any, property_id: str, encrypted: tuple[str, ...] = ()):
         self._collection = collection
         self._property_id = property_id
+        self._encrypted = encrypted
+
+    # ---------------------------- encryption -----------------------------
+    # See ENCRYPTED_FIELDS at the top of this module for why this lives on the handle
+    # rather than in each router. All three methods are no-ops for a collection with no
+    # encrypted fields, which is every collection but one.
+    def _guard(self, keys) -> None:
+        """Refuse to look a document up by a field that is stored encrypted.
+
+        Ciphertext is opaque to the database and carries a fresh IV each time, so such a
+        filter matches nothing — silently. A raise is the only honest answer: whoever
+        wrote it wanted a search that this storage cannot do, and needs to know now
+        rather than through a bug report saying the guest is not in the system.
+        """
+        for field in self._encrypted:
+            if field in keys:
+                raise UnscopedCollectionError(
+                    f"'{field}' is stored encrypted, so it cannot be queried or matched "
+                    f"on — ciphertext differs every time the same value is written")
+
+    def _encrypt(self, doc: dict) -> dict:
+        for field in self._encrypted:
+            if field in doc:
+                doc[field] = encrypt_secret(doc[field])
+        return doc
+
+    def _decrypt(self, doc):
+        if not doc or not self._encrypted:
+            return doc
+        for field in self._encrypted:
+            if field in doc:
+                doc[field] = decrypt_secret(doc[field])
+        return doc
 
     # ----------------------------- filtering -----------------------------
     def _query(self, filter_query: Optional[dict] = None) -> dict:
@@ -80,6 +161,7 @@ class ScopedCollection:
         rather than escaping it.
         """
         merged = dict(filter_query or {})
+        self._guard(merged)
         merged[PROPERTY_FIELD] = self._property_id
         return merged
 
@@ -92,12 +174,18 @@ class ScopedCollection:
     # ------------------------------- reads -------------------------------
     def find(self, filter_query: Optional[dict] = None, projection: Optional[dict] = None):
         # Returns the driver's own cursor, so .sort(), .limit() and .to_list() behave
-        # exactly as they do today; only the filter has been narrowed.
-        return self._collection.find(self._query(filter_query), projection)
+        # exactly as they do today; only the filter has been narrowed. A collection with
+        # encrypted fields gets the wrapper below instead, which is the same cursor with
+        # one step added on the way out.
+        cursor = self._collection.find(self._query(filter_query), projection)
+        if not self._encrypted:
+            return cursor
+        return DecryptingCursor(cursor, self._decrypt)
 
     async def find_one(self, filter_query: Optional[dict] = None,
                        projection: Optional[dict] = None):
-        return await self._collection.find_one(self._query(filter_query), projection)
+        return self._decrypt(
+            await self._collection.find_one(self._query(filter_query), projection))
 
     async def count_documents(self, filter_query: Optional[dict] = None) -> int:
         return await self._collection.count_documents(self._query(filter_query))
@@ -113,19 +201,50 @@ class ScopedCollection:
             [{"$match": {PROPERTY_FIELD: self._property_id}}, *pipeline], *args, **kwargs)
 
     # ------------------------------ writes -------------------------------
+    # `_encrypt` mutates the dict, like `_stamp` and for the same reason: the document a
+    # router inserts and the one it returns to the client must not disagree about what is
+    # in the database. The router hands back its own dict, so a guest created at the desk
+    # shows the number the desk typed — it is re-read through `_decrypt` on the next read
+    # either way, and the two paths agree.
     async def insert_one(self, doc: dict):
-        return await self._collection.insert_one(self._stamp(doc))
+        result = await self._collection.insert_one(self._encrypt(self._stamp(doc)))
+        self._decrypt(doc)
+        return result
 
     async def insert_many(self, docs: list):
-        return await self._collection.insert_many([self._stamp(d) for d in docs])
+        result = await self._collection.insert_many(
+            [self._encrypt(self._stamp(d)) for d in docs])
+        for d in docs:
+            self._decrypt(d)
+        return result
 
     async def update_one(self, filter_query: dict, update_query: dict, **kwargs):
         return await self._collection.update_one(
-            self._query(filter_query), update_query, **kwargs)
+            self._query(filter_query), self._encrypt_update(update_query), **kwargs)
 
     async def update_many(self, filter_query: dict, update_query: dict, **kwargs):
         return await self._collection.update_many(
-            self._query(filter_query), update_query, **kwargs)
+            self._query(filter_query), self._encrypt_update(update_query), **kwargs)
+
+    def _encrypt_update(self, update_query: dict) -> dict:
+        """An update, with any encrypted field inside its `$set` encrypted.
+
+        `$set` only. An encrypted field arriving under any other operator — `$push`,
+        `$inc`, `$unset` with a value, a replacement document — is refused rather than
+        guessed at, because each of those would need its own rule and the wrong guess
+        writes an identity document to disk in the clear.
+        """
+        if not self._encrypted:
+            return update_query
+        patched = dict(update_query)
+        for operator, fields in update_query.items():
+            if not isinstance(fields, dict):
+                continue
+            if operator == "$set":
+                patched["$set"] = self._encrypt(dict(fields))
+            else:
+                self._guard(fields)
+        return patched
 
     async def delete_one(self, filter_query: dict):
         return await self._collection.delete_one(self._query(filter_query))
@@ -157,7 +276,8 @@ class PropertyScopedDatabase:
                 f"say in the open how it is filtered")
         # Resolved at access time rather than at construction, so a test that swaps the
         # underlying database swaps it for every router at once.
-        return ScopedCollection(_db_module.unscoped_db[name], self.property_id)
+        return ScopedCollection(_db_module.unscoped_db[name], self.property_id,
+                                ENCRYPTED_FIELDS.get(name, ()))
 
     def __getattr__(self, name: str) -> ScopedCollection:
         if name.startswith("_"):

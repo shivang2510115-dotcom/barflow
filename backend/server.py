@@ -31,6 +31,8 @@ from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
 from migrations.backfill_property import backfill as backfill_property
 from migrations.backfill_tenancy import backfill as backfill_tenancy
+from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
+from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
 
 # Same reasoning as JWT_SECRET in security.py: this password is published in a public
 # repository, so seeding it against a real database hands the first admin account to
@@ -452,6 +454,24 @@ async def on_startup():
         stamped_docs, stamped_property,
         f" ({', '.join(f'{k} {v}' for k, v in sorted(per_collection.items()))})"
         if per_collection else "")
+    # Last of the migrations, and the only one that is allowed to do nothing: an unset
+    # key means this deployment stores identity documents in plain text, which is what
+    # it did yesterday and is not a reason to refuse a hotel its check-in screen. It is
+    # said out loud instead, because the alternative is a deployment that believes it is
+    # encrypting and is not. `encryption_configured()` raises here, at startup, if the
+    # key is set but malformed — somebody meant to encrypt and mistyped.
+    if encryption_configured():
+        encrypted, already, nothing = await encrypt_guest_ids()
+        logger.info(
+            "Guest ID encryption: %d newly encrypted, %d already encrypted, "
+            "%d with nothing recorded.", encrypted, already, nothing)
+    else:
+        logger.warning(
+            "%s is not set. Guest identity-document numbers (id_proof_number) are "
+            "stored in PLAIN TEXT, so anyone who obtains a copy of this database has "
+            "every hotel's guests' Aadhaar, passport and licence numbers. Generate a "
+            "key with: python3 -c \"from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())\"", GUEST_ID_KEY_VAR)
     # Said once, loudly, at startup rather than only on the first webhook that is
     # refused: the symptom of a missing signing secret is online payments quietly not
     # settling, which nobody notices until a guest disputes a bill.
