@@ -168,6 +168,29 @@ class PropertyScopedDatabase:
         return self._collection(name)
 
 
+# A caller that has not been looked at yet, told apart from one that was looked at and
+# turned out to be nobody. The two must not collapse: "anonymous" is a decision this
+# module has already taken, and re-taking it costs a token decode and a user read.
+_UNRESOLVED = object()
+
+
+async def optional_user(request: Request | None) -> dict | None:
+    """Who is calling, when the route does not require anyone to be.
+
+    `None` means a guest — no token, an expired or forged one, or a deactivated account.
+    All four are the same answer here on purpose: these routes are open, so the question
+    is never "may you in", only "are you staff". Anything short of a live staff session
+    is treated as the person with the phone, which is the safe way round — the worst it
+    costs a real waiter with a stale token is that their order is labelled `qr`.
+    """
+    if request is None:
+        return None
+    try:
+        return await get_current_user(request)
+    except HTTPException:
+        return None
+
+
 # --------------------------- the dependencies ---------------------------
 async def tenant_db(user: dict = Depends(get_current_user)) -> PropertyScopedDatabase:
     """The caller's hotel, as a database handle.
@@ -198,8 +221,9 @@ async def _live_property(property_id: str | None) -> dict | None:
     return record
 
 
-async def db_for_table(table_id: str,
-                       request: Request | None = None) -> tuple[PropertyScopedDatabase, dict]:
+async def db_for_table(table_id: str, request: Request | None = None,
+                       caller: dict | None = _UNRESOLVED  # type: ignore[assignment]
+                       ) -> tuple[PropertyScopedDatabase, dict]:
     """The tenant a QR link identifies, resolved from the table it points at.
 
     The self-ordering routes carry no token — a guest at the table scans and orders
@@ -214,7 +238,10 @@ async def db_for_table(table_id: str,
     helped by a different code.
 
     `request` is optional because the guest has none. When it is supplied and carries a
-    token, the caller's own hotel must be the table's — see below.
+    token, the caller's own hotel must be the table's — see below. `caller` is for a
+    route that has already resolved that caller for its own reasons (orders.add_items
+    decides a lot from it) and would otherwise pay for a second token decode and user
+    read on every keypress at a busy till.
     """
     table = await _db_module.unscoped_db.tables.find_one({"id": table_id}, {"_id": 0})
     if not table or not await _live_property(table.get(PROPERTY_FIELD)):
@@ -226,13 +253,10 @@ async def db_for_table(table_id: str,
     # for guests at that table, not a way around the caller's own scope. Same 404 as an
     # unknown table: a table that is not this hotel's does not exist as far as it is
     # concerned.
-    if request is not None:
-        try:
-            user = await get_current_user(request)
-        except HTTPException:
-            user = None
-        if user and user.get(PROPERTY_FIELD) != table[PROPERTY_FIELD]:
-            raise HTTPException(404, "Table not found")
+    if caller is _UNRESOLVED:
+        caller = await optional_user(request)
+    if caller and caller.get(PROPERTY_FIELD) != table[PROPERTY_FIELD]:
+        raise HTTPException(404, "Table not found")
 
     return PropertyScopedDatabase(table[PROPERTY_FIELD]), table
 

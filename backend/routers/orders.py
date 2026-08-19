@@ -6,18 +6,57 @@ from typing import List, Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from scoped_db import PropertyScopedDatabase, db_for_table, tenant_db
+import db as _db_module
+from scoped_db import PropertyScopedDatabase, db_for_table, optional_user, tenant_db
 from security import require_access
 from models.folio import FolioEntry
 from services.access import OUTLET
 from services.folio import direction_for, folio_balance
+from services.ratelimit import RateLimiter, client_ip
 
 router = APIRouter()
+
+# ----------------- What a guest at the table may do -----------------
+# Everything in this block exists because `POST /orders/table/{id}/items` takes no token.
+# The numbers are all far above what a real table does in an evening and far below what
+# an automated caller does in a second, which is the only property they need: none of
+# them is a security boundary on its own, they bound the damage a stranger with a table
+# id can do before somebody notices.
+#
+# Two of them apply to staff as well, because they are not about trust: a request
+# carrying two hundred lines, or a line ordering minus five lagers, is a bug or an
+# attack whoever sends it. `quantity` had no lower bound at all, so `-5` on a ₹100 dish
+# took ₹500 off a bill that was about to be settled.
+MAX_ITEMS_PER_REQUEST = 20
+MAX_QUANTITY_PER_LINE = 20
+
+# And these apply only to a caller with no token. A large party's real bill goes well
+# past them; a waiter is a person the hotel employs and can be asked afterwards what
+# they typed.
+ANON_MAX_LINES = 40
+ANON_MAX_UNITS = 100
+
+# Keyed per address *and table*, not per address alone: a whole restaurant on the venue's
+# guest wifi shares one address, so a flat per-IP budget would let the first four tables
+# to order silence the rest of the room. A table id is a uuid4 nobody can guess, so the
+# key is only shared by people who can actually see the same QR code.
+ANON_ORDERS_PER_TABLE = RateLimiter(limit=20, window_seconds=600)
+
+# And a looser one per address across every table, which is what catches the caller who
+# has scraped or been given many table ids. Twenty rounds a minute from one address is
+# not a restaurant.
+ANON_ORDERS_PER_ADDRESS = RateLimiter(limit=120, window_seconds=600)
+
+# What a guest is told when one of these stops them. Deliberately the same tone in each
+# case and never an explanation of which limit they hit: the person reading it is
+# overwhelmingly a real guest whose phone retried, and the useful next step is the same
+# for all of them.
+ASK_STAFF = "Please ask a member of staff to add this to your bill."
 
 
 class OrderItemIn(BaseModel):
     menu_item_id: str
-    quantity: int = 1
+    quantity: int = Field(1, ge=1, le=MAX_QUANTITY_PER_LINE)
     notes: str = ""
 
 
@@ -53,7 +92,11 @@ class Order(BaseModel):
 
 class AddItemsIn(BaseModel):
     items: List[OrderItemIn]
-    source: Literal["pos", "qr"] = "pos"
+    # `source` used to be a field here, defaulting to "pos". It is the server's word now
+    # and the request has no say — see add_items. Removed rather than ignored so that
+    # nothing can read it back by accident; a client that still sends it (the QR page
+    # does) has the field dropped, which is what pydantic does with anything it does not
+    # declare.
 
 
 class SettleIn(BaseModel):
@@ -96,25 +139,109 @@ def compute_totals(order: dict) -> dict:
 
 
 # ----------------- Orders -----------------
-async def _get_or_create_open_order(db, table: dict, source: str = "pos") -> dict:
-    table_id = table["id"]
-    if table.get("current_order_id"):
-        order = await db.orders.find_one({"id": table["current_order_id"]}, {"_id": 0})
-        if order and order["status"] == "open":
-            return order
-    order = Order(table_id=table_id, table_label=table["label"], source=source).model_dump()
+async def _open_order(db, table: dict) -> dict | None:
+    """This table's bill, if one is open. Read-only: a refusal must not leave an empty
+    order behind and a table marked occupied by somebody who was turned away."""
+    if not table.get("current_order_id"):
+        return None
+    order = await db.orders.find_one({"id": table["current_order_id"]}, {"_id": 0})
+    if order and order["status"] == "open":
+        return order
+    return None
+
+
+async def _open_new_order(db, table: dict, source: str) -> dict:
+    order = Order(table_id=table["id"], table_label=table["label"],
+                  source=source).model_dump()
     await db.orders.insert_one(order)
     order.pop("_id", None)
-    await db.tables.update_one({"id": table_id}, {"$set": {"status": "occupied", "current_order_id": order["id"]}})
+    await db.tables.update_one({"id": table["id"]}, {"$set": {
+        "status": "occupied", "current_order_id": order["id"]}})
     return order
+
+
+async def _being_paid_for(order_id: str) -> bool:
+    """Whether a Stripe checkout session is open against this bill.
+
+    A session is the bill presented and its total locked in — the guest is on Stripe's
+    page looking at a number. Anything appended after that is a line they never agreed
+    to and the hotel cannot collect, which is the closest thing this application has to
+    "an order already being settled". The cash path has no equivalent signal and is
+    still open to the same race; that is stated in the hardening report rather than
+    papered over here.
+
+    `payment_transactions` stands outside tenancy — it is keyed by the session id Stripe
+    hands an anonymous caller — so it is reached through `unscoped_db` and filtered by
+    order id in the open, exactly as routers/payments.py does. A session that has
+    already been paid does not lock anything: its order is settled, and the next sitting
+    at that table opens a new one.
+
+    An abandoned session leaves the bill locked to self-ordering until staff touch it.
+    That is the deliberate direction to be wrong in: the guest is told to ask a waiter,
+    and a waiter can always add the drink.
+    """
+    # The module, not the handle: `from db import unscoped_db` binds whatever existed at
+    # import time, and a test that swaps the database would still be answered by the
+    # real one. scoped_db.py reaches it the same way and for the same reason.
+    sessions = await _db_module.unscoped_db.payment_transactions.find(
+        {"order_id": order_id}, {"_id": 0}).to_list(50)
+    return any(s.get("payment_status") not in ("paid", "expired", "failed")
+               for s in sessions)
+
+
+def _within_guest_limits(order: dict | None, items: List[OrderItemIn]) -> bool:
+    existing = (order or {}).get("items", [])
+    lines = len(existing) + len(items)
+    units = (sum(i.get("quantity", 0) for i in existing)
+             + sum(i.quantity for i in items))
+    return lines <= ANON_MAX_LINES and units <= ANON_MAX_UNITS
 
 
 @router.post("/orders/table/{table_id}/items")
 async def add_items(table_id: str, payload: AddItemsIn, request: Request = None):
+    """Add items to this table's bill. Open to a guest with a phone and no account.
+
+    `source` is decided here and never read from the body. A caller holding a live staff
+    session is the till; everybody else is the QR code — including a waiter whose token
+    has expired, which costs them a label and nothing else. The point is that "this line
+    was typed by somebody the hotel employs" stays a fact the server knows rather than a
+    string the client chose, so a bill with an injected line can be told from one
+    without.
+    """
+    # Everyone, staff included: a request this size is a bug or an attack whoever sends
+    # it, and it is refused before any of the work below.
+    if len(payload.items) > MAX_ITEMS_PER_REQUEST:
+        raise HTTPException(
+            400, f"An order can carry at most {MAX_ITEMS_PER_REQUEST} lines at a time")
+
+    staff = await optional_user(request)
+
+    if staff is None:
+        ip = client_ip(request)
+        # Both, and in this order: the table budget is the one a real guest could
+        # conceivably reach, so it is checked first and its refusal is the one they see.
+        if (ANON_ORDERS_PER_TABLE.limited(f"{ip}|{table_id}")
+                or ANON_ORDERS_PER_ADDRESS.limited(ip)):
+            raise HTTPException(429, f"Too many orders from this device. {ASK_STAFF}")
+
     # The scope comes from the table, and so does the menu: an item id from another
     # hotel's card simply is not found, and is skipped like any unknown id.
-    db, table = await db_for_table(table_id, request)
-    order = await _get_or_create_open_order(db, table, payload.source)
+    db, table = await db_for_table(table_id, request, caller=staff)
+    order = await _open_order(db, table)
+
+    if staff is None:
+        # Checked against the bill as it stands, before anything is created: a guest who
+        # is refused must not leave an empty order behind and the table marked occupied.
+        if order is not None and await _being_paid_for(order["id"]):
+            raise HTTPException(
+                409, f"This bill is being paid for and cannot be added to. {ASK_STAFF}")
+        if not _within_guest_limits(order, payload.items):
+            raise HTTPException(
+                400, f"This bill has reached the limit for self-ordering. {ASK_STAFF}")
+
+    if order is None:
+        order = await _open_new_order(db, table, "pos" if staff else "qr")
+
     new_items = []
     for it in payload.items:
         m = await db.menu.find_one({"id": it.menu_item_id}, {"_id": 0})

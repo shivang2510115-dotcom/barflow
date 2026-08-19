@@ -8,7 +8,6 @@ It uses `unscoped_db` because there is no tenant to scope to yet — the request
 creates one. Every other router that touches `unscoped_db` does so for a collection that
 sits outside tenancy; this one does it because tenancy has not begun.
 """
-import time
 import uuid
 from datetime import datetime, timezone
 
@@ -18,6 +17,7 @@ from pydantic import BaseModel, EmailStr
 from db import unscoped_db
 from security import hash_password
 from services.access import DOMAINS, PENDING, ROLE_SCREENS
+from services.ratelimit import RateLimiter, client_ip
 from services.registration import GSTIN_SHAPE, validate_gstin
 
 router = APIRouter()
@@ -27,22 +27,11 @@ MIN_PASSWORD = 8
 # Ten signups an hour from one address. High enough that a hotel retrying a mistyped form
 # never notices, low enough that filling the properties collection takes weeks.
 #
-# In-process, so it does NOT survive more than one worker: each worker keeps its own
-# counter and the effective limit multiplies by the worker count. That is a real
-# limitation, not a rounding error — a shared store (Redis, or a collection with a TTL
-# index) is what this needs before the platform runs more than one process.
-RATE_LIMIT = 10
-RATE_WINDOW_SECONDS = 3600
-_attempts: dict[str, list[float]] = {}
-
-
-def _rate_limited(ip: str, now: float) -> bool:
-    recent = [t for t in _attempts.get(ip, []) if now - t < RATE_WINDOW_SECONDS]
-    _attempts[ip] = recent
-    if len(recent) >= RATE_LIMIT:
-        return True
-    recent.append(now)
-    return False
+# The counting itself now lives in services/ratelimit.py, because the login door and the
+# QR order route need the same thing and a second copy is how two of them end up with
+# different behaviour. Its docstring carries the caveat that used to be here: in-process,
+# so the effective limit multiplies by the worker count.
+SIGNUPS_PER_ADDRESS = RateLimiter(limit=10, window_seconds=3600)
 
 
 class SignupIn(BaseModel):
@@ -64,8 +53,7 @@ async def signup(payload: SignupIn, request: Request):
     Together, because a property with no login is unreachable and a login with no
     property reaches nothing. Neither half is useful alone, so neither is created alone.
     """
-    ip = (request.client.host if request.client else "") or "unknown"
-    if _rate_limited(ip, time.time()):
+    if SIGNUPS_PER_ADDRESS.limited(client_ip(request)):
         raise HTTPException(429, "Too many signups from this address. Try again later.")
 
     name = payload.hotel_name.strip()
