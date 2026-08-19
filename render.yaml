@@ -48,6 +48,14 @@ services:
         sync: false
       - key: STRIPE_API_KEY
         sync: false
+      # The signing secret of the Stripe webhook endpoint ("whsec_..."), copied from the
+      # Stripe dashboard. It is what proves a webhook came from Stripe rather than from
+      # a stranger with the URL — settling an order is what believing one does.
+      # Leave it unset and every webhook is refused with a 503, so online payments never
+      # settle. That is deliberate: a webhook that cannot verify and accepts anything
+      # would let anyone settle any order on the platform without paying.
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
 
   # ---------------------------------------------------------------- Web
   - type: web

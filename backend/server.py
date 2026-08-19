@@ -22,6 +22,7 @@ from routers import auth, staff, tables, menu, orders, inventory, reports, payme
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
+from routers.payments import webhook_secret
 from routers.reports import daily_brief_scheduler
 from models.hotel import Rate, Room, RoomType
 from services.access import DOMAINS
@@ -381,6 +382,14 @@ async def on_startup():
         stamped_docs, stamped_property,
         f" ({', '.join(f'{k} {v}' for k, v in sorted(per_collection.items()))})"
         if per_collection else "")
+    # Said once, loudly, at startup rather than only on the first webhook that is
+    # refused: the symptom of a missing signing secret is online payments quietly not
+    # settling, which nobody notices until a guest disputes a bill.
+    if not webhook_secret():
+        logger.warning(
+            "STRIPE_WEBHOOK_SECRET is not set. Every Stripe webhook will be refused "
+            "(503) and online payments will not settle. Set it to the signing secret "
+            "from the Stripe dashboard's webhook endpoint.")
     if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
         asyncio.create_task(daily_brief_scheduler())
         logger.info("Daily brief scheduler started (%s).", os.environ.get("OWNER_BRIEF_TIME", "23:00"))
