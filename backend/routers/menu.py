@@ -5,14 +5,16 @@ from typing import Literal
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from db import db
+from scoped_db import PropertyScopedDatabase, public_db, tenant_db
 from security import require_configuration
 from services.access import OUTLET
 
 # The menu itself is configuration — prices on it become money on a bill — so only the
 # admin edits it. Reading it is deliberately unauthenticated below: the QR code on the
 # table is a guest's menu, not a staff screen.
-CONFIG = require_configuration(OUTLET)
+# Setup-time: typing the menu in is setting the outlet up. Selling from it is not — the
+# POS and the KOT board stay locked until the property is approved.
+CONFIG = require_configuration(OUTLET, setup_time=True)
 
 router = APIRouter()
 
@@ -33,12 +35,17 @@ class MenuItem(MenuItemIn):
 
 # ----------------- Menu -----------------
 @router.get("/menu")
-async def list_menu():
+async def list_menu(db: PropertyScopedDatabase = Depends(public_db)):
+    """The card. Read by the QR page with no account, and by the POS and the Menu screen
+    with one — so which hotel's card this is comes from `public_db`: the scanned table
+    when the caller passes `table_id`, otherwise the caller's own token. See there for
+    the third case, and why it can only ever answer for the founding property."""
     return await db.menu.find({}, {"_id": 0}).sort("category", 1).to_list(1000)
 
 
 @router.post("/menu")
-async def create_menu_item(payload: MenuItemIn, user: dict = Depends(CONFIG)):
+async def create_menu_item(payload: MenuItemIn, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     m = MenuItem(**payload.model_dump()).model_dump()
     await db.menu.insert_one(m)
     m.pop("_id", None)
@@ -46,13 +53,15 @@ async def create_menu_item(payload: MenuItemIn, user: dict = Depends(CONFIG)):
 
 
 @router.put("/menu/{item_id}")
-async def update_menu_item(item_id: str, payload: MenuItemIn, user: dict = Depends(CONFIG)):
+async def update_menu_item(item_id: str, payload: MenuItemIn, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     await db.menu.update_one({"id": item_id}, {"$set": payload.model_dump()})
     doc = await db.menu.find_one({"id": item_id}, {"_id": 0})
     return doc
 
 
 @router.delete("/menu/{item_id}")
-async def delete_menu_item(item_id: str, user: dict = Depends(CONFIG)):
+async def delete_menu_item(item_id: str, user: dict = Depends(CONFIG),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
     await db.menu.delete_one({"id": item_id})
     return {"ok": True}

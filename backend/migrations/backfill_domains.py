@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from db import db  # noqa: E402
+from db import unscoped_db  # noqa: E402
 from services.access import DOMAINS  # noqa: E402
 
 
@@ -24,7 +24,7 @@ async def backfill() -> tuple[int, int]:
     with no manual shell step, so a migration nobody runs is a migration that never
     runs — and an account left without domains is locked out of the whole app.
     """
-    users = await db.users.find({}, {"_id": 0}).to_list(10000)
+    users = await unscoped_db.users.find({}, {"_id": 0}).to_list(10000)
     updated = skipped = 0
     for user in users:
         patch = {}
@@ -39,7 +39,7 @@ async def backfill() -> tuple[int, int]:
         if not patch:
             skipped += 1
             continue
-        await db.users.update_one({"id": user["id"]}, {"$set": patch})
+        await unscoped_db.users.update_one({"id": user["id"]}, {"$set": patch})
         updated += 1
     return updated, skipped
 

@@ -150,6 +150,22 @@ class MockCollection:
                 self.inserted_ids = inserted_ids
         return InsertManyResult([d.get("id") for d in docs_copy])
 
+    def _apply_update(self, item, update_query):
+        """Apply $set/$push to one document. Returns whether anything changed."""
+        modified = False
+        if "$set" in update_query:
+            changed = any(item.get(uk) != uv for uk, uv in update_query["$set"].items())
+            for uk, uv in update_query["$set"].items():
+                item[uk] = uv
+            if changed:
+                modified = True
+        if "$push" in update_query:
+            for uk, uv in update_query["$push"].items():
+                item.setdefault(uk, [])
+                item[uk].append(uv)
+            modified = True
+        return modified
+
     async def update_one(self, filter_query, update_query):
         items = self._get_items()
         matched_count = 0
@@ -157,16 +173,7 @@ class MockCollection:
         for item in items:
             if self._match(item, filter_query):
                 matched_count = 1
-                if "$set" in update_query:
-                    changed = any(item.get(uk) != uv for uk, uv in update_query["$set"].items())
-                    for uk, uv in update_query["$set"].items():
-                        item[uk] = uv
-                    if changed:
-                        modified_count = 1
-                if "$push" in update_query:
-                    for uk, uv in update_query["$push"].items():
-                        item.setdefault(uk, [])
-                        item[uk].append(uv)
+                if self._apply_update(item, update_query):
                     modified_count = 1
                 break
         if modified_count > 0:
@@ -176,6 +183,42 @@ class MockCollection:
                 self.matched_count = matched
                 self.modified_count = modified
         return UpdateResult(matched_count, modified_count)
+
+    async def update_many(self, filter_query, update_query):
+        """Every match, not just the first. Same update grammar as update_one — which is
+        why the two share `_apply_update` rather than each growing their own copy of it.
+        """
+        items = self._get_items()
+        matched_count = modified_count = 0
+        for item in items:
+            if self._match(item, filter_query):
+                matched_count += 1
+                if self._apply_update(item, update_query):
+                    modified_count += 1
+        if modified_count > 0:
+            self._save()
+        class UpdateResult:
+            def __init__(self, matched, modified):
+                self.matched_count = matched
+                self.modified_count = modified
+        return UpdateResult(matched_count, modified_count)
+
+    def aggregate(self, pipeline, *args, **kwargs):
+        """Only `$match`, and loudly nothing else.
+
+        The scoped database handle prepends a `$match` on property_id to every pipeline,
+        so this exists to keep that path working against the mock. A `$group` or
+        `$lookup` silently ignored here would make a report add up locally and differently
+        against real MongoDB, which is exactly the class of bug the operator check in
+        `_field_matches` refuses to introduce. Returns a cursor, like Motor does.
+        """
+        items = [dict(item) for item in self._get_items()]
+        for stage in pipeline or []:
+            for op, spec in stage.items():
+                if op != "$match":
+                    raise ValueError(f"mock_db: unsupported aggregation stage {op}")
+                items = [item for item in items if self._match(item, spec)]
+        return MockCursor(items)
 
     async def delete_one(self, filter_query):
         items = self._get_items()

@@ -3,10 +3,10 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from db import db
+from scoped_db import PropertyScopedDatabase, db_for_table, tenant_db
 from security import require_access
 from services.access import OUTLET
 
@@ -60,12 +60,19 @@ class Reservation(BaseModel):
 
 # The floor plan is read by three screens — Tables, the POS and Reservations all need
 # to know what the tables are — so the one endpoint names all three.
-FLOOR = require_access(OUTLET, permission=("outlet.tables", "outlet.pos", "outlet.reservations"))
+#
+# Setup-time: drawing the floor plan is part of describing the outlet. Reading it is
+# harmless while pending — the POS that also reads it cannot open an order anyway.
+FLOOR = require_access(OUTLET, permission=("outlet.tables", "outlet.pos", "outlet.reservations"),
+                       setup_time=True)
 # Adding or removing a table is not configuration in the sense the admin lock covers:
 # nothing is priced off it, and a floor that cannot be rearranged by the manager on duty
 # is a floor plan that goes stale. Room types, rates and menu items are the settings that
 # turn into money on a bill; a table is furniture.
-FLOOR_EDIT = require_access(OUTLET, "admin", "manager", permission="outlet.tables")
+FLOOR_EDIT = require_access(OUTLET, "admin", "manager", permission="outlet.tables",
+                            setup_time=True)
+# Reservations are operating, not setup: a table booked at an unapproved property is a
+# guest expecting a seat the hotel is not yet cleared to sell.
 BOOK_TABLE = require_access(OUTLET, "admin", "manager", "waiter", permission="outlet.reservations")
 READ_RESERVATIONS = require_access(OUTLET, permission="outlet.reservations")
 CANCEL_RESERVATION = require_access(OUTLET, "admin", "manager", permission="outlet.reservations")
@@ -73,20 +80,26 @@ CANCEL_RESERVATION = require_access(OUTLET, "admin", "manager", permission="outl
 
 # ----------------- Tables -----------------
 @router.get("/tables")
-async def list_tables(user: dict = Depends(FLOOR)):
+async def list_tables(user: dict = Depends(FLOOR),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
     return await db.tables.find({}, {"_id": 0}).sort("label", 1).to_list(500)
 
 
 @router.get("/tables/public/{table_id}")
-async def get_table_public(table_id: str):
-    t = await db.tables.find_one({"id": table_id}, {"_id": 0})
-    if not t:
-        raise HTTPException(404, "Table not found")
-    return t
+async def get_table_public(table_id: str, request: Request = None):
+    """What the QR page shows above the menu: the table the guest is sitting at.
+
+    Unauthenticated, like the order routes it sits beside, and scoped the same way — the
+    table names its own hotel, and a pending or suspended one's link stops working here
+    too. `db_for_table` does both, so the QR entry points cannot drift apart.
+    """
+    _db, table = await db_for_table(table_id, request)
+    return table
 
 
 @router.post("/tables")
-async def create_table(payload: TableIn, user: dict = Depends(FLOOR_EDIT)):
+async def create_table(payload: TableIn, user: dict = Depends(FLOOR_EDIT),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     t = Table(**payload.model_dump()).model_dump()
     await db.tables.insert_one(t)
     t.pop("_id", None)
@@ -94,14 +107,16 @@ async def create_table(payload: TableIn, user: dict = Depends(FLOOR_EDIT)):
 
 
 @router.delete("/tables/{table_id}")
-async def delete_table(table_id: str, user: dict = Depends(FLOOR_EDIT)):
+async def delete_table(table_id: str, user: dict = Depends(FLOOR_EDIT),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     await db.tables.delete_one({"id": table_id})
     return {"ok": True}
 
 
 # ----------------- Reservations -----------------
 @router.get("/reservations")
-async def list_reservations(date: Optional[str] = None, user: dict = Depends(READ_RESERVATIONS)):
+async def list_reservations(date: Optional[str] = None, user: dict = Depends(READ_RESERVATIONS),
+                            db: PropertyScopedDatabase = Depends(tenant_db)):
     query = {"date": date} if date else {}
     return await db.reservations.find(query, {"_id": 0}).sort("time", 1).to_list(500)
 
@@ -110,7 +125,7 @@ async def list_reservations(date: Optional[str] = None, user: dict = Depends(REA
 async def create_reservation(
     payload: ReservationIn,
     user: dict = Depends(BOOK_TABLE),
-):
+                             db: PropertyScopedDatabase = Depends(tenant_db)):
     data = payload.model_dump()
     hold = data.pop("hold_table", False)
     r = Reservation(**data).model_dump()
@@ -132,7 +147,7 @@ async def set_reservation_status(
     reservation_id: str,
     payload: StatusIn,
     user: dict = Depends(BOOK_TABLE),
-):
+                                 db: PropertyScopedDatabase = Depends(tenant_db)):
     res = await db.reservations.find_one({"id": reservation_id}, {"_id": 0})
     if not res:
         raise HTTPException(status_code=404, detail="Reservation not found")
@@ -156,7 +171,7 @@ async def set_reservation_status(
 async def delete_reservation(
     reservation_id: str,
     user: dict = Depends(CANCEL_RESERVATION),
-):
+                             db: PropertyScopedDatabase = Depends(tenant_db)):
     res = await db.reservations.find_one({"id": reservation_id}, {"_id": 0})
     if res and res.get("table_id"):
         table = await db.tables.find_one({"id": res["table_id"]}, {"_id": 0})

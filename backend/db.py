@@ -1,4 +1,13 @@
-"""Database handle. Falls back to a JSON-file mock when MONGO_URL is unset."""
+"""The whole database, unscoped. Falls back to a JSON-file mock when MONGO_URL is unset.
+
+The handle is called `unscoped_db` rather than `db` because it can see every hotel's
+rows at once. Routers do not use it: they take a property-scoped handle from a
+dependency (see scoped_db.py), so the tenant filter is not theirs to forget. What is
+left here is the work that genuinely has no tenant — seeding, the startup migrations,
+logging in, and looking a property up in order to scope something else — and the name is
+what makes each of those visible on sight in review. `grep -rn unscoped_db backend/` is
+the whole audit.
+"""
 import os
 import logging
 
@@ -25,7 +34,7 @@ if using_mock:
     logger.info("Using local JSON file-based database mock...")
     from mock_db import MockMongoClient
     client = MockMongoClient(None)
-    db = client[None]
+    unscoped_db = client[None]
 else:
     logger.info("Connecting to remote MongoDB client...")
     client = AsyncIOMotorClient(
@@ -33,7 +42,7 @@ else:
         serverSelectionTimeoutMS=SERVER_SELECTION_TIMEOUT_MS,
         connectTimeoutMS=SERVER_SELECTION_TIMEOUT_MS,
     )
-    db = client[os.environ.get('DB_NAME', 'barflow')]
+    unscoped_db = client[os.environ.get('DB_NAME', 'barflow')]
 
 
 async def check_connection() -> None:

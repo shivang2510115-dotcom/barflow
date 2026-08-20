@@ -20,7 +20,7 @@ import sys
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
 
-from db import db  # noqa: E402
+from db import unscoped_db  # noqa: E402
 from services.access import default_permissions  # noqa: E402
 
 
@@ -35,7 +35,7 @@ async def backfill() -> tuple[int, int, int]:
     role's whole set on the next restart, and the only way to hold an empty list is for
     this migration to have produced one, which running it again would produce again.
     """
-    users = await db.users.find({}, {"_id": 0}).to_list(10000)
+    users = await unscoped_db.users.find({}, {"_id": 0}).to_list(10000)
     updated = skipped = stranded = 0
     for user in users:
         if "permissions" in user:
@@ -47,7 +47,7 @@ async def backfill() -> tuple[int, int, int]:
             # already reached nothing, so this takes nothing away. Counted and logged
             # rather than guessed at: the owner has to decide what this person does.
             stranded += 1
-        await db.users.update_one({"id": user["id"]}, {"$set": {"permissions": granted}})
+        await unscoped_db.users.update_one({"id": user["id"]}, {"$set": {"permissions": granted}})
         updated += 1
     return updated, skipped, stranded
 

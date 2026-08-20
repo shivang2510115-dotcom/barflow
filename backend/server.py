@@ -16,22 +16,96 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
-from db import db, client, check_connection
+from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
+from routers.payments import webhook_secret
 from routers.reports import daily_brief_scheduler
 from models.hotel import Rate, Room, RoomType
 from services.access import DOMAINS
+from services.password import password_problem
 from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
+from migrations.backfill_property import backfill as backfill_property
+from migrations.backfill_tenancy import backfill as backfill_tenancy
+from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
+from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
+
+# Same reasoning as JWT_SECRET in security.py: this password is published in a public
+# repository, so seeding it against a real database hands the first admin account to
+# anyone who has read the source. Checked at import, before any database call, so an
+# unreachable database cannot mask it — the connection error would be the last thing
+# anyone saw, and the account would be seeded wide open on the retry that succeeds.
+DEFAULT_ADMIN_PASSWORD = "admin123"
+
+if os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD) == DEFAULT_ADMIN_PASSWORD \
+        and not using_mock:
+    raise RuntimeError(
+        "ADMIN_PASSWORD is still the default published in this repository, and MONGO_URL "
+        "points at a real database. Set ADMIN_PASSWORD to something private and restart."
+    )
+
+# The origins a browser may call this API from while carrying a session, when nobody has
+# said. Localhost only, and only ever reached under the JSON mock — see cors_origins().
+# Both hostnames because `localhost` and `127.0.0.1` are different origins to a browser
+# and the two dev servers are started either way; 3000 is Create React App's default and
+# 3001 is what it falls back to when 3000 is taken.
+CORS_DEV_ORIGINS = (
+    "http://localhost:3000", "http://127.0.0.1:3000",
+    "http://localhost:3001", "http://127.0.0.1:3001",
+)
+
+
+def cors_origins() -> list[str]:
+    """The websites allowed to call this API with a logged-in user's credentials.
+
+    `allow_credentials=True` is not negotiable here — the client sends a session — and
+    that makes `*` the whole hole rather than a loose end: the browser attaches the
+    session, the origin check passes for everybody, and any page a signed-in manager
+    opens in another tab can read their hotel's guest list and post to their folios. So
+    a wildcard is refused outright rather than narrowed or warned about. There is no
+    deployment of this application for which it is the right answer.
+
+    Unset splits on the same signal `JWT_SECRET` and `ADMIN_PASSWORD` already use:
+
+    * against the JSON mock this is a laptop, and the answer is the two local dev server
+      origins. A fresh clone runs `npm start` and works, which is the whole reason the
+      old default existed — it just did not have to be `*` to achieve it;
+    * against a real database this refuses to start, and says so by name. The alternative
+      considered was defaulting to same-origin only (an empty list). Both leave the
+      deployment needing the same one action, and they differ in how it is discovered:
+      an empty list surfaces as a CORS error in a browser console on somebody else's
+      machine, which reads like a frontend bug and is the classic afternoon lost; a
+      named RuntimeError in the deploy log says which variable to set. The louder
+      failure is the kinder one, and it matches the two guards already above.
+    """
+    configured = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",")
+                  if o.strip()]
+    if "*" in configured:
+        raise RuntimeError(
+            "CORS_ORIGINS contains '*' and this API allows credentials, so any website a "
+            "signed-in user visits could call it with their session. List the frontend's "
+            "full origins instead, comma-separated, e.g. https://barflow-web.onrender.com"
+        )
+    if configured:
+        return configured
+    if using_mock:
+        return list(CORS_DEV_ORIGINS)
+    raise RuntimeError(
+        "CORS_ORIGINS is not set and MONGO_URL points at a real database. Set it to the "
+        "frontend's full origin, with scheme and comma-separated if there is more than "
+        f"one, e.g. https://barflow-web.onrender.com — locally it defaults to "
+        f"{', '.join(CORS_DEV_ORIGINS)}."
+    )
+
 
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform):
     api_router.include_router(module.router)
 
 
@@ -45,25 +119,59 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
 # ----------------- Seed -----------------
+def demo_content_enabled() -> bool:
+    """Whether to seed the showcase bar — its tables, menu, stock, rooms and rates.
+
+    Off unless asked for, the opposite of `DEMO_LOGINS`' default, and for a reason the
+    two do not share: a demo login is a door that a public deployment must not leave
+    open, while demo content is furniture that a *real* hotel would have to delete by
+    hand, item by item, before it could trust a single number on its own dashboard.
+    Three room types it never had make its occupancy wrong on day one.
+
+    So a fresh production start creates only what every property needs regardless of who
+    they are: the admin account, the GST bands and the three meal plans. Those are
+    reference data — statutory rates and the standard Indian board codes — not somebody
+    else's inventory. Set SEED_DEMO_CONTENT=true for a clone you want usable in one
+    command.
+    """
+    return os.environ.get("SEED_DEMO_CONTENT", "false").lower() == "true"
+
+
 async def seed_data():
-    # Indexes
-    await db.users.create_index("email", unique=True)
-    await db.tables.create_index("label")
-    await db.reservations.create_index("date")
-    await db.menu.create_index("category")
-    await db.guests.create_index("phone", unique=True)
-    await db.bookings.create_index([("room_type_id", 1), ("check_in", 1), ("check_out", 1), ("status", 1)])
-    await db.bookings.create_index("reference", unique=True)
-    await db.rooms.create_index("room_type_id")
-    await db.folios.create_index("booking_id", unique=True)
-    await db.folio_entries.create_index("folio_id")
+    # Indexes.
+    #
+    # Every one of these is now compound on property_id, and every unique one is unique
+    # *per property* rather than globally. Two hotels genuinely do both have a room 101, a
+    # guest whose phone number is the same person eating in both, and a booking numbered
+    # BF-2608-0001 — a global unique index would let whichever hotel signed up first stop
+    # the second from entering its own data, with a duplicate-key error naming a record
+    # they cannot see. Leading with property_id also matches how every query now reads:
+    # the scoped handle puts it in the filter, so an index that does not start there is
+    # one the planner cannot use.
+    #
+    # `users.email` stays globally unique on purpose. A login is found by email before
+    # anyone knows which hotel it belongs to, so two hotels cannot share one.
+    #
+    # None of this takes effect against the JSON mock, whose create_index is a no-op —
+    # locally the routers' own duplicate checks (now scoped) are what enforce it.
+    await unscoped_db.users.create_index("email", unique=True)
+    await unscoped_db.tables.create_index([("property_id", 1), ("label", 1)])
+    await unscoped_db.reservations.create_index([("property_id", 1), ("date", 1)])
+    await unscoped_db.menu.create_index([("property_id", 1), ("category", 1)])
+    await unscoped_db.guests.create_index([("property_id", 1), ("phone", 1)], unique=True)
+    await unscoped_db.bookings.create_index([("property_id", 1), ("room_type_id", 1), ("check_in", 1), ("check_out", 1), ("status", 1)])
+    await unscoped_db.bookings.create_index([("property_id", 1), ("reference", 1)], unique=True)
+    await unscoped_db.rooms.create_index([("property_id", 1), ("room_type_id", 1)])
+    await unscoped_db.rooms.create_index([("property_id", 1), ("number", 1)], unique=True)
+    await unscoped_db.folios.create_index([("property_id", 1), ("booking_id", 1)], unique=True)
+    await unscoped_db.folio_entries.create_index([("property_id", 1), ("folio_id", 1)])
     # Unique against real MongoDB; mocked create_index is a no-op.
     # Actual idempotency comes from services/folio.py::unposted_nights.
     # Partial, not sparse: a compound sparse index only skips a document missing ALL of
@@ -71,13 +179,28 @@ async def seed_data():
     # cover every payment/misc_charge/outlet/void entry (all with charge_date: null) and
     # the second such entry on a folio would raise a duplicate-key error. The partial
     # filter limits uniqueness to the room-night rows that actually need it.
-    await db.folio_entries.create_index(
-        [("folio_id", 1), ("charge_date", 1)], unique=True,
+    await unscoped_db.folio_entries.create_index(
+        [("property_id", 1), ("folio_id", 1), ("charge_date", 1)], unique=True,
         partialFilterExpression={"kind": "room_night"})
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
-    admin_pw = os.environ.get("ADMIN_PASSWORD", "admin123")
+    admin_pw = os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
+
+    # Warned about, not refused. The strength rule guards the doors a person types a
+    # password into; this one comes from a deployment variable, and turning a weak value
+    # here into a failed start would take a hotel offline on a restart for something
+    # that was already true before it. Only against a real database, or every local
+    # clone would say this about the "admin123" it is meant to have.
+    if not using_mock:
+        for label, value in (("ADMIN_PASSWORD", admin_pw),
+                             ("PLATFORM_ADMIN_PASSWORD",
+                              os.environ.get("PLATFORM_ADMIN_PASSWORD") or "")):
+            if value and password_problem(value, admin_email if label ==
+                                          "ADMIN_PASSWORD" else None):
+                logger.warning(
+                    "%s would be refused if it were typed into the app: %s", label,
+                    password_problem(value))
 
     default_users = [
         {"email": admin_email, "name": "Alex Mercer", "role": "admin", "password": admin_pw},
@@ -94,10 +217,32 @@ async def seed_data():
             {"email": "frontdesk@barflow.io", "name": "Nina Patel", "role": "front_desk", "password": "desk123"},
         ]
 
+    # The platform operator: belongs to no hotel, approves the ones that sign up. Seeded
+    # only when both variables are set — inventing a default password here would repeat
+    # exactly the mistake that JWT_SECRET and ADMIN_PASSWORD already guard against, and
+    # this account can approve every hotel on the platform.
+    op_email = (os.environ.get("PLATFORM_ADMIN_EMAIL") or "").strip().lower()
+    op_pw = os.environ.get("PLATFORM_ADMIN_PASSWORD") or ""
+    if op_email and op_pw:
+        if await unscoped_db.users.find_one({"email": op_email}) is None:
+            await unscoped_db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": op_email,
+                "name": "Platform Operator",
+                "role": "platform_admin",
+                "password_hash": hash_password(op_pw),
+                # No domains, no screens, and no property. Every hotel endpoint refuses
+                # them; they reach /api/platform/* and nothing else.
+                "domains": [], "permissions": [], "active": True,
+                "property_id": None,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            logger.info("Platform operator seeded (%s).", op_email)
+
     for u in default_users:
-        existing = await db.users.find_one({"email": u["email"]})
+        existing = await unscoped_db.users.find_one({"email": u["email"]})
         if existing is None:
-            await db.users.insert_one({
+            await unscoped_db.users.insert_one({
                 "id": str(uuid.uuid4()),
                 "email": u["email"],
                 "name": u["name"],
@@ -112,14 +257,44 @@ async def seed_data():
         # An existing account keeps whatever password it currently has. Re-hashing the
         # seed value here would silently undo every password change on each restart.
 
+    # Room GST bands. Editable, because these change by statute.
+    if await unscoped_db.tax_slabs.count_documents({}) == 0:
+        await unscoped_db.tax_slabs.insert_many([
+            {"id": str(uuid.uuid4()), "min_tariff": 0.0, "max_tariff": 7500.0,
+             "rate_percent": 12.0, "active": True},
+            {"id": str(uuid.uuid4()), "min_tariff": 7500.0, "max_tariff": None,
+             "rate_percent": 18.0, "active": True},
+        ])
+
+    if await unscoped_db.meal_plans.count_documents({}) == 0:
+        await unscoped_db.meal_plans.insert_many([
+            {"id": str(uuid.uuid4()), "code": "EP", "name": "Room only",
+             "price_per_adult_per_night": 0.0, "price_per_child_per_night": 0.0, "active": True},
+            {"id": str(uuid.uuid4()), "code": "CP", "name": "With breakfast",
+             "price_per_adult_per_night": 500.0, "price_per_child_per_night": 250.0, "active": True},
+            {"id": str(uuid.uuid4()), "code": "MAP", "name": "Half board",
+             "price_per_adult_per_night": 1200.0, "price_per_child_per_night": 600.0, "active": True},
+        ])
+
+    if demo_content_enabled():
+        await seed_demo_content()
+
+
+async def seed_demo_content():
+    """The showcase bar-and-hotel: tables, a menu, stock, room types, rooms and rates.
+
+    Only ever reached through `demo_content_enabled()`. Each block still checks that its
+    collection is empty, so turning the flag on against a property that has already
+    started entering its own data adds nothing on top of it.
+    """
     # Seed tables
-    if await db.tables.count_documents({}) == 0:
+    if await unscoped_db.tables.count_documents({}) == 0:
         zones = [("Bar", 6, 4), ("Lounge", 4, 4), ("Patio", 3, 6)]
         seq = 1
         for zone, count, cap in zones:
             for i in range(count):
                 t = Table(label=f"T{seq:02d}", capacity=cap, zone=zone).model_dump()
-                await db.tables.insert_one(t)
+                await unscoped_db.tables.insert_one(t)
                 seq += 1
 
     # Seed menu
@@ -141,7 +316,7 @@ async def seed_data():
         "Bar Burger": "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=800&q=80&auto=format&fit=crop",
         "Crispy Chicken": "https://images.unsplash.com/photo-1562967914-608f82629710?w=800&q=80&auto=format&fit=crop",
     }
-    if await db.menu.count_documents({}) == 0:
+    if await unscoped_db.menu.count_documents({}) == 0:
         menu = [
             # Cocktails
             {"name": "Smoked Old Fashioned", "category": "Cocktails", "price": 14, "station": "bar", "description": "Bourbon, applewood smoke, orange bitters."},
@@ -168,17 +343,17 @@ async def seed_data():
         for m in menu:
             m["image"] = menu_images.get(m["name"], "")
             item = MenuItem(**m).model_dump()
-            await db.menu.insert_one(item)
+            await unscoped_db.menu.insert_one(item)
     else:
         # Backfill images on existing docs that don't have one
         for name, url in menu_images.items():
-            await db.menu.update_one(
+            await unscoped_db.menu.update_one(
                 {"name": name, "$or": [{"image": ""}, {"image": None}, {"image": {"$exists": False}}]},
                 {"$set": {"image": url}},
             )
 
     # Seed inventory
-    if await db.inventory.count_documents({}) == 0:
+    if await unscoped_db.inventory.count_documents({}) == 0:
         inv = [
             {"name": "Bourbon 750ml", "unit": "bottle", "stock": 12, "threshold": 4, "cost_per_unit": 35, "category": "spirits"},
             {"name": "Gin 750ml", "unit": "bottle", "stock": 8, "threshold": 4, "cost_per_unit": 28, "category": "spirits"},
@@ -192,33 +367,15 @@ async def seed_data():
         ]
         for i in inv:
             item = InventoryItem(**i).model_dump()
-            await db.inventory.insert_one(item)
+            await unscoped_db.inventory.insert_one(item)
 
-    # Room GST bands. Editable, because these change by statute.
-    if await db.tax_slabs.count_documents({}) == 0:
-        await db.tax_slabs.insert_many([
-            {"id": str(uuid.uuid4()), "min_tariff": 0.0, "max_tariff": 7500.0,
-             "rate_percent": 12.0, "active": True},
-            {"id": str(uuid.uuid4()), "min_tariff": 7500.0, "max_tariff": None,
-             "rate_percent": 18.0, "active": True},
-        ])
-
-    if await db.meal_plans.count_documents({}) == 0:
-        await db.meal_plans.insert_many([
-            {"id": str(uuid.uuid4()), "code": "EP", "name": "Room only",
-             "price_per_adult_per_night": 0.0, "price_per_child_per_night": 0.0, "active": True},
-            {"id": str(uuid.uuid4()), "code": "CP", "name": "With breakfast",
-             "price_per_adult_per_night": 500.0, "price_per_child_per_night": 250.0, "active": True},
-            {"id": str(uuid.uuid4()), "code": "MAP", "name": "Half board",
-             "price_per_adult_per_night": 1200.0, "price_per_child_per_night": 600.0, "active": True},
-        ])
-
-    # Room types, rooms and a default rate for each — without this a fresh deploy has
-    # zero hotel inventory, availability returns nothing, and no booking can be made
-    # until someone creates it over the API by hand. Rates use period_id=None (the
+    # Demo room types, rooms and a default rate for each. Rates use period_id=None (the
     # year-round default) so every type is immediately bookable; a type with no rate
     # is refused rather than priced at zero (see services/pricing.py).
-    if await db.room_types.count_documents({}) == 0:
+    #
+    # A real property starts with none of this and builds its own from the Rooms and
+    # Rates screens, which are open while it is still pending approval.
+    if await unscoped_db.room_types.count_documents({}) == 0:
         room_type_specs = [
             {"name": "Deluxe Room", "code": "DLX", "block": "Main",
              "base_occupancy": 2, "max_occupancy": 3, "max_extra_beds": 1,
@@ -241,7 +398,7 @@ async def seed_data():
             extra_child_rate = spec.pop("extra_child_rate")
 
             room_type = RoomType(**spec).model_dump()
-            await db.room_types.insert_one(room_type)
+            await unscoped_db.room_types.insert_one(room_type)
 
             for i in range(1, room_count + 1):
                 room = Room(
@@ -249,14 +406,14 @@ async def seed_data():
                     room_type_id=room_type["id"],
                     floor=str(floor),
                 ).model_dump()
-                await db.rooms.insert_one(room)
+                await unscoped_db.rooms.insert_one(room)
 
             rate = Rate(
                 room_type_id=room_type["id"], period_id=None,
                 base_rate=base_rate, extra_adult_rate=extra_adult_rate,
                 extra_child_rate=extra_child_rate,
             ).model_dump()
-            await db.rates.insert_one(rate)
+            await unscoped_db.rates.insert_one(rate)
 
 
 # ----------------- Startup -----------------
@@ -280,6 +437,49 @@ async def on_startup():
     logger.info(
         "Screen backfill: %d user(s) updated, %d already current, %d left with no screens.",
         updated, current, stranded)
+    # Tenancy. After seed_data so the admin it may have just created is stamped too, and
+    # before the first request either way: a user with no property_id now reaches
+    # nothing, so an unmigrated database is one where every existing login is locked out.
+    # Order against the two backfills above does not matter — they touch other fields.
+    created, property_id, stamped, current = await backfill_property()
+    logger.info(
+        "Property backfill: property %s (%s), %d user(s) stamped, %d already current.",
+        "created" if created else "already present", property_id, stamped, current)
+    # Immediately after, never before: the records are stamped with the property that
+    # migration has just made sure exists. Until this has run, every scoped read matches
+    # nothing — the data is not lost, it is invisible, which is harder to diagnose.
+    stamped_property, stamped_docs, per_collection = await backfill_tenancy()
+    logger.info(
+        "Tenancy backfill: %d document(s) stamped for property %s%s.",
+        stamped_docs, stamped_property,
+        f" ({', '.join(f'{k} {v}' for k, v in sorted(per_collection.items()))})"
+        if per_collection else "")
+    # Last of the migrations, and the only one that is allowed to do nothing: an unset
+    # key means this deployment stores identity documents in plain text, which is what
+    # it did yesterday and is not a reason to refuse a hotel its check-in screen. It is
+    # said out loud instead, because the alternative is a deployment that believes it is
+    # encrypting and is not. `encryption_configured()` raises here, at startup, if the
+    # key is set but malformed — somebody meant to encrypt and mistyped.
+    if encryption_configured():
+        encrypted, already, nothing = await encrypt_guest_ids()
+        logger.info(
+            "Guest ID encryption: %d newly encrypted, %d already encrypted, "
+            "%d with nothing recorded.", encrypted, already, nothing)
+    else:
+        logger.warning(
+            "%s is not set. Guest identity-document numbers (id_proof_number) are "
+            "stored in PLAIN TEXT, so anyone who obtains a copy of this database has "
+            "every hotel's guests' Aadhaar, passport and licence numbers. Generate a "
+            "key with: python3 -c \"from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())\"", GUEST_ID_KEY_VAR)
+    # Said once, loudly, at startup rather than only on the first webhook that is
+    # refused: the symptom of a missing signing secret is online payments quietly not
+    # settling, which nobody notices until a guest disputes a bill.
+    if not webhook_secret():
+        logger.warning(
+            "STRIPE_WEBHOOK_SECRET is not set. Every Stripe webhook will be refused "
+            "(503) and online payments will not settle. Set it to the signing secret "
+            "from the Stripe dashboard's webhook endpoint.")
     if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
         asyncio.create_task(daily_brief_scheduler())
         logger.info("Daily brief scheduler started (%s).", os.environ.get("OWNER_BRIEF_TIME", "23:00"))

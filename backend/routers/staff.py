@@ -3,6 +3,14 @@
 Admin-only. Leavers are deactivated rather than deleted, because posted_by and
 created_by on orders and folio entries must still resolve to a name — deleting a user
 would orphan the audit trail the ledger exists to keep.
+
+This is the one router that reaches `unscoped_db`, because `users` stands outside
+tenancy: a login has to be findable by email before anyone knows which hotel it belongs
+to, so the collection cannot be filtered by property in the handle. The roster is still
+one hotel's, so every query here says `_mine(user)` out loud instead — the explicitness
+the scoped handle buys everywhere else, paid for by hand in the one place it cannot.
+The email uniqueness check is the deliberate exception: it is global, because two hotels
+cannot share a login.
 """
 import uuid
 from datetime import datetime, timezone
@@ -12,10 +20,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from pymongo.errors import DuplicateKeyError
 
-from db import db
+from db import unscoped_db
 from security import Role, hash_password, require_access
 from services.access import (
     DOMAINS, SCREENS, SHARED, default_permissions, permission_in_domains)
+from services.password import password_problem
 
 router = APIRouter()
 
@@ -23,7 +32,10 @@ router = APIRouter()
 # The screen key is declared for completeness — an admin bypasses the permission check
 # exactly as they bypass domains, so `admin.staff` gates nothing here; it exists so the
 # catalogue and the sidebar agree that this screen is one of the fifteen.
-ADMIN = require_access(SHARED, "admin", permission="admin.staff")
+# Setup-time: hiring the first receptionist is part of setting a hotel up, and a
+# property still awaiting approval that could not create a login would have nobody to
+# do the rest of the setup with.
+ADMIN = require_access(SHARED, "admin", permission="admin.staff", setup_time=True)
 
 # Pydantic needs a Literal to refuse an unknown domain with a 422, and a Literal cannot
 # be built from a runtime tuple — so the vocabulary is spelled out once more here. It is
@@ -93,8 +105,22 @@ def _public(user: dict) -> dict:
     }
 
 
-async def _count_active_admins() -> int:
-    admins = await db.users.find({"role": "admin"}, {"_id": 0}).to_list(10000)
+def _mine(user: dict) -> dict:
+    """The filter that keeps this roster to the caller's own hotel.
+
+    `property_id` comes from the admin's own record, never from the request — there is
+    no path by which an admin can name another hotel, and a user of another hotel is
+    simply not found, which is a 404 rather than a 403 for the same reason it is
+    everywhere else: a 403 would confirm that the account exists.
+    """
+    return {"property_id": user.get("property_id")}
+
+
+async def _count_active_admins(property_id: str | None) -> int:
+    """Active admins in *this* hotel. Counting globally would let a property demote its
+    own last admin because some other hotel still has one."""
+    admins = await unscoped_db.users.find(
+        {"role": "admin", "property_id": property_id}, {"_id": 0}).to_list(10000)
     return sum(1 for a in admins if a.get("active", True))
 
 
@@ -159,7 +185,7 @@ def _stored_permissions(submitted: List[str] | None, role: str, domains: List[st
 
 @router.get("/staff")
 async def list_staff(user: dict = Depends(ADMIN)):
-    users = await db.users.find({}, {"_id": 0}).to_list(10000)
+    users = await unscoped_db.users.find(_mine(user), {"_id": 0}).to_list(10000)
     return [_public(u) for u in sorted(users, key=lambda x: x.get("name") or "")]
 
 
@@ -168,11 +194,12 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     # An account that can reach nothing is a mistake, not a state worth storing.
     if payload.role != "admin" and not payload.domains:
         raise HTTPException(400, "A non-admin needs at least one work domain")
-    if len(payload.password) < 8:
-        raise HTTPException(400, "Password must be at least 8 characters")
+    problem = password_problem(payload.password, str(payload.email))
+    if problem:
+        raise HTTPException(400, problem)
 
     email = payload.email.lower().strip()
-    if await db.users.find_one({"email": email}):
+    if await unscoped_db.users.find_one({"email": email}):
         raise HTTPException(409, DUPLICATE_EMAIL)
 
     domains = _stored_domains(payload.role, payload.domains)
@@ -183,12 +210,17 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
         "role": payload.role,
         "domains": domains,
         "permissions": _stored_permissions(payload.permissions, payload.role, domains),
+        # The hotel doing the hiring, taken from the admin's own record and never from
+        # the request: a staff list is the one place where "which hotel" could otherwise
+        # be typed in. Without it the new account would be refused every endpoint, since
+        # a user naming no property is unplaceable and therefore refused.
+        "property_id": user.get("property_id"),
         "active": True,
         "password_hash": hash_password(payload.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     try:
-        await db.users.insert_one(doc)
+        await unscoped_db.users.insert_one(doc)
     except DuplicateKeyError:
         # server.py declares email unique. Locally the pre-check above is what does the
         # work, because the mock database's create_index is a no-op and its insert never
@@ -200,7 +232,7 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
 
 @router.put("/staff/{staff_id}")
 async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depends(ADMIN)):
-    target = await db.users.find_one({"id": staff_id}, {"_id": 0})
+    target = await unscoped_db.users.find_one({"id": staff_id, **_mine(user)}, {"_id": 0})
     if not target:
         raise HTTPException(404, "Staff member not found")
 
@@ -235,7 +267,7 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
                 "domains": list(target.get("domains") or []),
                 "permissions": list(target.get("permissions") or [])}
 
-    await db.users.update_one({"id": staff_id}, {"$set": {
+    await unscoped_db.users.update_one({"id": staff_id, **_mine(user)}, {"$set": {
         "name": payload.name.strip(),
         "role": payload.role,
         "domains": domains,
@@ -252,16 +284,17 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
     # window rather than closing it — there are no transactions here — which is exactly
     # what the deactivation path settles for, and for the same reason.
     if previous["role"] == "admin" and payload.role != "admin" \
-            and await _count_active_admins() == 0:
-        await db.users.update_one({"id": staff_id}, {"$set": previous})
+            and await _count_active_admins(user.get("property_id")) == 0:
+        await unscoped_db.users.update_one({"id": staff_id, **_mine(user)},
+                                           {"$set": previous})
         raise HTTPException(409, "This would leave the property with no active admin")
 
-    return _public(await db.users.find_one({"id": staff_id}, {"_id": 0}))
+    return _public(await unscoped_db.users.find_one({"id": staff_id}, {"_id": 0}))
 
 
 @router.post("/staff/{staff_id}/active")
 async def set_active(staff_id: str, payload: ActiveIn, user: dict = Depends(ADMIN)):
-    target = await db.users.find_one({"id": staff_id}, {"_id": 0})
+    target = await unscoped_db.users.find_one({"id": staff_id, **_mine(user)}, {"_id": 0})
     if not target:
         raise HTTPException(404, "Staff member not found")
     # As on the edit route, this self-guard is what upholds "the property always has at
@@ -275,7 +308,8 @@ async def set_active(staff_id: str, payload: ActiveIn, user: dict = Depends(ADMI
         raise HTTPException(409, f"You cannot {verb} yourself")
 
     previous_active = target.get("active", True)
-    await db.users.update_one({"id": staff_id}, {"$set": {"active": payload.active}})
+    await unscoped_db.users.update_one({"id": staff_id, **_mine(user)},
+                                       {"$set": {"active": payload.active}})
 
     # A compensating check, not a transaction — there are no transactions here, the mock
     # database has none. Sequentially the self-guard above is enough, but two admins
@@ -284,20 +318,26 @@ async def set_active(staff_id: str, payload: ActiveIn, user: dict = Depends(ADMI
     # so nobody can undo it without editing the database by hand. Re-counting after the
     # write and putting the target back narrows that window rather than closing it —
     # both requests can still read a count of 1 before either restores.
-    if not payload.active and await _count_active_admins() == 0:
-        await db.users.update_one({"id": staff_id}, {"$set": {"active": previous_active}})
+    if not payload.active and await _count_active_admins(user.get("property_id")) == 0:
+        await unscoped_db.users.update_one({"id": staff_id, **_mine(user)},
+                                           {"$set": {"active": previous_active}})
         raise HTTPException(409, "This would leave the property with no active admin")
 
-    return _public(await db.users.find_one({"id": staff_id}, {"_id": 0}))
+    return _public(await unscoped_db.users.find_one({"id": staff_id}, {"_id": 0}))
 
 
 @router.post("/staff/{staff_id}/password")
 async def reset_password(staff_id: str, payload: PasswordIn, user: dict = Depends(ADMIN)):
-    if not await db.users.find_one({"id": staff_id}):
+    target = await unscoped_db.users.find_one({"id": staff_id, **_mine(user)}, {"_id": 0})
+    if not target:
         raise HTTPException(404, "Staff member not found")
-    if len(payload.password) < 8:
-        raise HTTPException(400, "Password must be at least 8 characters")
+    # The same rule as creating them, against the account being reset rather than the
+    # admin doing it: a reset is the other half of "wherever a password is set", and it
+    # is the half that gets typed in a hurry because somebody is locked out and waiting.
+    problem = password_problem(payload.password, target.get("email"))
+    if problem:
+        raise HTTPException(400, problem)
 
-    await db.users.update_one({"id": staff_id}, {"$set": {
+    await unscoped_db.users.update_one({"id": staff_id, **_mine(user)}, {"$set": {
         "password_hash": hash_password(payload.password)}})
     return {"ok": True}

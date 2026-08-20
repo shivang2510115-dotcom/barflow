@@ -25,6 +25,9 @@ CATALOGUE = [
 ]
 
 
+# Setup-time, because the staff screen is: a pending hotel creating its first
+# receptionist needs the list of screens to tick, and the list is a constant in code that
+# says nothing about this hotel at all.
 @router.get("/permissions")
-async def list_permissions(user: dict = Depends(require_access(SHARED))):
+async def list_permissions(user: dict = Depends(require_access(SHARED, setup_time=True))):
     return CATALOGUE

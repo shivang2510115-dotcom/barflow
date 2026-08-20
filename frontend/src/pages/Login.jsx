@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Wine, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { homePathFor } from "@/lib/tenancy";
 
 const ACCOUNTS = [
   { label: "Admin", email: "admin@barflow.io", password: "admin123" },
@@ -25,7 +26,9 @@ export default function Login() {
     setLoading(false);
     if (res.ok) {
       toast.success(`Welcome, ${res.user.name}`);
-      nav("/app");
+      // The operator lands on /platform and never on /app: they belong to no hotel, so
+      // every screen in the app answers them 403. See lib/tenancy.js::homePathFor.
+      nav(homePathFor(res.user));
     } else {
       toast.error(res.error);
     }
@@ -39,7 +42,9 @@ export default function Login() {
     setLoading(false);
     if (res.ok) {
       toast.success(`Welcome, ${res.user.name}`);
-      nav("/app");
+      // The operator lands on /platform and never on /app: they belong to no hotel, so
+      // every screen in the app answers them 403. See lib/tenancy.js::homePathFor.
+      nav(homePathFor(res.user));
     } else {
       toast.error(res.error);
     }
@@ -128,6 +133,14 @@ export default function Login() {
             {loading ? "Signing in…" : "Enter Console"}
             {!loading && <ArrowRight size={14} />}
           </button>
+
+          <p className="mt-6 text-xs text-stone-500">
+            Running a hotel that is not on BarFlow yet?{" "}
+            <Link to="/signup" data-testid="login-signup-link" className="text-orange-400 hover:text-orange-300">
+              Register it
+            </Link>
+            .
+          </p>
 
           <div className="mt-10 border-t border-stone-800 pt-6">
             <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-3">

@@ -2,6 +2,7 @@ import { useState } from "react";
 import "@/App.css";
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { routeDecision } from "@/lib/tenancy";
 
 // The offline demo is opened straight off disk, where the History API throws a
 // SecurityError because a file:// document has a null origin. Hash routing is the only
@@ -12,6 +13,8 @@ import { Toaster } from "sonner";
 
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
+import Platform from "@/pages/platform/Platform";
 import SectionChooser from "@/pages/SectionChooser";
 import Tables from "@/pages/Tables";
 import Reservations from "@/pages/Reservations";
@@ -37,16 +40,29 @@ import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
 import Splash from "@/components/app/Splash";
 
-function Protected({ children, roles }) {
+/**
+ * `area` is which of the two consoles the route belongs to, and it defaults to the hotel
+ * app because all but one route is in it.
+ *
+ * The two do not overlap at all: the platform operator belongs to no hotel and is refused
+ * every hotel endpoint, `/api/property` and `/auth/me` included, while a hotel user is
+ * refused every `/api/platform/*` route. So sending either into the other's shell renders
+ * a page whose every request fails — an operator would get the app frame with an empty
+ * sidebar, which is exactly the "merely broken" screen this work exists to remove. A
+ * mismatch goes home instead, and `homePathFor` decides which home that is.
+ */
+function Protected({ children, roles, area = "hotel" }) {
   const { user } = useAuth();
-  if (user === null)
+  // The decision itself is pure and lives in lib/tenancy.js, so who lands where can be
+  // checked without clicking through three logins in a browser.
+  const to = routeDecision(user, { area, roles });
+  if (to === "loading")
     return (
       <div className="min-h-screen flex items-center justify-center text-stone-500 font-mono text-xs uppercase tracking-widest">
         Loading…
       </div>
     );
-  if (!user) return <Navigate to="/login" replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/app" replace />;
+  if (to) return <Navigate to={to} replace />;
   return children;
 }
 
@@ -127,8 +143,13 @@ function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/signup" element={<Signup />} />
             <Route path="/t/:tableId" element={<TableRouteSwitch />} />
             <Route path="/app/*" element={<Protected><AppShell /></Protected>} />
+            {/* The operator's only screen, and the only route with area="platform". A
+                hotel user who types this address is sent back to /app rather than shown a
+                console whose every request would 403. */}
+            <Route path="/platform" element={<Protected area="platform"><Platform /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Router>

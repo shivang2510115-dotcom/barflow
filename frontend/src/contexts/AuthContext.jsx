@@ -17,6 +17,8 @@ export function AuthProvider({ children }) {
       .get("/auth/me")
       .then((r) => setUser(r.data))
       .catch(() => {
+        // /auth/me answers everyone the server still recognises, including the platform
+        // operator, so a failure here means the token is genuinely no good.
         localStorage.removeItem(TOKEN_KEY);
         setUser(false);
       });

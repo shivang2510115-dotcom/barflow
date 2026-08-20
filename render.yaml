@@ -31,9 +31,12 @@ services:
       - key: CURRENCY_SYMBOL
         value: "₹"
       # Full origin WITH scheme, e.g. https://barflow-web.onrender.com
-      # Set by hand after the first deploy, once the site's real URL exists.
-      # Do not widen to "*" — allow_credentials is on, so a wildcard origin would let
-      # any website call this API with a logged-in user's token.
+      # Comma-separated if there is more than one. Set by hand after the first deploy,
+      # once the site's real URL exists — until it is set the API refuses to start and
+      # says so in the deploy log, because a browser CORS error on somebody else's
+      # machine is a far worse way to find out.
+      # "*" is refused outright: allow_credentials is on, so a wildcard origin would let
+      # any website call this API with a logged-in user's session.
       - key: CORS_ORIGINS
         sync: false
       - key: DAILY_BRIEF_ENABLED
@@ -48,6 +51,45 @@ services:
         sync: false
       - key: STRIPE_API_KEY
         sync: false
+      # The signing secret of the Stripe webhook endpoint ("whsec_..."), copied from the
+      # Stripe dashboard. It is what proves a webhook came from Stripe rather than from
+      # a stranger with the URL — settling an order is what believing one does.
+      # Leave it unset and every webhook is refused with a 503, so online payments never
+      # settle. That is deliberate: a webhook that cannot verify and accepts anything
+      # would let anyone settle any order on the platform without paying.
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # Encrypts guest identity-document numbers (Aadhaar, passport, licence) at rest.
+      # A urlsafe base64 32-byte Fernet key — NOT generateValue, which produces a string
+      # Fernet will not accept. Make one with:
+      #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      # Leave it unset and those numbers are stored in plain text, exactly as they were
+      # before this variable existed, with a warning at startup. That is deliberate: a
+      # hotel mid-check-in must not lose the ability to register a guest over a missing
+      # variable.
+      # Set it and forget it at your peril — if the key is lost or changed, every number
+      # written under it is unrecoverable, and the front desk sees an empty field. Keep
+      # it wherever the Mongo password is kept. To rotate, list the new key first and the
+      # old one second, comma-separated, re-run migrations/encrypt_guest_ids.py (startup
+      # does it too), then drop the old one.
+      - key: GUEST_ID_ENCRYPTION_KEY
+        sync: false
+      # The platform operator: the one account that approves, suspends and restores
+      # hotels. It belongs to no hotel and every hotel endpoint refuses it, so it is not
+      # a master key into anyone's guest data — it sees that a hotel exists and how big
+      # it is, nothing about who stayed there.
+      # Leave EITHER of these unset and no operator is seeded, which means nobody can
+      # approve a hotel and every signup sits pending forever. There is deliberately no
+      # default password: this account can approve every hotel on the platform.
+      - key: PLATFORM_ADMIN_EMAIL
+        sync: false
+      - key: PLATFORM_ADMIN_PASSWORD
+        sync: false
+      # Both default to demo behaviour, which must stay off in public: DEMO_LOGINS seeds
+      # staff accounts whose passwords are published in this repository, and
+      # SEED_DEMO_CONTENT fills a brand-new hotel with somebody else's rooms and menu.
+      - key: SEED_DEMO_CONTENT
+        value: "false"
 
   # ---------------------------------------------------------------- Web
   - type: web

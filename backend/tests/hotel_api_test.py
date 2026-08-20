@@ -2179,3 +2179,84 @@ def test_a_manager_can_be_given_analytics_without_being_made_an_admin(admin):
     # Analytics is not staff administration: the console stays shut.
     assert s.get(f"{API}/staff").status_code == 403
     assert s.get(f"{API}/reports/summary").status_code == 403
+
+
+# ---------------------------- the property record ----------------------------
+# The tenant, over HTTP. The states themselves — pending, live, suspended — are exercised
+# where they are decided, in tests/test_access.py and tests/test_tenancy.py; there is no
+# endpoint that changes a status yet, because approving and suspending belong to the
+# platform portal, which is a later task.
+
+def test_the_property_is_readable_by_anyone_signed_in(admin):
+    """A POS bill carries the hotel's name and GSTIN in its header, so this is `shared`
+    rather than a hotel endpoint — a bar-only waiter has to be able to print it."""
+    r = admin.get(f"{API}/property")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["id"] and body["name"]
+    assert body["status"] in ("pending", "live", "suspended")
+    # The two times every folio's night count is worked out against.
+    assert body["check_in_time"] and body["check_out_time"]
+
+    email = f"prop-{uuid.uuid4().hex[:6]}@barflow.io"
+    waiter = _staff_session(admin, email, "prop12345678", "waiter", ["bar"])
+    seen = waiter.get(f"{API}/property")
+    assert seen.status_code == 200, seen.text
+    assert seen.json()["id"] == body["id"]
+
+
+def test_the_admin_edits_the_property_and_a_manager_cannot(admin):
+    before = admin.get(f"{API}/property").json()
+    body = {k: v for k, v in before.items() if k in {
+        "name", "legal_name", "address_line1", "address_line2", "city", "state",
+        "pincode", "phone", "email", "gstin", "fssai_licence", "check_in_time",
+        "check_out_time", "logo"}}
+
+    email = f"pmgr-{uuid.uuid4().hex[:6]}@barflow.io"
+    manager = _staff_session(admin, email, "pmgr12345678", "manager", ["hotel"])
+    refused = manager.put(f"{API}/property", json={**body, "city": "Nowhere"})
+    assert refused.status_code == 403, refused.text
+
+    edited = admin.put(f"{API}/property", json={
+        **body, "city": "Panaji", "gstin": "27AAPFU0939F1ZV",
+        "fssai_licence": "12345678901234", "check_out_time": "11:30"})
+    assert edited.status_code == 200, edited.text
+    assert edited.json()["city"] == "Panaji"
+    assert edited.json()["gstin"] == "27AAPFU0939F1ZV"
+    # The lifecycle stays the operator's: the body cannot carry a status, and the one
+    # already stored is untouched by an edit to the address.
+    assert edited.json()["status"] == before["status"]
+    assert edited.json()["id"] == before["id"]
+
+    restored = admin.put(f"{API}/property", json=body)
+    assert restored.status_code == 200, restored.text
+
+
+def test_a_malformed_gstin_is_refused_with_a_400_naming_the_field(admin):
+    body = {k: v for k, v in admin.get(f"{API}/property").json().items() if k in {
+        "name", "city", "check_in_time", "check_out_time"}}
+
+    bad_gstin = admin.put(f"{API}/property", json={**body, "gstin": "27AAPFU0939F1Z"})
+    assert bad_gstin.status_code == 400, bad_gstin.text
+    assert "gstin" in bad_gstin.json()["detail"].lower()
+
+    bad_fssai = admin.put(f"{API}/property", json={**body, "fssai_licence": "1234"})
+    assert bad_fssai.status_code == 400, bad_fssai.text
+    assert "fssai" in bad_fssai.json()["detail"].lower()
+
+    # Neither attempt stored anything.
+    current = admin.get(f"{API}/property").json()
+    assert current["gstin"] != "27AAPFU0939F1Z"
+    assert current["fssai_licence"] != "1234"
+
+
+def test_a_new_staff_member_belongs_to_the_hiring_admins_hotel(admin):
+    """A login that names no hotel is unplaceable, and an unplaceable request is what
+    tenancy exists to stop — so a staff member created today must arrive stamped, not
+    wait for the next startup migration to rescue them."""
+    email = f"stamp-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "stamp12345678", "front_desk", ["hotel"])
+    assert s.get(f"{API}/auth/me").status_code == 200
+    # Reaching an operating endpoint at all means the property resolved and was usable.
+    assert s.get(f"{API}/bookings").status_code == 200
+    assert s.get(f"{API}/property").json()["id"] == admin.get(f"{API}/property").json()["id"]
