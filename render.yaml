@@ -74,6 +74,22 @@ services:
       # does it too), then drop the old one.
       - key: GUEST_ID_ENCRYPTION_KEY
         sync: false
+      # The platform operator: the one account that approves, suspends and restores
+      # hotels. It belongs to no hotel and every hotel endpoint refuses it, so it is not
+      # a master key into anyone's guest data — it sees that a hotel exists and how big
+      # it is, nothing about who stayed there.
+      # Leave EITHER of these unset and no operator is seeded, which means nobody can
+      # approve a hotel and every signup sits pending forever. There is deliberately no
+      # default password: this account can approve every hotel on the platform.
+      - key: PLATFORM_ADMIN_EMAIL
+        sync: false
+      - key: PLATFORM_ADMIN_PASSWORD
+        sync: false
+      # Both default to demo behaviour, which must stay off in public: DEMO_LOGINS seeds
+      # staff accounts whose passwords are published in this repository, and
+      # SEED_DEMO_CONTENT fills a brand-new hotel with somebody else's rooms and menu.
+      - key: SEED_DEMO_CONTENT
+        value: "false"
 
   # ---------------------------------------------------------------- Web
   - type: web
