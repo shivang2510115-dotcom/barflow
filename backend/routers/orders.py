@@ -40,12 +40,12 @@ ANON_MAX_UNITS = 100
 # guest wifi shares one address, so a flat per-IP budget would let the first four tables
 # to order silence the rest of the room. A table id is a uuid4 nobody can guess, so the
 # key is only shared by people who can actually see the same QR code.
-ANON_ORDERS_PER_TABLE = RateLimiter(limit=20, window_seconds=600)
+ANON_ORDERS_PER_TABLE = RateLimiter(limit=20, window_seconds=600, name="qr_table")
 
 # And a looser one per address across every table, which is what catches the caller who
 # has scraped or been given many table ids. Twenty rounds a minute from one address is
 # not a restaurant.
-ANON_ORDERS_PER_ADDRESS = RateLimiter(limit=120, window_seconds=600)
+ANON_ORDERS_PER_ADDRESS = RateLimiter(limit=120, window_seconds=600, name="qr_ip")
 
 # What a guest is told when one of these stops them. Deliberately the same tone in each
 # case and never an explanation of which limit they hit: the person reading it is
@@ -220,8 +220,8 @@ async def add_items(table_id: str, payload: AddItemsIn, request: Request = None)
         ip = client_ip(request)
         # Both, and in this order: the table budget is the one a real guest could
         # conceivably reach, so it is checked first and its refusal is the one they see.
-        if (ANON_ORDERS_PER_TABLE.limited(f"{ip}|{table_id}")
-                or ANON_ORDERS_PER_ADDRESS.limited(ip)):
+        if (await ANON_ORDERS_PER_TABLE.limited(f"{ip}|{table_id}")
+                or await ANON_ORDERS_PER_ADDRESS.limited(ip)):
             raise HTTPException(429, f"Too many orders from this device. {ASK_STAFF}")
 
     # The scope comes from the table, and so does the menu: an item id from another

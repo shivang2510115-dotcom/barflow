@@ -102,7 +102,16 @@ class MockCollection:
                     return False
         return True
 
-    async def create_index(self, keys, unique=False, sparse=False, partialFilterExpression=None):
+    async def create_index(self, keys, unique=False, sparse=False,
+                           partialFilterExpression=None, expireAfterSeconds=None):
+        """A no-op, deliberately — and `expireAfterSeconds` is the one worth naming.
+
+        Every caller has to work without the index it just asked for, because this does
+        nothing. Uniqueness is enforced by the routers' own duplicate checks; expiry is
+        the interesting one, since a TTL index is the only thing that removes a document
+        nobody will ever read again. Anything relying on it must also prune by hand — see
+        services/ratelimit.py, which does.
+        """
         pass
 
     async def find_one(self, filter_query, projection=None):
@@ -151,38 +160,70 @@ class MockCollection:
         return InsertManyResult([d.get("id") for d in docs_copy])
 
     def _apply_update(self, item, update_query):
-        """Apply $set/$push to one document. Returns whether anything changed."""
+        """Apply $set/$push/$inc to one document. Returns whether anything changed.
+
+        Unknown operators raise, for the reason `_field_matches` gives about query
+        operators: silently ignoring `$inc` would make a counter that never counts, and
+        the code depending on it would pass its tests locally and be wrong against real
+        MongoDB. Loud beats plausible.
+        """
         modified = False
-        if "$set" in update_query:
-            changed = any(item.get(uk) != uv for uk, uv in update_query["$set"].items())
-            for uk, uv in update_query["$set"].items():
-                item[uk] = uv
-            if changed:
+        for op, fields in update_query.items():
+            if op == "$set":
+                changed = any(item.get(uk) != uv for uk, uv in fields.items())
+                for uk, uv in fields.items():
+                    item[uk] = uv
+                modified = modified or changed
+            elif op == "$push":
+                for uk, uv in fields.items():
+                    item.setdefault(uk, [])
+                    item[uk].append(uv)
                 modified = True
-        if "$push" in update_query:
-            for uk, uv in update_query["$push"].items():
-                item.setdefault(uk, [])
-                item[uk].append(uv)
-            modified = True
+            elif op == "$inc":
+                # Mongo treats a missing field as zero and creates it, which is what
+                # makes `$inc` with an upsert a whole counter in one round trip.
+                for uk, uv in fields.items():
+                    item[uk] = (item.get(uk) or 0) + uv
+                modified = True
+            else:
+                raise ValueError(f"mock_db: unsupported update operator {op}")
         return modified
 
-    async def update_one(self, filter_query, update_query):
+    async def update_one(self, filter_query, update_query, upsert=False):
+        """`upsert` included because a counter needs it: increment-or-create is one
+        atomic call against real MongoDB, and splitting it into find-then-insert here
+        would test a different algorithm from the one that ships.
+
+        The created document is Mongo's: the filter's plain equality terms, then the
+        update applied on top. Operator terms in the filter (`{"$lt": ...}`) contribute
+        nothing to it, exactly as Mongo does.
+        """
         items = self._get_items()
         matched_count = 0
         modified_count = 0
+        upserted_id = None
         for item in items:
             if self._match(item, filter_query):
                 matched_count = 1
                 if self._apply_update(item, update_query):
                     modified_count = 1
                 break
-        if modified_count > 0:
+        if matched_count == 0 and upsert:
+            created = {k: v for k, v in (filter_query or {}).items()
+                       if not (isinstance(v, dict) and any(str(o).startswith("$")
+                                                           for o in v))}
+            self._apply_update(created, update_query)
+            items.append(created)
+            upserted_id = created.get("id")
+            self._save()
+        elif modified_count > 0:
             self._save()
         class UpdateResult:
-            def __init__(self, matched, modified):
+            def __init__(self, matched, modified, upserted):
                 self.matched_count = matched
                 self.modified_count = modified
-        return UpdateResult(matched_count, modified_count)
+                self.upserted_id = upserted
+        return UpdateResult(matched_count, modified_count, upserted_id)
 
     async def update_many(self, filter_query, update_query):
         """Every match, not just the first. Same update grammar as update_one — which is

@@ -30,7 +30,7 @@ router = APIRouter()
 # QR order route need the same thing and a second copy is how two of them end up with
 # different behaviour. Its docstring carries the caveat that used to be here: in-process,
 # so the effective limit multiplies by the worker count.
-SIGNUPS_PER_ADDRESS = RateLimiter(limit=10, window_seconds=3600)
+SIGNUPS_PER_ADDRESS = RateLimiter(limit=10, window_seconds=3600, name="signup_ip")
 
 
 class SignupIn(BaseModel):
@@ -52,7 +52,7 @@ async def signup(payload: SignupIn, request: Request):
     Together, because a property with no login is unreachable and a login with no
     property reaches nothing. Neither half is useful alone, so neither is created alone.
     """
-    if SIGNUPS_PER_ADDRESS.limited(client_ip(request)):
+    if await SIGNUPS_PER_ADDRESS.limited(client_ip(request)):
         raise HTTPException(429, "Too many signups from this address. Try again later.")
 
     name = payload.hotel_name.strip()
