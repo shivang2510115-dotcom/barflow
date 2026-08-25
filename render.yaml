@@ -123,3 +123,7 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+
+# Firebase Hosting + Cloud Run is the other supported deployment; see
+# docs/deploy-firebase-cloudrun.md. It puts the site and the API on one origin, so no
+# cross-origin request happens at all. This file stays valid for Render either way.
