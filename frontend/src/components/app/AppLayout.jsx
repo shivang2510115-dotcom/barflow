@@ -26,6 +26,7 @@ import {
 
 import { OUTLET } from "@/lib/domains";
 import { SectionProvider } from "@/contexts/SectionContext";
+import { PropertyProvider, useOwnProperty } from "@/contexts/PropertyContext";
 import PendingBanner from "@/components/app/PendingBanner";
 import {
   availableSections,
@@ -95,10 +96,14 @@ const NAV = [
 
 export { NAV };
 
-// The nav, narrowed for this user in this section. Both renderings below map over it, so
-// the filtering lives in lib/sections.js and is called once here.
-export function visibleNavFor(user, section) {
-  return section ? navForSection(NAV, user, section) : [];
+// The nav, narrowed for this user, in this section, of this property. Both renderings
+// below map over it, so the filtering lives in lib/sections.js and is called once here.
+//
+// `property` is what makes the hotel half genuinely absent rather than merely unticked:
+// an outlet has no Hotel heading and no hotel link at all, for its owner as much as for
+// its waiters, because the endpoints behind them refuse everybody there.
+export function visibleNavFor(user, section, property) {
+  return section ? navForSection(NAV, user, section, property) : [];
 }
 
 function isNavItemActive(item, pathname) {
@@ -114,12 +119,15 @@ function isNavItemActive(item, pathname) {
  * Reading localStorage in a lazy initialiser would be wrong here: `user` arrives after
  * the first render, when /auth/me answers, so the key to read under is not known yet.
  */
-function useSectionState(user) {
-  const sections = useMemo(() => availableSections(NAV, user), [user]);
+function useSectionState(user, property) {
+  const sections = useMemo(
+    () => availableSections(NAV, user, property), [user, property]);
   const [section, setStored] = useState(null);
   const id = user?.id;
   // The identities of the sections, not the array, so a re-render that rebuilds the same
-  // list does not re-run the effect and throw away a choice made a moment ago.
+  // list does not re-run the effect and throw away a choice made a moment ago. It is also
+  // what re-runs it when the property lands: until then every section is filtered out, so
+  // the remembered one has to be resolved again against the real list.
   const keys = sections.map((s) => s.key).join(",");
 
   useEffect(() => {
@@ -134,9 +142,10 @@ function useSectionState(user) {
       // Private browsing, a full quota, a locked-down device: the section is a
       // convenience, so losing it costs a click and must never cost the app.
     }
-    setStored(resolveSection(NAV, user, remembered));
-    // `user` is read inside but `id` and `keys` are what change the answer; depending on
-    // the object itself would re-run this on every render of the provider.
+    setStored(resolveSection(NAV, user, remembered, property));
+    // `user` and `property` are read inside but `id` and `keys` are what change the
+    // answer; depending on the objects themselves would re-run this on every render of
+    // the provider.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, keys]);
 
@@ -154,7 +163,8 @@ function useSectionState(user) {
     [id],
   );
 
-  const pathFor = useCallback((key) => firstPathIn(NAV, user, key), [user]);
+  const pathFor = useCallback(
+    (key) => firstPathIn(NAV, user, key, property), [user, property]);
 
   return useMemo(
     () => ({ section, sections, setSection, pathFor }),
@@ -197,10 +207,14 @@ export default function AppLayout({ children }) {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const loc = useLocation();
-  const value = useSectionState(user);
+  // Read once, here, and handed to everything below: the sidebar, the section chooser,
+  // the pending banner and the staff screen all need to know what this property is, and
+  // four fetches would be four moments at which they could disagree about it.
+  const property = useOwnProperty();
+  const value = useSectionState(user, property);
   const { section, sections, setSection, pathFor } = value;
 
-  const items = visibleNavFor(user, section);
+  const items = visibleNavFor(user, section, property);
   const current = sectionByKey(section);
 
   // Picking a section from the top bar takes you into it, rather than leaving you on a
@@ -217,6 +231,7 @@ export default function AppLayout({ children }) {
   };
 
   return (
+    <PropertyProvider value={property}>
     <SectionProvider value={value}>
       <div className="min-h-screen flex bg-stone-950 text-stone-100 relative z-[2]">
         {/* Sidebar */}
@@ -350,5 +365,6 @@ export default function AppLayout({ children }) {
         </main>
       </div>
     </SectionProvider>
+    </PropertyProvider>
   );
 }

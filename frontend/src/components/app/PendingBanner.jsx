@@ -1,45 +1,12 @@
-import { useEffect, useState } from "react";
 import { Clock, Lock } from "lucide-react";
 
-import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProperty } from "@/contexts/PropertyContext";
 import {
   LOCKED_UNTIL_APPROVED,
   UNLOCKED_WHILE_PENDING,
-  readsOwnProperty,
   showsPendingBanner,
 } from "@/lib/tenancy";
-
-/**
- * The caller's own hotel, or null while it is unknown.
- *
- * Asked once per mount of the layout rather than per page, and not asked at all for the
- * platform operator, who is refused it — see `readsOwnProperty`. A failure is swallowed:
- * this drives a banner, and a hotel whose status could not be read is shown no banner,
- * which is the same thing the API will tell them the moment they press a locked button.
- */
-export function useOwnProperty() {
-  const { user } = useAuth();
-  const [property, setProperty] = useState(null);
-  const asks = readsOwnProperty(user);
-
-  useEffect(() => {
-    if (!asks) {
-      setProperty(null);
-      return;
-    }
-    let live = true;
-    api
-      .get("/property")
-      .then((r) => live && setProperty(r.data))
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [asks]);
-
-  return property;
-}
 
 /**
  * Shown across the app while the hotel is `pending`, so a locked button is explained
@@ -54,10 +21,14 @@ export function useOwnProperty() {
  * It renders nothing for a `live` property and nothing for the operator, who has no
  * property at all. Both of those are decided by `showsPendingBanner`, which is pure and
  * checkable without a browser.
+ *
+ * The property is read from the context AppLayout fills rather than fetched here. This
+ * component used to own that request; it now shares it with the sidebar and the staff
+ * screen, which need the same record to know what kind of business this is.
  */
 export default function PendingBanner() {
   const { user } = useAuth();
-  const property = useOwnProperty();
+  const property = useProperty();
 
   if (!showsPendingBanner(user, property)) return null;
 
