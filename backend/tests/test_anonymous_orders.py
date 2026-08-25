@@ -53,8 +53,8 @@ def world(tmp_path, monkeypatch):
     handle = MockDatabase(str(tmp_path / "db.json"))
     monkeypatch.setattr(db_module, "unscoped_db", handle)
     monkeypatch.setattr(security, "unscoped_db", handle)
-    orders.ANON_ORDERS_PER_TABLE.reset()
-    orders.ANON_ORDERS_PER_ADDRESS.reset()
+    run(orders.ANON_ORDERS_PER_TABLE.reset())
+    run(orders.ANON_ORDERS_PER_ADDRESS.reset())
 
     now = datetime.now(timezone.utc).isoformat()
     run(handle.properties.insert_one(
@@ -177,8 +177,8 @@ def test_one_address_cannot_walk_the_whole_floor(world):
     wifi shares an address — so a second limit bounds one address across all of them."""
     now = 1_000_000.0
     for n in range(orders.ANON_ORDERS_PER_ADDRESS.limit):
-        assert orders.ANON_ORDERS_PER_ADDRESS.limited("198.51.100.4", now + n) is False
-    assert orders.ANON_ORDERS_PER_ADDRESS.limited("198.51.100.4", now) is True
+        assert run(orders.ANON_ORDERS_PER_ADDRESS.limited("198.51.100.4", now + n)) is False
+    assert run(orders.ANON_ORDERS_PER_ADDRESS.limited("198.51.100.4", now)) is True
 
 
 def test_the_till_is_not_rate_limited(world):

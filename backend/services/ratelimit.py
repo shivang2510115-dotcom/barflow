@@ -24,7 +24,12 @@ import logging
 import time
 from typing import Optional
 
-from db import unscoped_db, using_mock
+# The module, not the handle: `from db import unscoped_db` binds whatever existed at
+# import time, so a test that swaps the database would still be answered by the real one
+# — and a rate limiter that quietly counts against the wrong store is one that looks
+# tested and is not. orders.py and scoped_db.py reach it the same way, for the same reason.
+import db as _db_module
+from db import using_mock
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +52,11 @@ async def _ensure_index() -> None:
         return
     _index_ready = True
     try:
-        await unscoped_db[COLLECTION].create_index("key")
+        await _db_module.unscoped_db[COLLECTION].create_index("key")
         # Expiry is what stops this collection growing without bound on real MongoDB.
         # The longest window in use is an hour; a day of slack costs nothing and means
         # changing a window never silently outlives its own index.
-        await unscoped_db[COLLECTION].create_index("expires_at", expireAfterSeconds=86_400)
+        await _db_module.unscoped_db[COLLECTION].create_index("expires_at", expireAfterSeconds=86_400)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Rate-limit index not created: %s", exc)
 
@@ -107,7 +112,7 @@ class RateLimiter:
         now = time.time() if now is None else now
         await _ensure_index()
         try:
-            return await unscoped_db[COLLECTION].count_documents({
+            return await _db_module.unscoped_db[COLLECTION].count_documents({
                 "key": self._scoped(key),
                 "at": {"$gte": now - self.window_seconds},
             }) >= self.limit
@@ -128,11 +133,11 @@ class RateLimiter:
                 # would write a row that fails silently down the fail-open path — which
                 # is how this was nearly shipped counting nothing at all.
                 hit["expires_at"] = _as_datetime(now + self.window_seconds)
-            await unscoped_db[COLLECTION].insert_one(hit)
+            await _db_module.unscoped_db[COLLECTION].insert_one(hit)
             _since_prune += 1
             if _since_prune >= _PRUNE_EVERY:
                 _since_prune = 0
-                await unscoped_db[COLLECTION].delete_many(
+                await _db_module.unscoped_db[COLLECTION].delete_many(
                     {"at": {"$lt": now - self.window_seconds}})
         except Exception as exc:  # noqa: BLE001
             # Same reasoning as `blocked`: a counter that cannot be written is not worth
@@ -147,17 +152,17 @@ class RateLimiter:
         zero rather than from wherever a shared office IP had got to.
         """
         try:
-            await unscoped_db[COLLECTION].delete_many({"key": self._scoped(key)})
+            await _db_module.unscoped_db[COLLECTION].delete_many({"key": self._scoped(key)})
         except Exception as exc:  # noqa: BLE001
             logger.warning("Rate-limit clear failed: %s", exc)
 
     async def reset(self) -> None:
         """Forget everything under this limiter's name. For tests, and nothing else."""
-        rows = await unscoped_db[COLLECTION].find({}, {"_id": 0}).to_list(100_000)
+        rows = await _db_module.unscoped_db[COLLECTION].find({}, {"_id": 0}).to_list(100_000)
         prefix = f"{self.name}|"
         for row in rows:
             if str(row.get("key", "")).startswith(prefix):
-                await unscoped_db[COLLECTION].delete_many({"key": row["key"]})
+                await _db_module.unscoped_db[COLLECTION].delete_many({"key": row["key"]})
 
 
 def _as_datetime(stamp: float):
