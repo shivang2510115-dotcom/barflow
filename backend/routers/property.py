@@ -14,6 +14,8 @@ from db import unscoped_db
 from models.property import PropertyFields
 from security import require_access, resolve_property
 from services.access import SHARED
+from services.clock import today
+from services.subscription import subscription_state
 from services.registration import (
     FSSAI_SHAPE, GSTIN_SHAPE, validate_fssai, validate_gstin,
 )
@@ -33,6 +35,21 @@ READ = require_access(SHARED, setup_time=True)
 # is. Roles name "admin" explicitly because the role check runs before the domain bypass.
 WRITE = require_access(SHARED, "admin", setup_time=True)
 
+# The stored columns are dropped and the computed block put in their place, rather than
+# both being returned: the same four values appearing twice is an invitation to read the
+# stale pair. `subscription` carries what a business needs — the figure, the period, the
+# date and whether it has passed — and nothing it could act on wrongly. It cannot change
+# any of it: pricing is the operator's, and a business that could price itself would
+# price itself at zero.
+_STORED_SUBSCRIPTION = ("subscription_amount", "billing_period", "paid_until",
+                        "payment_note")
+
+
+def _visible(record: dict) -> dict:
+    body = {k: v for k, v in record.items() if k not in _STORED_SUBSCRIPTION}
+    return {**body, "subscription": subscription_state(record, today())}
+
+
 async def _own_property(user: dict) -> dict:
     record = await resolve_property(user)
     if not record:
@@ -44,7 +61,19 @@ async def _own_property(user: dict) -> dict:
 
 @router.get("/property")
 async def get_property(user: dict = Depends(READ)):
-    return await _own_property(user)
+    """The caller's own hotel, including what it has agreed to pay us.
+
+    The subscription is read-only here and computed rather than stored: a business can
+    see its price, its billing period, when it is paid until and whether that has passed,
+    which is what it needs to settle an invoice. It cannot change any of it — pricing is
+    the operator's, and a business that could set its own would set it to zero — and it
+    can see nothing about anybody else's.
+
+    Being overdue is deliberately inert. It shows a banner and stops nothing: only the
+    operator pressing suspend stops trade, because a hotel with guests arriving must not
+    go dark over a late invoice.
+    """
+    return _visible(await _own_property(user))
 
 
 @router.put("/property")
@@ -68,4 +97,6 @@ async def update_property(payload: PropertyFields, user: dict = Depends(WRITE)):
     # `approved_by` or the lifecycle stamps — which is why the body cannot carry them.
     # An admin who could PUT their own status would approve their own property.
     await unscoped_db.properties.update_one({"id": record["id"]}, {"$set": payload.model_dump()})
-    return await unscoped_db.properties.find_one({"id": record["id"]}, {"_id": 0})
+    # The same shape GET answers in, so a settings form that saves and re-renders from
+    # the response cannot lose the subscription block and show a business as unpriced.
+    return _visible(await unscoped_db.properties.find_one({"id": record["id"]}, {"_id": 0}))

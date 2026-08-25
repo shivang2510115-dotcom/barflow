@@ -17,6 +17,7 @@ from services.access import (
 from services.registration import (
     FSSAI_SHAPE, GSTIN_SHAPE, validate_fssai, validate_gstin,
 )
+from services.subscription import BILLING_PERIODS, PAYMENT_METHODS
 
 # Exactly the three the access rule knows. Written as a Literal so an unknown status is
 # refused where the record is built, not discovered later by `_property_usable` treating
@@ -37,6 +38,22 @@ if set(get_args(PropertyType)) != set(PROPERTY_TYPES):
     raise RuntimeError(
         f"models.property.PropertyType {get_args(PropertyType)} has drifted from "
         f"services.access.PROPERTY_TYPES {PROPERTY_TYPES} — update the Literal above")
+
+# What was agreed, and how the money arrives. Literals for the third time in this file
+# and for the reason given above each of the others: these come off a request body, and
+# an unknown period stored is a period `advance_paid_until` cannot advance by — a payment
+# that would be taken and then refused, or worse, taken and silently mis-dated.
+BillingPeriod = Literal["monthly", "quarterly", "yearly"]
+PaymentMethod = Literal["bank_transfer", "upi", "cash", "cheque"]
+
+for _literal, _central, _name in (
+    (BillingPeriod, BILLING_PERIODS, "BILLING_PERIODS"),
+    (PaymentMethod, PAYMENT_METHODS, "PAYMENT_METHODS"),
+):
+    if set(get_args(_literal)) != set(_central):
+        raise RuntimeError(
+            f"models.property {get_args(_literal)} has drifted from "
+            f"services.subscription.{_name} {_central} — update the Literal above")
 
 
 def _uuid() -> str:
@@ -131,3 +148,63 @@ class Property(PropertyIn):
     approved_by: Optional[str] = None
     suspended_at: Optional[str] = None
     suspension_reason: Optional[str] = None
+
+    # ------------------------------ the subscription ------------------------------
+    # What this business agreed to pay, agreed offline and recorded here. All four are
+    # optional because a property nobody has priced yet is a normal state, not an error:
+    # businesses are approved before a figure is agreed, and every one of them spends
+    # some time in this shape.
+    #
+    # Here and not on `PropertyFields`, exactly like `property_type` above and for the
+    # same reason: `PropertyFields` is the body of `PUT /api/property`, so an admin who
+    # could send these would set their own price to zero and their own `paid_until` to
+    # the next century. Only `/api/platform/*` writes them.
+    #
+    # There is deliberately no `overdue` field. A stored flag is wrong the moment nobody
+    # recomputes it, and wrong in both directions — a business chased for an invoice it
+    # settled, or one trading free because a nightly job stopped. It is derived from
+    # `paid_until` against the property's local day, in services/subscription.py.
+    subscription_amount: Optional[float] = None
+    billing_period: Optional[BillingPeriod] = None
+    # A plain local calendar date, not a timestamp: the last day this business is paid
+    # through. Advanced only by a recorded payment.
+    paid_until: Optional[str] = None
+    # How they pay — a bank account, a UPI handle, a person to ring. The operator's memo,
+    # and not shown to the tenant; see routers/property.py, which builds the tenant's view
+    # explicitly rather than handing the record over whole.
+    payment_note: Optional[str] = None
+
+
+class SubscriptionPayment(BaseModel):
+    """One line of the platform's own money ledger: what arrived, when, and for what.
+
+    Append-only, following the folio ledger in services/folio.py — nothing edits a line
+    and nothing deletes one. A correction is a new entry, and both stay. That is not
+    fastidiousness: this is money changing hands outside any gateway, reconciled by hand
+    against a bank statement, and a record that can be rewritten is a record that cannot
+    settle an argument about whether ₹12,000 was ever received.
+
+    `property_id` is carried on the row rather than the row being reached through a
+    scoped handle. The collection stands outside tenancy for the same reason `properties`
+    does — only the operator, who belongs to no property, ever reads or writes it — and
+    scoped_db refuses it by name so no router can believe otherwise.
+    """
+    id: str = Field(default_factory=_uuid)
+    property_id: str
+    amount: float
+    # The day the money actually arrived at the bank, which is not always the day it was
+    # typed in: the transfer lands on Friday and the operator reconciles on Monday.
+    received_on: str
+    # The term this payment bought, worked out by services.subscription.period_covered.
+    # Written down rather than recomputed later, because the rule that produced it reads
+    # the property's state at the moment of payment and that state has since moved on.
+    covers_from: str
+    covers_to: str
+    method: PaymentMethod
+    # A UTR, a UPI reference, a cheque number — or, for a correction, why. Free text
+    # because that is what a bank statement gives you.
+    reference: str = ""
+    # The operator's user id and the instant they recorded it. The audit half of the
+    # line: `received_on` is when the money moved, this is when somebody said so.
+    recorded_by: str
+    recorded_at: str = Field(default_factory=_now)
