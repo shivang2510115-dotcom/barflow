@@ -21,9 +21,10 @@ from pydantic import BaseModel, EmailStr
 from pymongo.errors import DuplicateKeyError
 
 from db import unscoped_db
-from security import Role, hash_password, require_access
+from security import Role, hash_password, require_access, resolve_property
 from services.access import (
-    DOMAINS, SCREENS, SHARED, default_permissions, permission_in_domains)
+    DOMAINS, SCREENS, SHARED, default_permissions, permission_in_domains,
+    property_domains)
 from services.password import password_problem
 
 router = APIRouter()
@@ -40,6 +41,11 @@ ADMIN = require_access(SHARED, "admin", permission="admin.staff", setup_time=Tru
 # Pydantic needs a Literal to refuse an unknown domain with a 422, and a Literal cannot
 # be built from a runtime tuple — so the vocabulary is spelled out once more here. It is
 # pinned to the central one below rather than left to drift.
+#
+# This is the vocabulary, not the permission. Every one of these is a real domain, and
+# `_within_the_property` still refuses the ones the caller's own property does not have:
+# a well-formed request for something that does not apply to this business is a 400, not
+# a 422, so the two checks are deliberately in different places.
 Domain = Literal["hotel", "restaurant", "bar"]
 
 # Import-time check, so adding a domain to services.access.DOMAINS without updating the
@@ -124,7 +130,47 @@ async def _count_active_admins(property_id: str | None) -> int:
     return sum(1 for a in admins if a.get("active", True))
 
 
-def _stored_domains(role: str, domains: List[str]) -> List[str]:
+async def _property_domains(user: dict) -> tuple[str, ...]:
+    """The work domains the caller's own property has — the ceiling on everyone in it.
+
+    Resolved from the admin's own record, never from the request, exactly as `_mine` is:
+    there is no path by which an admin can name another property, so there is none by
+    which they can borrow another property's domains either.
+    """
+    return property_domains(await resolve_property(user))
+
+
+def _within_the_property(picked: List[str], allowed: tuple[str, ...]) -> None:
+    """Refuse a domain this property does not have, and say which one and why.
+
+    A restaurant with no rooms must not be able to hold a hotel-domain user by any route,
+    and this is the one function all three of them go through. 400 rather than 422: the
+    value is a real domain and the request is well-formed — what is wrong is that it does
+    not apply to *this* business, which is a fact about the property, not the payload.
+
+    Refusing rather than silently dropping. A staff screen that quietly stores less than
+    was ticked tells the owner they granted something they did not, which is the same lie
+    `_stored_permissions` refuses to tell one line further down.
+    """
+    if not allowed:
+        # No property record, or one whose type nothing recognises. Refused whatever was
+        # asked for, including nothing at all: an admin stored against a property with no
+        # domains is the account this check exists to stop being created. Naming an empty
+        # list would read as a bug in the message rather than in the record.
+        raise HTTPException(
+            400, "This property's record cannot be read, so there is no work area to "
+                 "assign anybody to. Ask the platform operator to look at it.")
+    outside = [d for d in dict.fromkeys(picked) if d not in allowed]
+    if not outside:
+        return
+    raise HTTPException(
+        400,
+        f"This property does not run a {' or a '.join(outside)}, so nobody here can work "
+        f"in {'that area' if len(outside) == 1 else 'those areas'}. It runs "
+        f"{', '.join(allowed)}.")
+
+
+def _stored_domains(role: str, domains: List[str], allowed: tuple[str, ...]) -> List[str]:
     """The domain list to persist for this role, de-duplicated.
 
     An admin is never domain-checked, so an empty list costs them nothing today — but it
@@ -132,10 +178,14 @@ def _stored_domains(role: str, domains: List[str]) -> List[str]:
     manager silently produce an account that can reach nothing. Storing the full list
     means the row already says what the admin can actually do, and there is no longer any
     route that writes an empty `domains`.
+
+    `allowed` and not `DOMAINS`: the whole vocabulary is not this property's to give. An
+    outlet's second admin is stored holding the outlet's two, so the demotion that list
+    exists to survive leaves them with what the property actually has.
     """
     picked = list(dict.fromkeys(domains))
     if role == "admin" and not picked:
-        return list(DOMAINS)
+        return list(allowed)
     return picked
 
 
@@ -202,7 +252,9 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     if await unscoped_db.users.find_one({"email": email}):
         raise HTTPException(409, DUPLICATE_EMAIL)
 
-    domains = _stored_domains(payload.role, payload.domains)
+    allowed = await _property_domains(user)
+    _within_the_property(payload.domains, allowed)
+    domains = _stored_domains(payload.role, payload.domains, allowed)
     doc = {
         "id": str(uuid.uuid4()),
         "name": payload.name.strip(),
@@ -239,7 +291,9 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
     if payload.role != "admin" and not payload.domains:
         raise HTTPException(400, "A non-admin needs at least one work domain")
 
-    domains = _stored_domains(payload.role, payload.domains)
+    allowed = await _property_domains(user)
+    _within_the_property(payload.domains, allowed)
+    domains = _stored_domains(payload.role, payload.domains, allowed)
     permissions = _stored_permissions(payload.permissions, payload.role, domains,
                                       existing=list(target.get("permissions") or []))
 
