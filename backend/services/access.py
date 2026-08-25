@@ -234,6 +234,78 @@ def permission_in_domains(key: str, held: list[str] | tuple[str, ...]) -> bool:
     return any(d in held for d in required)
 
 
+def narrow_to_domains(user: dict, allowed: tuple[str, ...]) -> dict:
+    """The patch that brings one staff record inside the domains its property now has.
+
+    Called when the platform operator changes what a business *is* — the one correction
+    that could not be made from inside the app before, and the one that can strand
+    people. Narrowing `both` to `outlet` takes the hotel away; every receptionist would
+    otherwise be left holding a domain the property no longer has and screens that would
+    403, which is exactly the lie `permission_in_domains` exists to prevent when the same
+    thing is ticked by hand on the staff screen.
+
+    Returns only what changed, and `{}` when nothing did, so re-typing a property to the
+    type it already holds writes nothing at all.
+
+    Three cases, and the third is the decision worth stating out loud:
+
+    * **an admin** is re-stamped with the whole of `allowed`. Same rule as
+      `routers/staff.py::_stored_domains`, and it is what keeps the property's
+      last-active-admin invariant true through a retype: the account that has to be able
+      to fix everything afterwards is never the one this leaves with nothing.
+    * **anyone whose domains survive** keeps the intersection, and keeps the screens that
+      intersection can still reach. A manager over the restaurant and the front desk goes
+      on managing the restaurant.
+    * **a non-admin left with nothing** — a front-desk-only receptionist at a business
+      that no longer has rooms — is **deactivated**. The job they were hired for does not
+      exist here any more, and the alternatives are worse: leaving them holding `hotel`
+      is the stranding this function exists to stop, and refusing the retype outright
+      strands the *operator*, who cannot edit another business's staff at all and would
+      have no way to proceed. They are handed `allowed` rather than an empty list because
+      empty is not a stable state — `migrations/backfill_domains.py` repairs an empty
+      `domains` on every startup by granting all three, including the one the property
+      just gave up. Deactivation is what actually holds them (`can_access` refuses an
+      inactive account before it looks at anything else), and their own admin brings them
+      back deliberately, from the staff screen, where `_within_the_property` still holds.
+
+    Destructive in effect and it deletes nothing, exactly like suspension: rooms, rates
+    and bookings sit untouched, so a type set wrong at signup and corrected twice loses
+    no data.
+    """
+    if not allowed:
+        # Emptying a property's whole roster is never the right answer to a type nobody
+        # recognises. The caller has been handed a property whose type this module cannot
+        # read, which is a bug to fix, not a licence to lock everybody out.
+        raise AccessError(
+            "cannot narrow a staff record to no domains at all — the property's type "
+            "could not be read")
+
+    role = user.get("role")
+    held = list(user.get("domains") or ())
+    if role == "admin":
+        domains = list(allowed)
+    else:
+        domains = [d for d in held if d in allowed]
+
+    stranded = not domains
+    if stranded:
+        domains = list(allowed)
+
+    permissions = [k for k in (user.get("permissions") or ())
+                   if k in SCREENS and permission_in_domains(k, domains)]
+    if role == "admin" and not permissions:
+        permissions = default_permissions(role, domains)
+
+    patch: dict = {}
+    if domains != held:
+        patch["domains"] = domains
+    if permissions != list(user.get("permissions") or ()):
+        patch["permissions"] = permissions
+    if stranded and user.get("active", True):
+        patch["active"] = False
+    return patch
+
+
 def normalise_domains(domains: str | tuple[str, ...] | list[str]) -> tuple[str, ...]:
     """Accept a single domain or several, and reject unknown values loudly.
 

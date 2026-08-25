@@ -17,6 +17,8 @@ notice later:
 
 * `users` — a login must be findable by email before we know which hotel it belongs to;
 * `properties` — the tenant record itself, the thing every scope is resolved from;
+* `subscription_payments` — what each business pays the platform, and `rate_limit_hits`,
+  which counts against an address rather than a tenant;
 * `payment_transactions` — the Stripe session ledger, keyed by a session id the payment
   provider hands back to an anonymous caller.
 
@@ -53,7 +55,15 @@ ENCRYPTED_FIELDS: dict[str, tuple[str, ...]] = {
 PROPERTY_FIELD = "property_id"
 
 # Outside tenancy, deliberately. See the module docstring for why each one is here.
-UNSCOPED_COLLECTIONS = frozenset({"users", "properties", "payment_transactions"})
+UNSCOPED_COLLECTIONS = frozenset({
+    "users", "properties", "payment_transactions",
+    # The platform's own money: what each business pays us. Nothing a tenant should be
+    # able to reach through their own handle, by accident or otherwise.
+    "subscription_payments",
+    # Rate-limit counters, keyed by an address that belongs to no hotel — and the whole
+    # point is that a caller cannot earn a fresh allowance by arriving at a different one.
+    "rate_limit_hits",
+})
 
 # Everything a hotel owns. Listed rather than derived, because the startup migration has
 # to know which collections to stamp, and "every collection that is not in the unscoped

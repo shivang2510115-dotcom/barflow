@@ -710,6 +710,13 @@ SCOPE_FREE = {
     ("POST", "/api/signup"): "creates the property; tenancy has not begun",
     # Environment variables and Meta's API. No collection is read either way, so there
     # is nothing here a property could scope.
+    # The operator's money routes. `properties` and `subscription_payments` both stand
+    # outside tenancy — what a business pays the platform is not the business's own data,
+    # and the operator belongs to no property to be scoped to.
+    ("PUT", "/api/platform/properties/{property_id}/subscription"): "the operator's price",
+    ("POST", "/api/platform/properties/{property_id}/payments"): "the platform's ledger",
+    ("GET", "/api/platform/properties/{property_id}/payments"): "the platform's ledger",
+    ("POST", "/api/platform/properties/{property_id}/type"): "properties, and every user of one",
     ("GET", "/api/whatsapp/status"): "reads configuration, not data",
     ("POST", "/api/whatsapp/test"): "sends one message; touches no collection",
     # The operator works across tenants by definition. These read the properties
