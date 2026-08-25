@@ -30,6 +30,7 @@ from services.password import password_problem
 from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
 from migrations.backfill_property import backfill as backfill_property
+from migrations.backfill_property_type import backfill as backfill_property_type
 from migrations.backfill_tenancy import backfill as backfill_tenancy
 from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
 from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
@@ -445,6 +446,15 @@ async def on_startup():
     logger.info(
         "Property backfill: property %s (%s), %d user(s) stamped, %d already current.",
         "created" if created else "already present", property_id, stamped, current)
+    # Straight after the property exists, and before anything is served: every property
+    # that predates the type field has been running rooms *and* outlets, so it is stamped
+    # `both` rather than left for each reader of the record to infer. Until this has run,
+    # `services.access.property_domains` reads an absent key the same way — the migration
+    # is what stops that agreement from being load-bearing forever.
+    typed, typed_current = await backfill_property_type()
+    logger.info(
+        "Property type backfill: %d propert(ies) stamped both, %d already current.",
+        typed, typed_current)
     # Immediately after, never before: the records are stamped with the property that
     # migration has just made sure exists. Until this has run, every scoped read matches
     # nothing — the data is not lost, it is invisible, which is harder to diagnose.

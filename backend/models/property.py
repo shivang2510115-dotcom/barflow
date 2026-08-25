@@ -8,11 +8,12 @@ keep in step.
 """
 import uuid
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Literal, Optional, get_args
 
 from pydantic import BaseModel, Field, field_validator
 
-from services.access import LIVE, PENDING, SUSPENDED
+from services.access import (
+    DEFAULT_PROPERTY_TYPE, LIVE, PENDING, PROPERTY_TYPES, SUSPENDED)
 from services.registration import (
     FSSAI_SHAPE, GSTIN_SHAPE, validate_fssai, validate_gstin,
 )
@@ -21,6 +22,21 @@ from services.registration import (
 # refused where the record is built, not discovered later by `_property_usable` treating
 # it as "not live" and switching a working hotel off.
 PropertyStatus = Literal[PENDING, LIVE, SUSPENDED]
+
+# What kind of business this is: a hotel, an outlet with no rooms, or both. A Literal for
+# the same reason `PropertyStatus` is one — and because signup takes this straight off a
+# request body, where an unknown value has to come back as a 422 naming the field rather
+# than being stored and read later as a property with no domains at all.
+#
+# A Literal cannot be built from a runtime tuple, so the vocabulary is spelled out once
+# more here and pinned to the central one below. This is the same arrangement, and the
+# same guard, that routers/staff.py uses for its domain Literal.
+PropertyType = Literal["hotel", "outlet", "both"]
+
+if set(get_args(PropertyType)) != set(PROPERTY_TYPES):
+    raise RuntimeError(
+        f"models.property.PropertyType {get_args(PropertyType)} has drifted from "
+        f"services.access.PROPERTY_TYPES {PROPERTY_TYPES} — update the Literal above")
 
 
 def _uuid() -> str:
@@ -99,6 +115,16 @@ class Property(PropertyIn):
     # take a booking. The startup migration is the one place that creates a `live`
     # property, because there the hotel has been operating for months already.
     status: PropertyStatus = PENDING
+    # Deliberately here and not on `PropertyFields`, so it is nowhere in the body of
+    # `PUT /api/property`. An admin who could set their own type would grant their
+    # restaurant a hotel it does not have; the reverse is worse — narrowing to `outlet`
+    # would strand every hotel-domain staff member on a domain the property no longer
+    # has, with no route back through the staff screen, which now refuses that domain.
+    # Changing what a business is belongs with the operator, not inside the tenant.
+    #
+    # `both` is the default for the same reason the migration stamps it: a record written
+    # before this field existed has been running rooms and outlets all along.
+    property_type: PropertyType = DEFAULT_PROPERTY_TYPE
     created_at: str = Field(default_factory=_now)
     # The audit trail of the operator's decisions. Empty until someone decides.
     approved_at: Optional[str] = None
