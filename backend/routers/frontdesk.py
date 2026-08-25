@@ -52,13 +52,13 @@ async def front_desk(user: dict = Depends(DESK),
     day = _today()
     arrivals = await db.bookings.find(
         {"check_in": day, "status": {"$in": ["tentative", "confirmed"]}}, {"_id": 0}
-    ).to_list(500)
+    ).to_list(20000)
     departures = await db.bookings.find(
-        {"check_out": day, "status": "checked_in"}, {"_id": 0}).to_list(500)
-    in_house_rows = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(500)
+        {"check_out": day, "status": "checked_in"}, {"_id": 0}).to_list(20000)
+    in_house_rows = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(20000)
 
     guests = {g["id"]: g for g in await db.guests.find({}, {"_id": 0}).to_list(5000)}
-    rooms = {r["id"]: r for r in await db.rooms.find({}, {"_id": 0}).to_list(500)}
+    rooms = {r["id"]: r for r in await db.rooms.find({}, {"_id": 0}).to_list(20000)}
 
     def decorate(rows: list[dict]) -> list[dict]:
         out = [{**b, "guest": guests.get(b["guest_id"]),
@@ -109,11 +109,11 @@ async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP),
                    db: PropertyScopedDatabase = Depends(tenant_db)):
     """Checked-in guests, for the POS room search. Only in-house bookings are
     chargeable — a departed folio must never be reachable from the POS."""
-    bookings = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(500)
+    bookings = await db.bookings.find({"status": "checked_in"}, {"_id": 0}).to_list(20000)
     guests = {g["id"]: g for g in await db.guests.find({}, {"_id": 0}).to_list(5000)}
-    rooms = {r["id"]: r for r in await db.rooms.find({}, {"_id": 0}).to_list(500)}
+    rooms = {r["id"]: r for r in await db.rooms.find({}, {"_id": 0}).to_list(20000)}
     folios = {f["booking_id"]: f for f in await db.folios.find(
-        {"status": "open"}, {"_id": 0}).to_list(500)}
+        {"status": "open"}, {"_id": 0}).to_list(20000)}
 
     rows = []
     for b in bookings:

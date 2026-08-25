@@ -70,7 +70,7 @@ async def delete_room_type(type_id: str, user: dict = Depends(CONFIG),
     if not await db.room_types.find_one({"id": type_id}, {"_id": 0}):
         raise HTTPException(404, "Room type not found")
 
-    rooms = await db.rooms.find({"room_type_id": type_id}, {"_id": 0}).to_list(500)
+    rooms = await db.rooms.find({"room_type_id": type_id}, {"_id": 0}).to_list(20000)
     if rooms:
         raise HTTPException(409, {
             "message": "Room type still has rooms",
@@ -94,7 +94,7 @@ async def delete_room_type(type_id: str, user: dict = Depends(CONFIG),
 @router.get("/rooms")
 async def list_rooms(user: dict = Depends(READ_ROOMS),
                      db: PropertyScopedDatabase = Depends(tenant_db)):
-    return await db.rooms.find({}, {"_id": 0}).to_list(500)
+    return await db.rooms.find({}, {"_id": 0}).to_list(20000)
 
 
 @router.post("/rooms")
@@ -169,7 +169,7 @@ async def mark_out_of_order(room_id: str, payload: OutOfOrderIn, user: dict = De
     updated_room = await db.rooms.find_one({"id": room_id}, {"_id": 0})
     room_type_id = room["room_type_id"]
 
-    rooms_of_type = await db.rooms.find({"room_type_id": room_type_id}, {"_id": 0}).to_list(500)
+    rooms_of_type = await db.rooms.find({"room_type_id": room_type_id}, {"_id": 0}).to_list(20000)
     live_bookings = await db.bookings.find(
         {"room_type_id": room_type_id, "status": {"$in": LIVE_STATUSES}}, {"_id": 0}
     ).to_list(1000)

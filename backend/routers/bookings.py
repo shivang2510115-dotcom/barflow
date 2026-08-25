@@ -30,7 +30,7 @@ LIVE = list(CONSUMING_STATUSES)
 
 async def _load_pricing_context(db) -> tuple[list, list, list]:
     """Rates, periods and tax slabs — everything quote_stay needs."""
-    rates = await db.rates.find({}, {"_id": 0}).to_list(500)
+    rates = await db.rates.find({}, {"_id": 0}).to_list(20000)
     periods = await db.rate_periods.find({"active": True}, {"_id": 0}).to_list(5000)
     slabs = await db.tax_slabs.find({"active": True}, {"_id": 0}).to_list(20)
     return rates, periods, slabs
@@ -87,7 +87,7 @@ async def availability(check_in: str, check_out: str, adults: int = 2, children:
     _validate_window(check_in, check_out)
 
     room_types = await db.room_types.find({"active": True}, {"_id": 0}).to_list(5000)
-    rooms = await db.rooms.find({}, {"_id": 0}).to_list(500)
+    rooms = await db.rooms.find({}, {"_id": 0}).to_list(20000)
     bookings = await db.bookings.find({"status": {"$in": LIVE}}, {"_id": 0}).to_list(5000)
     meal_plans = await db.meal_plans.find({"active": True}, {"_id": 0}).to_list(50)
     rates, periods, slabs = await _load_pricing_context(db)
@@ -124,7 +124,7 @@ async def calendar(start: str, end: str, user: dict = Depends(CALENDAR),
     _validate_window(start, end)
 
     room_types = await db.room_types.find({"active": True}, {"_id": 0}).to_list(5000)
-    rooms = await db.rooms.find({}, {"_id": 0}).to_list(500)
+    rooms = await db.rooms.find({}, {"_id": 0}).to_list(20000)
     bookings = await db.bookings.find({"status": {"$in": LIVE}}, {"_id": 0}).to_list(5000)
 
     grid = []
@@ -188,7 +188,7 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK),
 
     # Re-checked here, immediately before the write. The spec documents the residual
     # race: without transactions this narrows the window but does not close it.
-    rooms = await db.rooms.find({"room_type_id": room_type["id"]}, {"_id": 0}).to_list(500)
+    rooms = await db.rooms.find({"room_type_id": room_type["id"]}, {"_id": 0}).to_list(20000)
     live = await db.bookings.find(
         {"room_type_id": room_type["id"], "status": {"$in": LIVE}}, {"_id": 0}
     ).to_list(5000)
@@ -247,7 +247,7 @@ async def update_booking(booking_id: str, payload: BookingUpdateIn,
     repricing = any(k in changes for k in
                     ("check_in", "check_out", "adults", "children", "meal_plan_id"))
     if repricing:
-        rooms = await db.rooms.find({"room_type_id": room_type["id"]}, {"_id": 0}).to_list(500)
+        rooms = await db.rooms.find({"room_type_id": room_type["id"]}, {"_id": 0}).to_list(20000)
         live = await db.bookings.find({
             "room_type_id": room_type["id"], "status": {"$in": LIVE},
             "id": {"$ne": booking_id},
