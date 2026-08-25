@@ -4,6 +4,7 @@ import { api, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 import { ArrowRight, Check, Lock, Wine } from "lucide-react";
 import { LOCKED_UNTIL_APPROVED, UNLOCKED_WHILE_PENDING } from "@/lib/tenancy";
+import { PROPERTY_TYPE_CHOICES } from "@/lib/domains";
 
 /**
  * `/signup` — public, unauthenticated, and the only way a new hotel comes into existence.
@@ -28,12 +29,17 @@ const BLANK = {
   admin_name: "",
   admin_email: "",
   admin_password: "",
+  // Nothing pre-selected. The API defaults an omitted type to `both`, which is right for
+  // an old client but wrong for a form: a restaurant that never notices the question and
+  // is handed a hotel gets a front desk it cannot staff and screens it cannot open. So
+  // the form asks, and refuses to submit until it has an answer.
+  property_type: "",
 };
 
 const MIN_PASSWORD = 8;
 
 const FIELDS = [
-  ["hotel_name", "Hotel name", "text", "Hilltop Retreat", true],
+  ["hotel_name", "Name of the business", "text", "Hilltop Retreat", true],
   ["city", "City", "text", "Manali", false],
   ["admin_name", "Your name", "text", "Priya Nair", true],
   ["admin_email", "Your email", "email", "you@hilltop.co.in", true],
@@ -57,6 +63,53 @@ function Field({ id, label, type, placeholder, required, value, onChange }) {
         className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 text-base placeholder:text-stone-600"
       />
     </label>
+  );
+}
+
+/**
+ * What kind of business is signing up.
+ *
+ * Asked in the trade's words rather than ours — "Restaurant or bar", not "outlet" — and
+ * with a line under each saying what it includes, because the choice decides which half
+ * of the product exists for this tenant and is not something they can change later from
+ * inside the app. A restaurant that picks the middle card never sees a rooms screen at
+ * all; one that picks the wrong card sees a front desk it can never staff.
+ */
+function TypePicker({ value, onChange }) {
+  return (
+    <div>
+      <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-3">
+        What is it?
+      </span>
+      <div className="space-y-2">
+        {PROPERTY_TYPE_CHOICES.map(({ key, label, blurb }) => {
+          const on = value === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              data-testid={`signup-type-${key}`}
+              aria-pressed={on}
+              onClick={() => onChange(key)}
+              className={`w-full text-left border px-4 py-3 transition-colors ${
+                on
+                  ? "border-orange-500 bg-orange-500/10"
+                  : "border-stone-800 hover:border-stone-600"
+              }`}
+            >
+              <div
+                className={`text-sm font-mono uppercase tracking-widest ${
+                  on ? "text-orange-400" : "text-stone-300"
+                }`}
+              >
+                {label}
+              </div>
+              <div className="text-xs text-stone-500 mt-1 leading-relaxed">{blurb}</div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -141,7 +194,15 @@ export default function Signup() {
     // rather than after a round trip. The server checks both again — this is a courtesy,
     // not the rule.
     if (!form.hotel_name.trim() || !form.admin_name.trim() || !form.admin_email.trim()) {
-      const msg = "The hotel's name, your name and your email are all needed";
+      const msg = "The name of the business, your name and your email are all needed";
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+    // Checked rather than defaulted. The server would accept the omission and give them
+    // a hotel, which is the one answer that cannot be right for everybody.
+    if (!form.property_type) {
+      const msg = "Say what the business is — a hotel, a restaurant or bar, or both";
       setError(msg);
       toast.error(msg);
       return;
@@ -181,23 +242,25 @@ export default function Signup() {
 
         <div>
           <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-500 mb-4">
-            Register a hotel
+            Register your place
           </div>
           <h2 className="font-display uppercase text-4xl leading-[0.95] tracking-tight">
             Your rooms.
             <br />
-            Your rates.
+            Your tables.
             <br />
-            <span className="text-orange-500">Your front desk.</span>
+            <span className="text-orange-500">Or just the tables.</span>
           </h2>
           <p className="text-stone-400 mt-8 max-w-sm leading-relaxed text-sm">
-            One form creates the property and the first administrator together. You set the
-            place up straight away; taking money waits until we have approved you.
+            One form creates the property and the first administrator together. Tell us what
+            the business is and you get that console and no other — a restaurant never sees a
+            front desk. You set the place up straight away; taking money waits until we have
+            approved you.
           </p>
         </div>
 
         <div className="text-xs font-mono uppercase tracking-widest text-stone-500">
-          Hotel &amp; restaurant · one console
+          Hotel, restaurant, bar · one console
         </div>
       </div>
 
@@ -207,7 +270,7 @@ export default function Signup() {
             Sign up
           </div>
           <h1 className="font-display uppercase text-4xl md:text-5xl leading-none tracking-tight mb-10">
-            Put your hotel
+            Put your place
             <br />
             on the board.
           </h1>
@@ -225,6 +288,14 @@ export default function Signup() {
                 onChange={set(id)}
               />
             ))}
+
+            {/* Asked early, straight after the name and the city: it is the question that
+                decides what the rest of the console will be, and burying it under the
+                password is how it gets answered without being read. */}
+            <TypePicker
+              value={form.property_type}
+              onChange={(v) => setForm((f) => ({ ...f, property_type: v }))}
+            />
 
             <div>
               <Field
@@ -276,7 +347,7 @@ export default function Signup() {
             data-testid="signup-submit"
             className="mt-8 w-full rounded-full bg-orange-600 hover:bg-orange-500 disabled:opacity-60 text-stone-950 px-6 py-3 font-mono uppercase tracking-widest text-xs transition-colors flex items-center justify-center gap-2"
           >
-            {busy ? "Registering…" : "Register the hotel"}
+            {busy ? "Registering…" : "Register"}
             {!busy && <ArrowRight size={14} />}
           </button>
 
