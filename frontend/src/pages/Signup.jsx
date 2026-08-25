@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 import { ArrowRight, Check, Lock, Wine } from "lucide-react";
-import { LOCKED_UNTIL_APPROVED, UNLOCKED_WHILE_PENDING } from "@/lib/tenancy";
+import { lockedUntilApproved, unlockedWhilePending } from "@/lib/tenancy";
 import { PROPERTY_TYPE_CHOICES } from "@/lib/domains";
 
 /**
@@ -121,7 +121,13 @@ function TypePicker({ value, onChange }) {
  * configuring is open, operating is not. They come from lib/tenancy.js so this screen and
  * the banner inside the app cannot drift into promising different things.
  */
-function Pending({ hotel }) {
+function Pending({ hotel, propertyType }) {
+  // The same two lists the in-app banner shows, narrowed the same way: a restaurant is
+  // not waiting on approval to build its room types, it will never have any, and
+  // promising three hotel screens on the first page it sees is the wrong first
+  // impression of a product it has just paid attention to.
+  const open = unlockedWhilePending(propertyType);
+  const locked = lockedUntilApproved(propertyType);
   return (
     <div className="min-h-screen bg-stone-950 text-stone-100 relative z-[2] flex items-center justify-center p-6 md:p-12">
       <div className="w-full max-w-3xl">
@@ -139,7 +145,7 @@ function Pending({ hotel }) {
           the platform.
         </h1>
         <p className="text-stone-400 mt-6 max-w-xl leading-relaxed">
-          We review each hotel before it starts trading. That check is on us, not on you —
+          We review each business before it starts trading. That check is on us, not on you —
           sign in now and set the place up while it runs. Nothing you build in the meantime
           is thrown away when you are approved.
         </p>
@@ -150,7 +156,7 @@ function Pending({ hotel }) {
               <Check size={14} /> Open now
             </div>
             <ul className="space-y-2 text-sm text-stone-300">
-              {UNLOCKED_WHILE_PENDING.map((item) => (
+              {open.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
@@ -160,7 +166,7 @@ function Pending({ hotel }) {
               <Lock size={14} /> Waiting on approval
             </div>
             <ul className="space-y-2 text-sm text-stone-500">
-              {LOCKED_UNTIL_APPROVED.map((item) => (
+              {locked.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
@@ -184,7 +190,7 @@ export default function Signup() {
   const [form, setForm] = useState(BLANK);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [done, setDone] = useState(null); // the registered hotel's name
+  const [done, setDone] = useState(null); // { name, type } of the registered business
 
   const set = (k) => (v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -217,7 +223,7 @@ export default function Signup() {
     setError("");
     try {
       await api.post("/signup", form);
-      setDone(form.hotel_name.trim());
+      setDone({ name: form.hotel_name.trim(), type: form.property_type });
     } catch (err) {
       // Every refusal this endpoint gives is worth reading: 409 names the email, 400 names
       // the GSTIN or the password, 429 says to come back later. formatApiErrorDetail also
@@ -230,7 +236,7 @@ export default function Signup() {
     }
   };
 
-  if (done) return <Pending hotel={done} />;
+  if (done) return <Pending hotel={done.name} propertyType={done.type} />;
 
   return (
     <div className="min-h-screen grid md:grid-cols-2 bg-stone-950 text-stone-100 relative z-[2]">

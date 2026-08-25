@@ -3,9 +3,9 @@ import { Clock, Lock } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useProperty } from "@/contexts/PropertyContext";
 import {
-  LOCKED_UNTIL_APPROVED,
-  UNLOCKED_WHILE_PENDING,
+  lockedUntilApproved,
   showsPendingBanner,
+  unlockedWhilePending,
 } from "@/lib/tenancy";
 
 /**
@@ -32,6 +32,11 @@ export default function PendingBanner() {
 
   if (!showsPendingBanner(user, property)) return null;
 
+  // The two lists follow what this property is: a restaurant is not waiting on approval
+  // to build its room types, it will never have any.
+  const open = unlockedWhilePending(property.property_type);
+  const locked = lockedUntilApproved(property.property_type);
+
   return (
     <div
       data-testid="pending-banner"
@@ -45,13 +50,13 @@ export default function PendingBanner() {
           </div>
           <p className="text-sm text-stone-300 mt-1">
             <span className="text-stone-100">{property.name}</span> is registered and being
-            reviewed. Set the place up now — {UNLOCKED_WHILE_PENDING.join(", ").toLowerCase()}{" "}
+            reviewed. Set the place up now — {open.join(", ").toLowerCase()}{" "}
             are all open, and nothing you build here is lost when you go live.
           </p>
           <p className="text-xs text-stone-400 mt-2 flex items-start gap-2">
             <Lock size={12} className="mt-0.5 shrink-0" />
             <span>
-              Locked until approved: {LOCKED_UNTIL_APPROVED.join(", ").toLowerCase()}. Those
+              Locked until approved: {locked.join(", ").toLowerCase()}. Those
               screens open, and are refused when you press the button.
             </span>
           </p>

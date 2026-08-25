@@ -18,7 +18,8 @@ from db import unscoped_db
 from models.property import PropertyType
 from security import hash_password
 from services.access import (
-    DEFAULT_PROPERTY_TYPE, PENDING, default_permissions, domains_for_property_type)
+    DEFAULT_PROPERTY_TYPE, PENDING, PROPERTY_BOTH, PROPERTY_HOTEL, PROPERTY_OUTLET,
+    default_permissions, domains_for_property_type)
 from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
 from services.registration import GSTIN_SHAPE, validate_gstin
@@ -33,6 +34,15 @@ router = APIRouter()
 # different behaviour. Its docstring carries the caveat that used to be here: in-process,
 # so the effective limit multiplies by the worker count.
 SIGNUPS_PER_ADDRESS = RateLimiter(limit=10, window_seconds=3600, name="signup_ip")
+
+# How each type is named back to the person who just registered. `both` is deliberately
+# "property" rather than "hotel and restaurant": the confirmation is about the tenant, and
+# the one word that covers all three is the one the record is called.
+_WHAT_IT_IS = {
+    PROPERTY_HOTEL: "hotel",
+    PROPERTY_OUTLET: "restaurant",
+    PROPERTY_BOTH: "property",
+}
 
 
 class SignupIn(BaseModel):
@@ -68,7 +78,7 @@ async def signup(payload: SignupIn, request: Request):
 
     name = payload.hotel_name.strip()
     if not name:
-        raise HTTPException(400, "The hotel needs a name")
+        raise HTTPException(400, "The business needs a name")
     # The first account of a new hotel, and the one that can reach every screen in it.
     # Checked against the email too: `thegrand@…` / `thegrand` is a real thing people do
     # on a signup form.
@@ -141,6 +151,12 @@ async def signup(payload: SignupIn, request: Request):
     return {
         "property_id": property_id,
         "status": PENDING,
-        "message": "Your hotel is registered and waiting for approval. "
-                   "You can sign in now and set it up.",
+        # `property_type` is echoed because the client asked for something specific and a
+        # response that does not say what it got leaves the confirmation screen inferring
+        # it from its own form state.
+        "property_type": payload.property_type,
+        # In their own words, not ours: a restaurant told "your hotel is registered" has
+        # been given the first reason to wonder whether it picked the right thing.
+        "message": f"Your {_WHAT_IT_IS[payload.property_type]} is registered and waiting "
+                   f"for approval. You can sign in now and set it up.",
     }

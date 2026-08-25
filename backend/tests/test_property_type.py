@@ -265,6 +265,20 @@ def test_signing_up_without_saying_leaves_the_property_as_it_always_was(world):
     assert stored_property(world, made["property_id"])["property_type"] == PROPERTY_BOTH
 
 
+def test_the_response_says_what_was_registered(world):
+    """A restaurant told "your hotel is registered" has just been given the first reason
+    to wonder whether it picked the right card."""
+    made = sign_up(PROPERTY_OUTLET)
+    assert made["property_type"] == PROPERTY_OUTLET
+    assert "hotel" not in made["message"].lower()
+    assert "restaurant" in made["message"].lower()
+
+
+def test_a_hotel_is_still_called_a_hotel(world):
+    made = sign_up(PROPERTY_HOTEL, email="owner@grand.example.com", name="The Grand")
+    assert "hotel" in made["message"].lower()
+
+
 def test_an_unknown_type_never_reaches_the_handler():
     """Pydantic refuses it on the body, which FastAPI answers 422 — the shape the signup
     form already handles for a malformed email."""
