@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProperty } from "@/contexts/PropertyContext";
 import { toast } from "sonner";
 import { DOMAINS, DOMAIN_LABELS, heldDomains } from "@/lib/domains";
 import {
@@ -51,6 +52,12 @@ function ChartTooltip({ active, payload, label }) {
 // `heldDomains` comes from lib/domains: only offer what the signed-in person actually
 // holds, because asking for a domain you do not hold is a 403, not a narrowed answer, so
 // a tick-box for it could only ever produce an error toast.
+//
+// It is passed the property as well as the user, so the same is true of a domain the
+// *property* does not have. An admin holds every domain by the request-time rule, but an
+// outlet property has no hotel side for them to hold one in — the server refuses those
+// endpoints ahead of the admin bypass — so a Hotel tick-box here would be an error toast
+// for the one person who could reach every other figure on the screen.
 
 const label = (d) => DOMAIN_LABELS[d] || d;
 
@@ -94,10 +101,13 @@ export function monthRange(now = new Date()) {
 
 export default function Analytics() {
   const { user } = useAuth();
-  const held = heldDomains(user);
+  const property = useProperty();
+  const held = heldDomains(user, property);
   const [range, setRange] = useState(monthRange);
-  // Start on everything this person may ask for — for an admin that is all three.
-  const [picked, setPicked] = useState(held);
+  // Empty to begin with, because `held` is empty until the property lands and the guard
+  // in `load` treats nothing ticked as no question to ask — so no request is fired at a
+  // domain this property may turn out not to have.
+  const [picked, setPicked] = useState([]);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   // Toggling quickly fires overlapping requests; without this the slower one can land
@@ -105,6 +115,14 @@ export default function Analytics() {
   const latest = useRef(0);
 
   const chosen = picked.join(",");
+  const heldKey = held.join(",");
+
+  // Start on everything this person may ask for, the moment that is known. Keyed on the
+  // identities rather than the array so a re-render does not undo a tick made a second
+  // ago; it runs once, when the property arrives and `held` stops being empty.
+  useEffect(() => {
+    setPicked(heldKey ? heldKey.split(",") : []);
+  }, [heldKey]);
 
   const load = useCallback(() => {
     // Nothing ticked means there is no question to ask, so no request is made: this is
