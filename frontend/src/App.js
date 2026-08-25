@@ -35,6 +35,7 @@ import Guests from "@/pages/hotel/Guests";
 import Staff from "@/pages/admin/Staff";
 import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
+import Notifications from "@/pages/admin/Notifications";
 import CustomerMenu from "@/pages/CustomerMenu";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
@@ -94,6 +95,7 @@ function AppShell() {
         <Route path="/admin" element={<Protected roles={["admin"]}><Console /></Protected>} />
         <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />
         <Route path="/admin/analytics" element={<Protected roles={["admin", "manager"]}><Analytics /></Protected>} />
+        <Route path="/admin/notifications" element={<Protected roles={["admin"]}><Notifications /></Protected>} />
       </Routes>
     </AppLayout>
   );

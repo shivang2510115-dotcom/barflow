@@ -20,6 +20,7 @@ import {
   Users,
   ShieldCheck,
   LayoutDashboard,
+  MessageSquare,
   TrendingUp,
 } from "lucide-react";
 
@@ -82,11 +83,14 @@ const NAV = [
   // "Bookings" excludes "New booking" above. It is the one link with no screen key —
   // there is none for it in the catalogue — so it is admin-only twice over, by its role
   // list and by the fail-closed rule in holdsScreen.
-  { to: "/app/admin", label: "Console", icon: LayoutDashboard, roles: ["admin"], exclude: ["/app/admin/staff", "/app/admin/analytics"] },
+  { to: "/app/admin", label: "Console", icon: LayoutDashboard, roles: ["admin"], exclude: ["/app/admin/staff", "/app/admin/analytics", "/app/admin/notifications"] },
   { to: "/app/admin/staff", label: "Staff", icon: ShieldCheck, roles: ["admin"], screen: "admin.staff" },
   // No `domains`: analytics spans them, and the server answers whichever ones the caller
   // holds. A manager with any single domain still has a report to read.
   { to: "/app/admin/analytics", label: "Analytics", icon: TrendingUp, roles: ["admin", "manager"], screen: "admin.analytics" },
+  // No `screen`: it is admin-only by role, and adding a catalogue key would mean a
+  // migration to grant it to every existing admin before the link appeared for anyone.
+  { to: "/app/admin/notifications", label: "Notifications", icon: MessageSquare, roles: ["admin"] },
 ];
 
 export { NAV };
