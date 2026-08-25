@@ -1,6 +1,14 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Unset means same-origin, which is how the Firebase Hosting deployment works: Hosting
+// serves this bundle and rewrites /api/** to the Cloud Run service, so there is one
+// origin and no cross-origin request at all. Left as `${undefined}/api` this built the
+// literal string "undefined/api" and every call 404'd against the hosting rewrite.
+//
+// Local development sets it to http://127.0.0.1:8000 because the API is a separate
+// process there; a split deployment (Render) sets it to the API's full origin, and then
+// CORS_ORIGINS on the server has to name this one.
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
 export const API = `${BACKEND_URL}/api`;
 
 export const TOKEN_KEY = "barflow_token";

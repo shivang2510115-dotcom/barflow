@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProperty } from "@/contexts/PropertyContext";
 import { toast } from "sonner";
-import { DOMAINS, DOMAIN_LABELS } from "@/lib/domains";
+import { DOMAIN_LABELS, propertyDomains } from "@/lib/domains";
 import { screenInDomains } from "@/lib/sections";
 
 const ROLES = ["admin", "manager", "front_desk", "waiter", "kitchen"];
@@ -135,12 +136,21 @@ function ScreenPicker({ catalogue, value, onChange, role, domains }) {
   );
 }
 
-function DomainPicker({ value, onChange, disabled }) {
+/**
+ * The work areas somebody can be put in — this property's, not the vocabulary's.
+ *
+ * A restaurant with no rooms is refused a hotel-domain staff member by the API with a
+ * 400, so offering the button would only ever produce an error toast. The list comes from
+ * `GET /api/property`, never from the signed-in admin's own domains: an outlet property
+ * and a hotel property whose owner happens to work in one area look identical from
+ * `/auth/me`, and only one of them has a front desk.
+ */
+function DomainPicker({ options, value, onChange, disabled }) {
   const toggle = (d) =>
     onChange(value.includes(d) ? value.filter((x) => x !== d) : [...value, d]);
   return (
     <div className="flex gap-2 flex-wrap">
-      {DOMAINS.map((d) => (
+      {options.map((d) => (
         <button
           key={d}
           type="button"
@@ -165,6 +175,12 @@ export default function Staff() {
   // the "you" row is known on the first render, so your own Edit and Deactivate are
   // never briefly clickable into the server's 409.
   const { user: me } = useAuth();
+  // What this place is, from GET /api/property. Both pickers below are drawn from it:
+  // a restaurant owner is never shown a Hotel button to press or a rooms screen to tick,
+  // because the API refuses both with a 400 and a control that can only fail is not a
+  // control. Null while it is in flight, which reads as "nothing yet" — the pickers say
+  // they are loading rather than briefly offering the whole vocabulary.
+  const property = useProperty();
   const [rows, setRows] = useState([]);
   const [catalogue, setCatalogue] = useState([]); // GET /api/permissions
   const [creating, setCreating] = useState(BLANK);
@@ -195,13 +211,26 @@ export default function Staff() {
       .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
   }, []);
 
+  // The work areas this property actually runs, and the screens that follow from them.
+  // The catalogue is the same fifteen keys for every tenant — it is a constant in code —
+  // so it is narrowed here rather than at the endpoint.
+  const runs = propertyDomains(property);
+  const grantable = catalogue.filter((s) => screenInDomains(s, runs));
+
   // Narrowing somebody's work areas has to narrow their ticks with it: a screen outside
   // them is a 400 on save, and leaving the box ticked would show a grant that the next
   // save refuses. Dropped here, where it is visible, rather than in the payload.
+  //
+  // Checked against the property as well as the person. Editing somebody who was ticked
+  // for a screen this property no longer runs must drop it rather than send it back and
+  // be refused — the same reason the server's own edit path drops what it cannot keep.
   const keepGrantable = (permissions, domains) =>
     permissions.filter((k) => {
       const screen = catalogue.find((s) => s.key === k);
-      return screen ? screenInDomains(screen, domains) : true;
+      // A key the catalogue does not know is left alone: the server filters retired keys
+      // on the way out, and second-guessing it here would drop a screen it still honours.
+      if (!screen) return true;
+      return screenInDomains(screen, runs) && screenInDomains(screen, domains);
     });
 
   const run = async (fn) => {
@@ -343,6 +372,7 @@ export default function Staff() {
             Works in
             <div className="mt-2">
               <DomainPicker
+                options={runs}
                 value={creating.domains}
                 onChange={(d) =>
                   setCreating({
@@ -369,7 +399,7 @@ export default function Staff() {
             Screens they can open
           </div>
           <ScreenPicker
-            catalogue={catalogue}
+            catalogue={grantable}
             value={creating.permissions}
             onChange={(p) => setCreating({ ...creating, permissions: p })}
             role={creating.role}
@@ -434,7 +464,7 @@ export default function Staff() {
                   <td className="py-2 px-3 border-b border-stone-800 text-xs text-stone-400 tabular-nums">
                     {u.role === "admin"
                       ? "every screen"
-                      : `${(u.permissions || []).length} of ${catalogue.length || "—"}`}
+                      : `${(u.permissions || []).length} of ${grantable.length || "—"}`}
                   </td>
                   <td className="py-2 px-3 border-b border-stone-800">
                     <span
@@ -522,6 +552,7 @@ export default function Staff() {
               Works in
               <div className="mt-2">
                 <DomainPicker
+                  options={runs}
                   value={editing.domains}
                   onChange={(d) =>
                     setEditing({
@@ -541,7 +572,7 @@ export default function Staff() {
               Screens they can open
             </div>
             <ScreenPicker
-              catalogue={catalogue}
+              catalogue={grantable}
               value={editing.permissions}
               onChange={(p) => setEditing({ ...editing, permissions: p })}
               role={editing.role}

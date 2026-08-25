@@ -13,6 +13,8 @@
  * to render, and every request behind either is still checked server-side.
  */
 
+import { domainsForPropertyType } from "@/lib/domains";
+
 export const PLATFORM_ADMIN = "platform_admin";
 
 export const PENDING = "pending";
@@ -92,19 +94,46 @@ export function showsPendingBanner(user, property) {
   return property?.status === PENDING;
 }
 
-/** What a pending hotel can do now, and what waits for approval. Shown on both screens. */
-export const UNLOCKED_WHILE_PENDING = [
-  "Property details",
-  "Room types",
-  "Rooms",
-  "Rates and seasons",
-  "The menu and tables",
-  "Staff logins",
-];
+/**
+ * What a pending property can do now, and what waits for approval. Shown on the signup
+ * confirmation and on the in-app banner, which is why they are built here rather than
+ * written out twice.
+ *
+ * Both lists follow what the property *is*. The client's copy of the server's
+ * `setup_time` marking is only half the answer: a restaurant with no rooms is not waiting
+ * on approval to build its room types, it will never have any — and promising it three
+ * hotel screens on the first page it sees is the wrong first impression of the product.
+ *
+ * `propertyType` is a value from lib/domains, or null/undefined while it is unknown, in
+ * which case the widest list is used: these are prose, not permissions, and a line too
+ * many on a banner costs nothing.
+ */
+const HOTEL_SETUP = ["Room types", "Rooms", "Rates and seasons"];
+const OUTLET_SETUP = ["The menu and tables"];
 
-export const LOCKED_UNTIL_APPROVED = [
-  "Taking a booking",
-  "Checking a guest in or out",
-  "Opening or settling a bill",
-];
+const HOTEL_LOCKED = ["Taking a booking", "Checking a guest in or out"];
+const ANY_LOCKED = ["Opening or settling a bill"];
+
+// Derived from the one mapping rather than by comparing against the string "outlet", so
+// these sentences follow the domains if the mapping ever changes. Note that a `hotel`
+// property runs outlets too — the type says it has rooms, not that it has nothing else —
+// which is why only the rooms half is ever dropped.
+const runs = (propertyType, domain) =>
+  !propertyType || domainsForPropertyType(propertyType).includes(domain);
+
+export function unlockedWhilePending(propertyType) {
+  return [
+    "Property details",
+    ...(runs(propertyType, "hotel") ? HOTEL_SETUP : []),
+    ...(runs(propertyType, "restaurant") ? OUTLET_SETUP : []),
+    "Staff logins",
+  ];
+}
+
+export function lockedUntilApproved(propertyType) {
+  return [
+    ...(runs(propertyType, "hotel") ? HOTEL_LOCKED : []),
+    ...ANY_LOCKED,
+  ];
+}
 

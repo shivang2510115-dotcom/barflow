@@ -693,6 +693,9 @@ SCOPE_FREE = {
     ("GET", "/api/property"): "the caller's own property, resolved from their token",
     ("PUT", "/api/property"): "the caller's own property, resolved from their token",
     ("GET", "/api/staff"): "users stand outside tenancy; filtered explicitly",
+    # These two also read the caller's own property record, to bound the domains they may
+    # grant by the ones the property has — resolved from the token like GET /api/property
+    # above, never from the request, so there is no id here to point at another tenant.
     ("POST", "/api/staff"): "users stand outside tenancy; stamped explicitly",
     ("PUT", "/api/staff/{staff_id}"): "users stand outside tenancy; filtered explicitly",
     ("POST", "/api/staff/{staff_id}/active"): "users; filtered explicitly",

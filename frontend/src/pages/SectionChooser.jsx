@@ -4,6 +4,7 @@ import { BedDouble, UtensilsCrossed, ShieldCheck } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProperty } from "@/contexts/PropertyContext";
 import { useSection } from "@/contexts/SectionContext";
 
 /**
@@ -31,6 +32,7 @@ const plural = (n, one, many) => (n === 1 ? one : many);
 
 export default function SectionChooser() {
   const { user } = useAuth();
+  const property = useProperty();
   const { sections, setSection, pathFor } = useSection();
   const nav = useNavigate();
   const [figures, setFigures] = useState({});
@@ -88,6 +90,17 @@ export default function SectionChooser() {
       live = false;
     };
   }, [keys]);
+
+  // Which sections exist depends on what this property is, and that has not arrived yet.
+  // Answered ahead of both branches below, because neither is right without it: an outlet
+  // would be offered the Hotel card, and a hotel would be told it has nothing.
+  if (!property) {
+    return (
+      <div className="p-8 md:p-12 text-stone-500 font-mono text-xs uppercase tracking-widest">
+        Loading…
+      </div>
+    );
+  }
 
   // One section: never ask. `resolveSection` has already selected it, so the sidebar is
   // populated by the time this lands.

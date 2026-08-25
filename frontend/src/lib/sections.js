@@ -12,17 +12,23 @@
  * rules that get checked once. Everything here takes the nav array and a `/auth/me`
  * payload and returns data.
  *
- * Three filters narrow the nav, all of them mirroring the server rather than inventing a
+ * Four filters narrow the nav, all of them mirroring the server rather than inventing a
  * second rule (see backend/services/access.py::can_access):
  *
- *   role       — as before; a kitchen hand has no business on the rates screen
- *   domain     — as before; a hotel-only manager is 403'd by the outlet endpoints
- *   permission — new; the screen keys ticked on the staff screen
+ *   property   — what this tenant *is*: an outlet has no rooms, so no hotel screen and
+ *                no Hotel section exist for anybody in it, its owner included
+ *   role       — a kitchen hand has no business on the rates screen
+ *   domain     — a hotel-only manager is 403'd by the outlet endpoints
+ *   permission — the screen keys ticked on the staff screen
  *
- * They narrow in that order and none of them replaces another. A menu entry that 403s
- * when clicked is worse than no menu entry, so anything the API would refuse is absent.
+ * They narrow in that order and none of them replaces another. The property filter is
+ * first for the same reason the server checks the property ahead of the admin bypass: the
+ * other three all wave an admin through, and an outlet's owner is still an admin.
+ *
+ * A menu entry that 403s when clicked is worse than no menu entry, so anything the API
+ * would refuse is absent.
  */
-import { OUTLET } from "@/lib/domains";
+import { OUTLET, propertyDomains } from "@/lib/domains";
 
 /**
  * The sections, in the order the chooser and the switcher show them.
@@ -78,6 +84,21 @@ export function screenInDomains(screen, held) {
   return required.some((d) => has.includes(d));
 }
 
+/**
+ * Whether this property runs the part of the business a nav item serves.
+ *
+ * No admin bypass, deliberately — this is not about the person. A restaurant that never
+ * had a room does not acquire one because the owner is signed in.
+ *
+ * An item with no `domains` sits behind a `shared` endpoint (Guests, Inventory, the admin
+ * console) and is kept for every property, exactly as `can_access` exempts `shared`.
+ */
+export function propertyRuns(item, runs) {
+  if (!item.to) return true; // section headings: kept or dropped by dropEmptySections
+  if (!item.domains) return true;
+  return item.domains.some((d) => runs.includes(d));
+}
+
 /** Whether this user may work in a section at all, by work domain. Admin bypasses. */
 export function holdsAnyDomain(user, domains) {
   if (user?.role === "admin") return true;
@@ -129,14 +150,30 @@ export function dropEmptySections(list) {
 
 /**
  * The sidebar for one section: the nav narrowed to that section's headings, then by
- * role, domain and permission, then with any heading left holding nothing dropped.
+ * property, role, domain and permission, then with any heading left holding nothing
+ * dropped.
  *
- * Returns [] for a section the user's domains do not cover, so the caller never has to
- * ask that question separately.
+ * Returns [] for a section this property does not run, and for one the user's domains do
+ * not cover, so the caller never has to ask either question separately.
+ *
+ * `property` is the `GET /api/property` payload, or null while it is still unknown — and
+ * null narrows to nothing rather than to everything. The sidebar is briefly empty on a
+ * cold load, which is a beat of quiet; the alternative is a Hotel section appearing for a
+ * restaurant and then disappearing, which is the bug this argument exists to fix.
  */
-export function navForSection(nav, user, sectionKey) {
+export function navForSection(nav, user, sectionKey, property = null) {
   const section = sectionByKey(sectionKey);
   if (!section || !user) return [];
+  // Nothing at all until the property is known — Admin included, even though it spans the
+  // business and would otherwise survive. Offering Admin alone for the half-second before
+  // the property lands would leave an admin with exactly one section, and one section is
+  // never asked about: they would be redirected into the console before the chooser had
+  // the information to ask.
+  if (!property) return [];
+  const runs = propertyDomains(property);
+  // A section is only offered when the property has one of its domains. Admin has none —
+  // it spans the business — so it survives here and is gated by its items' roles.
+  if (section.domains && !section.domains.some((d) => runs.includes(d))) return [];
   if (!holdsAnyDomain(user, section.domains)) return [];
 
   let heading = null;
@@ -144,6 +181,7 @@ export function navForSection(nav, user, sectionKey) {
   for (const item of nav) {
     if (item.section) heading = item.section;
     if (!section.headings.includes(heading)) continue;
+    if (!propertyRuns(item, runs)) continue;
     if (item.roles && !item.roles.includes(user.role)) continue;
     if (!visibleFor(item, user)) continue;
     if (!holdsScreen(item, user)) continue;
@@ -153,13 +191,13 @@ export function navForSection(nav, user, sectionKey) {
 }
 
 /** Every section this user has at least one reachable screen in, in SECTIONS order. */
-export function availableSections(nav, user) {
-  return SECTIONS.filter((s) => navForSection(nav, user, s.key).some((i) => i.to));
+export function availableSections(nav, user, property = null) {
+  return SECTIONS.filter((s) => navForSection(nav, user, s.key, property).some((i) => i.to));
 }
 
 /** The path a section opens on: its first reachable screen, or null if it has none. */
-export function firstPathIn(nav, user, sectionKey) {
-  const first = navForSection(nav, user, sectionKey).find((i) => i.to);
+export function firstPathIn(nav, user, sectionKey, property = null) {
+  const first = navForSection(nav, user, sectionKey, property).find((i) => i.to);
   return first ? first.to : null;
 }
 
@@ -172,12 +210,20 @@ export function firstPathIn(nav, user, sectionKey) {
  * `none`     — nothing reachable. The backfill prevents it, so this is a message naming
  *              who to ask rather than an empty frame.
  */
-export function landingFor(nav, user) {
-  const sections = availableSections(nav, user);
+export function landingFor(nav, user, property = null) {
+  // Neither a chooser nor a redirect: the property has not arrived, so the question of
+  // which sections exist has no answer yet. Said out loud for the same reason
+  // `routeDecision` says "loading" — a caller that reads it as "none" sends somebody who
+  // has everything to a screen telling them they have nothing.
+  if (!property) return { kind: "loading", sections: [] };
+  const sections = availableSections(nav, user, property);
   if (sections.length === 0) return { kind: "none", sections };
   if (sections.length === 1) {
     const key = sections[0].key;
-    return { kind: "redirect", sections, section: key, to: firstPathIn(nav, user, key) };
+    return {
+      kind: "redirect", sections, section: key,
+      to: firstPathIn(nav, user, key, property),
+    };
   }
   return { kind: "chooser", sections };
 }
@@ -191,8 +237,8 @@ export function landingFor(nav, user) {
  * get taken away, and a stale key would leave them staring at an empty sidebar with no
  * heading to explain it.
  */
-export function resolveSection(nav, user, stored) {
-  const sections = availableSections(nav, user);
+export function resolveSection(nav, user, stored, property = null) {
+  const sections = availableSections(nav, user, property);
   if (stored && sections.some((s) => s.key === stored)) return stored;
   if (sections.length === 1) return sections[0].key;
   return null;

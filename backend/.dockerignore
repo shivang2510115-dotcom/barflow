@@ -1,0 +1,34 @@
+# The Dockerfile does `COPY . .`, so anything not excluded here is baked into the image
+# and travels wherever the image goes.
+
+# Secrets. `.env` holds the JWT signing key, the Atlas password and the key that decrypts
+# guest identity documents. In the image they would sit in a layer readable by anyone who
+# can pull it, and they would silently override the environment variables the platform
+# injects — so a deployment would run on development keys without saying so.
+.env
+.env.*
+
+# The local JSON store. Copying it ships one property's real guests, folios and ID
+# numbers into every image built from this directory, and a container starting with a
+# `db.json` already present would serve that data as though it were its own.
+db.json
+db_*.json
+
+# Never useful in the image, and cache directories in particular can carry stale bytecode
+# that shadows the source next to it.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+
+# Tests and their fixtures are not run in the image; leaving them out keeps it smaller and
+# keeps test-only fixtures off a production filesystem.
+tests/
+
+# Editor and OS noise
+.DS_Store
+*.swp

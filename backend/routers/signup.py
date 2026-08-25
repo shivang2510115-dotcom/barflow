@@ -15,8 +15,11 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 
 from db import unscoped_db
+from models.property import PropertyType
 from security import hash_password
-from services.access import DOMAINS, PENDING, ROLE_SCREENS
+from services.access import (
+    DEFAULT_PROPERTY_TYPE, PENDING, PROPERTY_BOTH, PROPERTY_HOTEL, PROPERTY_OUTLET,
+    default_permissions, domains_for_property_type)
 from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
 from services.registration import GSTIN_SHAPE, validate_gstin
@@ -32,10 +35,28 @@ router = APIRouter()
 # so the effective limit multiplies by the worker count.
 SIGNUPS_PER_ADDRESS = RateLimiter(limit=10, window_seconds=3600, name="signup_ip")
 
+# How each type is named back to the person who just registered. `both` is deliberately
+# "property" rather than "hotel and restaurant": the confirmation is about the tenant, and
+# the one word that covers all three is the one the record is called.
+_WHAT_IT_IS = {
+    PROPERTY_HOTEL: "hotel",
+    PROPERTY_OUTLET: "restaurant",
+    PROPERTY_BOTH: "property",
+}
+
 
 class SignupIn(BaseModel):
     hotel_name: str
     city: str = ""
+    # What the business actually is. A Literal, so an unknown value never reaches this
+    # handler: FastAPI answers 422 naming the field, which is the shape the signup form
+    # already renders for a malformed email address.
+    #
+    # Defaulted rather than required, and defaulted to `both`, because that is what every
+    # property signed up before this field existed got — an omitted type has to keep
+    # giving the answer it always gave, or the field becomes a breaking change to a public
+    # endpoint. The form always sends one; this is for everything that does not.
+    property_type: PropertyType = DEFAULT_PROPERTY_TYPE
     # Optional here on purpose. A hotel signing up in the evening should not be blocked
     # because the GST certificate is in a drawer at the office; the property screen asks
     # again, and the operator sees whether it is filled before approving.
@@ -57,7 +78,7 @@ async def signup(payload: SignupIn, request: Request):
 
     name = payload.hotel_name.strip()
     if not name:
-        raise HTTPException(400, "The hotel needs a name")
+        raise HTTPException(400, "The business needs a name")
     # The first account of a new hotel, and the one that can reach every screen in it.
     # Checked against the email too: `thegrand@…` / `thegrand` is a real thing people do
     # on a signup form.
@@ -74,6 +95,12 @@ async def signup(payload: SignupIn, request: Request):
         # register their own hotel and needs to know the address is already in use.
         raise HTTPException(409, "An account with this email already exists")
 
+    # The whole of what this property is allowed to do, decided once from what it says it
+    # is. Read from `services.access` rather than branched on here: the staff routes bound
+    # every later hire against the same rule, and a second reading of it in this router is
+    # how the founding admin ends up with a domain nobody else in the property can hold.
+    domains = domains_for_property_type(payload.property_type)
+
     now = datetime.now(timezone.utc).isoformat()
     property_id = str(uuid.uuid4())
     await unscoped_db.properties.insert_one({
@@ -86,6 +113,7 @@ async def signup(payload: SignupIn, request: Request):
         "gstin": gstin, "fssai_licence": "",
         "check_in_time": "14:00", "check_out_time": "11:00",
         "logo": None,
+        "property_type": payload.property_type,
         "status": PENDING,
         "created_at": now,
         "approved_at": None, "approved_by": None,
@@ -99,10 +127,16 @@ async def signup(payload: SignupIn, request: Request):
             "name": payload.admin_name.strip() or "Owner",
             "role": "admin",
             "password_hash": hash_password(payload.admin_password),
-            # Their own hotel, entirely: an owner who cannot reach half their own
-            # property would be filing a support ticket on day one.
-            "domains": list(DOMAINS),
-            "permissions": list(ROLE_SCREENS["admin"]),
+            # Their own property, entirely — and no more than it. An owner who cannot
+            # reach half their own place would be filing a support ticket on day one; an
+            # owner handed a half their place does not have gets a Hotel section leading
+            # to screens the API refuses, which is the same ticket from the other side.
+            "domains": list(domains),
+            # Intersected with those domains rather than handed the whole catalogue, by
+            # the same function that decides a new hire's: a restaurant's owner has no
+            # rooms screen to tick, so storing the tick would be a grant that does
+            # nothing. `hotel.guests` survives — it sits behind a shared endpoint.
+            "permissions": default_permissions("admin", domains),
             "active": True,
             "property_id": property_id,
             "created_at": now,
@@ -117,6 +151,12 @@ async def signup(payload: SignupIn, request: Request):
     return {
         "property_id": property_id,
         "status": PENDING,
-        "message": "Your hotel is registered and waiting for approval. "
-                   "You can sign in now and set it up.",
+        # `property_type` is echoed because the client asked for something specific and a
+        # response that does not say what it got leaves the confirmation screen inferring
+        # it from its own form state.
+        "property_type": payload.property_type,
+        # In their own words, not ours: a restaurant told "your hotel is registered" has
+        # been given the first reason to wonder whether it picked the right thing.
+        "message": f"Your {_WHAT_IT_IS[payload.property_type]} is registered and waiting "
+                   f"for approval. You can sign in now and set it up.",
     }

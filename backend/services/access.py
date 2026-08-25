@@ -1,4 +1,4 @@
-"""Authorization: property state, then role, then work domain.
+"""Authorization: property state and shape, then role, then work domain.
 
 Pure functions over plain dicts — no database, no request — so every access rule is
 testable in isolation and readable in one place.
@@ -6,9 +6,11 @@ testable in isolation and readable in one place.
 A role says what someone does; a domain says which part of the business they do it in.
 Both must pass, except for admin, who is never domain-checked.
 
-Ahead of both sits the hotel itself. A suspended property refuses its own staff exactly
-as a deactivated staff member is refused, and for the same reason — so tenancy lives in
-this one function rather than in a second gate that the next endpoint forgets to apply.
+Ahead of both sits the hotel itself, twice over. A suspended property refuses its own
+staff exactly as a deactivated staff member is refused; and a property that is not a
+hotel — a restaurant or a bar, with no rooms — refuses the hotel endpoints to everybody
+in it, its owner included. Both live in this one function rather than in a second gate
+that the next endpoint forgets to apply.
 """
 
 # The areas a staff member can be assigned to.
@@ -23,6 +25,32 @@ SHARED = "shared"
 # screens, so those endpoints declare both domains: holding either one grants access.
 # Declaring "restaurant" alone would lock a bar-only waiter out of the POS.
 OUTLET = ("restaurant", "bar")
+
+
+# What kind of business a tenant is. Chosen at signup and stored on the property record,
+# because "does this place have rooms" is not a preference — it decides which half of the
+# product exists for them at all.
+#
+# `hotel` and `both` grant the same domains on purpose. They are kept apart because the
+# signup wording differs and the platform operator wants to see which is which; folding
+# them into one value would throw that away to save a dictionary entry.
+PROPERTY_HOTEL = "hotel"
+PROPERTY_OUTLET = "outlet"
+PROPERTY_BOTH = "both"
+
+PROPERTY_TYPES = (PROPERTY_HOTEL, PROPERTY_OUTLET, PROPERTY_BOTH)
+
+# What a property that has never said is taken to be. Every property that existed before
+# the type did has been running rooms *and* outlets, so `both` is what they have actually
+# been operating as — see migrations/backfill_property_type.py, which stamps it rather
+# than leaving the reader of a record to guess.
+DEFAULT_PROPERTY_TYPE = PROPERTY_BOTH
+
+_TYPE_DOMAINS: dict[str, tuple[str, ...]] = {
+    PROPERTY_HOTEL: DOMAINS,
+    PROPERTY_OUTLET: OUTLET,
+    PROPERTY_BOTH: DOMAINS,
+}
 
 
 # The three states a hotel can be in. Named here, in the module that enforces them,
@@ -45,6 +73,50 @@ UNSCOPED = object()
 
 class AccessError(Exception):
     """Raised when an access rule is configured with something meaningless."""
+
+
+def domains_for_property_type(property_type: str) -> tuple[str, ...]:
+    """The work domains a property of this type has, and therefore the most its staff
+    may hold.
+
+    A pure function beside DOMAINS rather than a branch in the signup router, because it
+    is a rule about what a business *is*: the API bounds a user's domains by it and the
+    staff screen draws its pickers from it, and two copies of that mapping is how a
+    restaurant ends up being offered a rooms tick on the day the third caller is written.
+
+    An unknown type raises, the same stance `normalise_domains` takes towards an unknown
+    domain: a typo must fail where it is written rather than quietly hand somebody the
+    wrong half of the business.
+    """
+    try:
+        return _TYPE_DOMAINS[property_type]
+    except (KeyError, TypeError):
+        raise AccessError(f"unknown property type: {property_type!r}") from None
+
+
+def property_domains(property_record) -> tuple[str, ...]:
+    """The domains a *stored* property has — the same rule, applied to a record.
+
+    Three answers, and the difference between them matters:
+
+    * no record at all is the empty tuple. A user naming a property that does not exist
+      is a broken tenant, and `_property_usable` already refuses them; granting the whole
+      vocabulary here would make the one place that reads it disagree.
+    * a record with no `property_type` is `both`. That is what every property predating
+      the field has been operating as, and the rule has to give the same answer whether
+      or not the startup migration has run yet.
+    * a record with a type this module has never been taught is the empty tuple, not
+      `both`. An unrecognised value is a bug or a hand-edited record; "all of it" is the
+      permissive guess and therefore the wrong one. The shared endpoints are unaffected,
+      so such a property can still be looked at while somebody fixes it.
+    """
+    if not property_record:
+        return ()
+    try:
+        return domains_for_property_type(
+            property_record.get("property_type") or DEFAULT_PROPERTY_TYPE)
+    except AccessError:
+        return ()
 
 
 # The screens an owner ticks per staff member, and what each one takes to reach.
@@ -238,6 +310,9 @@ def can_access(
 
     `property_record` is the caller's hotel, resolved once per request. Pass `None` when
     the user's `property_id` names no record; omit it only outside tenancy (see UNSCOPED).
+    It decides two things, both ahead of the role and the admin bypass: whether the hotel
+    may trade at all, and which half of the business it *has* — an outlet property's
+    hotel endpoints are refused to everybody there, its owner included.
 
     `setup_time` marks an endpoint a `pending` hotel may still reach — property details,
     room types, rooms, rates, meal plans, tax slabs, menu, tables and staff. It is a
@@ -265,6 +340,22 @@ def can_access(
     # First, and ahead of the admin bypass below: suspending a hotel must lock out its
     # admin too, or the account worth the most is the one suspension does not reach.
     if not _property_usable(user, property_record, setup_time):
+        return False
+
+    # Then what the property *is*. A restaurant with no rooms has no hotel side, so its
+    # hotel endpoints are refused outright rather than merely unlinked in the menu.
+    #
+    # This is a backstop and it is not redundant. The staff routes already bound a user's
+    # domains by the property's, so no non-admin here can hold `hotel` — but the founding
+    # admin of an outlet *is* an admin, and an admin is never domain-checked, so without a
+    # check on the property itself `GET /api/bookings` would answer the one account every
+    # such property has. Which is why it sits here, ahead of the bypass, exactly where the
+    # suspension check sits and for the same reason.
+    #
+    # `shared` is exempt: guests, inventory and the property record are not the hotel's,
+    # and a bar regular is still a guest.
+    if (property_record is not UNSCOPED and required != (SHARED,)
+            and not any(d in property_domains(property_record) for d in required)):
         return False
 
     # Deactivated accounts are refused regardless of role. This applies to admin too —
