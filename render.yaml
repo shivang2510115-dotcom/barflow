@@ -81,6 +81,17 @@ services:
       # Leave EITHER of these unset and no operator is seeded, which means nobody can
       # approve a hotel and every signup sits pending forever. There is deliberately no
       # default password: this account can approve every hotel on the platform.
+      # How many proxies sit in front of this app. X-Forwarded-For is a list the client
+      # starts and each proxy appends to, so the entries a client can forge are on the
+      # LEFT and the ones a proxy wrote are on the RIGHT — rate limits count from the
+      # right by this many hops, which is what makes the address unforgeable.
+      #   1  direct to Render (correct for this file as it stands)
+      #   2  Cloudflare or another CDN in front of Render
+      #   0  no proxy — ignore the header and use the socket
+      # Too high and every client looks like one forged address; too low and the client
+      # chooses its own.
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
       - key: PLATFORM_ADMIN_EMAIL
         sync: false
       - key: PLATFORM_ADMIN_PASSWORD

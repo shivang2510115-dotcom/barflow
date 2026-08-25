@@ -280,14 +280,62 @@ async def build_daily_brief(db, date: Optional[str] = None) -> dict:
     }
 
 
+def whatsapp_config_problem() -> str:
+    """What is missing, in the words of the thing that has to be fixed, or "".
+
+    Named individually rather than as one "not configured": each of these is a different
+    page of Meta's dashboard, and being told which one is the difference between five
+    minutes and an afternoon.
+    """
+    missing = []
+    if not os.environ.get("WHATSAPP_TOKEN"):
+        missing.append("WHATSAPP_TOKEN (Meta app -> WhatsApp -> API Setup)")
+    if not os.environ.get("WHATSAPP_PHONE_ID"):
+        missing.append("WHATSAPP_PHONE_ID (the Phone number ID, not the phone number)")
+    if not (os.environ.get("OWNER_PHONE") or "").strip():
+        missing.append("OWNER_PHONE (recipient, with country code, digits only)")
+    return "Not configured: " + "; ".join(missing) if missing else ""
+
+
+# Meta returns these for the mistakes that actually happen, and the raw text of each is
+# not something a hotelier can act on. Translated where we recognise the code, passed
+# through verbatim where we do not — a message we cannot explain is still better than
+# one we swallow.
+_WHATSAPP_ERRORS = {
+    131030: "That number is not in the recipient allow-list. A WhatsApp app in "
+            "development mode can only message numbers you have added under "
+            "API Setup -> To.",
+    131047: "More than 24 hours since that number last messaged you, so a plain text "
+            "message is refused. Send an approved template instead, or have them "
+            "message the business number first.",
+    131026: "That number cannot receive WhatsApp messages — check the country code, "
+            "and that it is a WhatsApp account.",
+    132000: "The template exists but its parameter count does not match what was sent.",
+    132001: "No approved template with that name and language.",
+    190: "The access token has expired or been revoked. Generate a new one under "
+         "API Setup; the temporary token there lasts 24 hours.",
+    100: "The request was rejected as malformed — most often WHATSAPP_PHONE_ID holding "
+         "the phone number rather than the Phone number ID.",
+}
+
+
 def _send_whatsapp(to: str, text: str) -> dict:
-    """Send via Meta WhatsApp Cloud API when creds present; else mock (return the text)."""
-    token = os.environ.get("WHATSAPP_TOKEN")
-    phone_id = os.environ.get("WHATSAPP_PHONE_ID")
-    if not (token and phone_id and to):
-        logger.info("[daily-brief] MOCK WhatsApp send to %s:\n%s", to or "<no OWNER_PHONE>", text)
-        return {"sent": False, "mock": True, "to": to, "message": text}
-    import json as _json, urllib.request
+    """Send via Meta's WhatsApp Cloud API, and report exactly what happened.
+
+    Never claims success it did not have. With no credentials this used to log at info
+    level and return a shape that read like a send, so a misconfigured deployment and a
+    working one were indistinguishable — the failure this function exists to make
+    visible.
+    """
+    problem = whatsapp_config_problem()
+    if problem:
+        logger.warning("WhatsApp not sent — %s", problem)
+        return {"sent": False, "configured": False, "to": to, "error": problem,
+                "message": text}
+
+    import json as _json, urllib.error, urllib.request
+    token = os.environ["WHATSAPP_TOKEN"]
+    phone_id = os.environ["WHATSAPP_PHONE_ID"]
     body = _json.dumps({
         "messaging_product": "whatsapp",
         "to": to,
@@ -301,10 +349,26 @@ def _send_whatsapp(to: str, text: str) -> dict:
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
-            return {"sent": True, "mock": False, "to": to, "status": r.status}
-    except Exception as e:
-        logger.warning("[daily-brief] WhatsApp send failed: %s", e)
-        return {"sent": False, "mock": False, "error": str(e), "to": to}
+            payload = _json.loads(r.read().decode() or "{}")
+        # Meta answers with the message id it accepted; returning it means a send can be
+        # traced in their dashboard rather than taken on trust.
+        message_id = (payload.get("messages") or [{}])[0].get("id")
+        return {"sent": True, "configured": True, "to": to, "status": r.status,
+                "message_id": message_id, "response": payload}
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode(errors="replace")
+        try:
+            detail = _json.loads(raw).get("error", {})
+        except Exception:  # noqa: BLE001
+            detail = {}
+        code = detail.get("code")
+        explanation = _WHATSAPP_ERRORS.get(code) or detail.get("message") or raw[:400]
+        logger.warning("WhatsApp refused (HTTP %s, code %s): %s", e.code, code, explanation)
+        return {"sent": False, "configured": True, "to": to, "status": e.code,
+                "error_code": code, "error": explanation, "response": raw[:1000]}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("WhatsApp send failed: %s", e)
+        return {"sent": False, "configured": True, "to": to, "error": str(e)}
 
 
 @router.get("/reports/daily-brief")
@@ -325,6 +389,41 @@ async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(REPORTS),
     to = (payload.to or os.environ.get("OWNER_PHONE") or "").strip()
     result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, brief["message"])
     return {"brief": brief, "delivery": result}
+
+
+class WhatsAppTestIn(BaseModel):
+    to: str = ""
+    message: str = ""
+
+
+@router.get("/whatsapp/status")
+async def whatsapp_status(user: dict = Depends(require_access(OUTLET, "admin"))):
+    """Whether WhatsApp could send right now, and what is missing if it could not."""
+    problem = whatsapp_config_problem()
+    to = (os.environ.get("OWNER_PHONE") or "").strip()
+    return {
+        "configured": not problem,
+        "problem": problem,
+        "recipient": to,
+        # Never the token itself. Enough to tell a wrong one from a missing one.
+        "token_set": bool(os.environ.get("WHATSAPP_TOKEN")),
+        "phone_id_set": bool(os.environ.get("WHATSAPP_PHONE_ID")),
+    }
+
+
+@router.post("/whatsapp/test")
+async def whatsapp_test(payload: WhatsAppTestIn,
+                        user: dict = Depends(require_access(OUTLET, "admin"))):
+    """Send one real message and hand back exactly what Meta said.
+
+    The point is that it cannot appear to work: no credentials returns the named
+    misconfiguration, a refusal returns Meta's own code translated into what to do about
+    it, and a success returns the message id you can find in their dashboard.
+    """
+    to = (payload.to or os.environ.get("OWNER_PHONE") or "").strip()
+    text = payload.message or "BarFlow test message. If you are reading this, WhatsApp is working."
+    result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, text)
+    return result
 
 
 _last_brief_sent = {"date": None}

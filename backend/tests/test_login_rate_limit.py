@@ -53,8 +53,8 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(db_module, "unscoped_db", handle)
     monkeypatch.setattr(security, "unscoped_db", handle)
     monkeypatch.setattr(auth, "unscoped_db", handle)
-    auth.LOGIN_FAILURES_PER_ADDRESS.reset()
-    auth.LOGIN_FAILURES_PER_EMAIL.reset()
+    run(auth.LOGIN_FAILURES_PER_ADDRESS.reset())
+    run(auth.LOGIN_FAILURES_PER_EMAIL.reset())
 
     now = datetime.now(timezone.utc).isoformat()
     run(handle.properties.insert_one(
@@ -105,9 +105,9 @@ def test_the_window_lifts_by_itself(world):
 
     # The same failures, aged past the window rather than waiting fifteen minutes.
     expired = time.time() - auth.LOGIN_FAILURES_PER_EMAIL.window_seconds - 1
-    auth.LOGIN_FAILURES_PER_EMAIL.reset()
+    run(auth.LOGIN_FAILURES_PER_EMAIL.reset())
     for _ in range(auth.LOGIN_FAILURES_PER_EMAIL.limit * 2):
-        auth.LOGIN_FAILURES_PER_EMAIL.record(OWNER, expired)
+        run(auth.LOGIN_FAILURES_PER_EMAIL.record(OWNER, expired))
     assert attempt(password=PASSWORD) == 200
 
 
@@ -116,13 +116,13 @@ def test_one_address_cannot_spray_one_password_across_every_account(world):
     """The attack the per-account limit cannot see: each account is tried once, so no
     account's own counter ever rises."""
     for _ in range(auth.LOGIN_FAILURES_PER_ADDRESS.limit):
-        auth.LOGIN_FAILURES_PER_ADDRESS.record("198.51.100.9")
+        run(auth.LOGIN_FAILURES_PER_ADDRESS.record("198.51.100.9"))
     assert attempt(email="desk@grand.example.com", ip="198.51.100.9") == 429
 
 
 def test_another_address_is_unaffected(world):
     for n in range(auth.LOGIN_FAILURES_PER_ADDRESS.limit):
-        auth.LOGIN_FAILURES_PER_ADDRESS.record("198.51.100.9")
+        run(auth.LOGIN_FAILURES_PER_ADDRESS.record("198.51.100.9"))
     assert attempt(password=PASSWORD, ip="192.0.2.55") == 200
 
 
@@ -142,9 +142,9 @@ def test_signing_in_clears_that_account_and_not_the_address(world):
     assert guess(auth.LOGIN_FAILURES_PER_EMAIL.limit - 1) == [401] * (
         auth.LOGIN_FAILURES_PER_EMAIL.limit - 1)
     # The address, meanwhile, has been counting all along.
-    assert auth.LOGIN_FAILURES_PER_ADDRESS.blocked("203.0.113.7") is False
+    assert run(auth.LOGIN_FAILURES_PER_ADDRESS.blocked("203.0.113.7")) is False
     for _ in range(auth.LOGIN_FAILURES_PER_ADDRESS.limit):
-        auth.LOGIN_FAILURES_PER_ADDRESS.record("203.0.113.7")
+        run(auth.LOGIN_FAILURES_PER_ADDRESS.record("203.0.113.7"))
     assert attempt(password=PASSWORD, email="chef@grand.example.com") == 429
 
 

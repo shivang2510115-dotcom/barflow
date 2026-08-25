@@ -40,12 +40,12 @@ ANON_MAX_UNITS = 100
 # guest wifi shares one address, so a flat per-IP budget would let the first four tables
 # to order silence the rest of the room. A table id is a uuid4 nobody can guess, so the
 # key is only shared by people who can actually see the same QR code.
-ANON_ORDERS_PER_TABLE = RateLimiter(limit=20, window_seconds=600)
+ANON_ORDERS_PER_TABLE = RateLimiter(limit=20, window_seconds=600, name="qr_table")
 
 # And a looser one per address across every table, which is what catches the caller who
 # has scraped or been given many table ids. Twenty rounds a minute from one address is
 # not a restaurant.
-ANON_ORDERS_PER_ADDRESS = RateLimiter(limit=120, window_seconds=600)
+ANON_ORDERS_PER_ADDRESS = RateLimiter(limit=120, window_seconds=600, name="qr_ip")
 
 # What a guest is told when one of these stops them. Deliberately the same tone in each
 # case and never an explanation of which limit they hit: the person reading it is
@@ -78,6 +78,11 @@ class Order(BaseModel):
     table_label: str
     items: List[OrderItem] = []
     status: Literal["open", "settled", "cancelled", "voided"] = "open"
+    # When a waiter last showed this bill to the guest. While it is set, the total the
+    # guest is looking at is the total on record, and self-ordering is refused so it
+    # stays that way. Cleared whenever staff change the bill, because that is a new
+    # total nobody has been shown yet.
+    presented_at: Optional[str] = None
     subtotal: float = 0.0
     tax: float = 0.0
     discount: float = 0.0
@@ -160,8 +165,13 @@ async def _open_new_order(db, table: dict, source: str) -> dict:
     return order
 
 
-async def _being_paid_for(order_id: str) -> bool:
-    """Whether a Stripe checkout session is open against this bill.
+async def _bill_locked(order: dict) -> bool:
+    """Whether this bill has been shown to the guest and must not change under them.
+
+    Two ways that happens. A waiter presses Present on the settle screen, which stamps
+    `presented_at` — that is the cash path, where the guest is holding a printed total.
+    Or a Stripe checkout session is open, which is the same situation with the total
+    locked in on Stripe's page.
 
     A session is the bill presented and its total locked in — the guest is on Stripe's
     page looking at a number. Anything appended after that is a line they never agreed
@@ -183,8 +193,10 @@ async def _being_paid_for(order_id: str) -> bool:
     # The module, not the handle: `from db import unscoped_db` binds whatever existed at
     # import time, and a test that swaps the database would still be answered by the
     # real one. scoped_db.py reaches it the same way and for the same reason.
+    if order.get("presented_at"):
+        return True
     sessions = await _db_module.unscoped_db.payment_transactions.find(
-        {"order_id": order_id}, {"_id": 0}).to_list(50)
+        {"order_id": order["id"]}, {"_id": 0}).to_list(50)
     return any(s.get("payment_status") not in ("paid", "expired", "failed")
                for s in sessions)
 
@@ -220,8 +232,8 @@ async def add_items(table_id: str, payload: AddItemsIn, request: Request = None)
         ip = client_ip(request)
         # Both, and in this order: the table budget is the one a real guest could
         # conceivably reach, so it is checked first and its refusal is the one they see.
-        if (ANON_ORDERS_PER_TABLE.limited(f"{ip}|{table_id}")
-                or ANON_ORDERS_PER_ADDRESS.limited(ip)):
+        if (await ANON_ORDERS_PER_TABLE.limited(f"{ip}|{table_id}")
+                or await ANON_ORDERS_PER_ADDRESS.limited(ip)):
             raise HTTPException(429, f"Too many orders from this device. {ASK_STAFF}")
 
     # The scope comes from the table, and so does the menu: an item id from another
@@ -232,9 +244,9 @@ async def add_items(table_id: str, payload: AddItemsIn, request: Request = None)
     if staff is None:
         # Checked against the bill as it stands, before anything is created: a guest who
         # is refused must not leave an empty order behind and the table marked occupied.
-        if order is not None and await _being_paid_for(order["id"]):
+        if order is not None and await _bill_locked(order):
             raise HTTPException(
-                409, f"This bill is being paid for and cannot be added to. {ASK_STAFF}")
+                409, f"This bill has been totalled and cannot be added to. {ASK_STAFF}")
         if not _within_guest_limits(order, payload.items):
             raise HTTPException(
                 400, f"This bill has reached the limit for self-ordering. {ASK_STAFF}")
@@ -255,9 +267,36 @@ async def add_items(table_id: str, payload: AddItemsIn, request: Request = None)
     order["items"].extend(new_items)
     order = compute_totals(order)
     await db.orders.update_one({"id": order["id"]}, {"$set": {
-        "items": order["items"], "subtotal": order["subtotal"], "tax": order["tax"], "total": order["total"],
+        "items": order["items"], "subtotal": order["subtotal"], "tax": order["tax"],
+        "total": order["total"],
+        # The bill just changed, so whatever was presented is stale. Staff re-present at
+        # the new total; a guest looking at a printed slip is never quietly overcharged.
+        "presented_at": None,
     }})
+    order["presented_at"] = None
     return order
+
+
+@router.post("/orders/{order_id}/present")
+async def present_bill(order_id: str, user: dict = Depends(POS_SETTLE),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
+    """Mark this bill as shown to the guest, freezing it against self-ordering.
+
+    Called when a waiter opens the settle screen or prints the bill. From here until the
+    bill is settled or changed by staff, an anonymous QR caller on that table is refused
+    with a message telling them to ask a waiter — the guest is looking at a total, and a
+    line arriving after that is one nobody agreed to.
+
+    Idempotent: presenting twice is what happens when a waiter walks back to the table.
+    """
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Order not found")
+    if order["status"] != "open":
+        raise HTTPException(409, f"This order is already {order['status']}")
+    stamp = datetime.now(timezone.utc).isoformat()
+    await db.orders.update_one({"id": order_id}, {"$set": {"presented_at": stamp}})
+    return {**order, "presented_at": stamp}
 
 
 @router.get("/orders/table/{table_id}/current")

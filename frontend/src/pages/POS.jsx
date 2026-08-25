@@ -105,6 +105,19 @@ export default function POS() {
     loadOrder(tableId);
   };
 
+  // Freeze the bill against self-ordering the moment a waiter picks a payment method:
+  // from here the guest is looking at a total, and a QR order arriving after that is a
+  // line they never agreed to. Silent on failure — this is a safeguard on top of the
+  // real settle, and a toast about it would be noise at the till. Staff adding an item
+  // clears it server-side, so the total shown is always the total on record.
+  const present = () => {
+    if (!order?.id || order.presented_at) return;
+    api
+      .post(`/orders/${order.id}/present`)
+      .then((r) => setOrder(r.data))
+      .catch(() => {});
+  };
+
   const settle = async () => {
     if (!order) return;
     // The server 400s on payment_method "room" without a folio_id, but that error
@@ -329,7 +342,10 @@ export default function POS() {
             {["cash", "card", "online", "room"].map((p) => (
               <button
                 key={p}
-                onClick={() => setPay(p)}
+                onClick={() => {
+                  setPay(p);
+                  present();
+                }}
                 data-testid={`pay-${p}`}
                 className={`py-2 text-[10px] font-mono uppercase tracking-widest border ${
                   pay === p ? "border-orange-500 text-orange-400" : "border-stone-800 text-stone-400 hover:border-stone-600"

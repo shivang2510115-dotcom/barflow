@@ -705,6 +705,10 @@ SCOPE_FREE = {
     ("POST", "/api/webhook/stripe"): "Stripe delivers this; scope comes from the order",
     # Signup is what CREATES a tenant, so there is none to bind yet.
     ("POST", "/api/signup"): "creates the property; tenancy has not begun",
+    # Environment variables and Meta's API. No collection is read either way, so there
+    # is nothing here a property could scope.
+    ("GET", "/api/whatsapp/status"): "reads configuration, not data",
+    ("POST", "/api/whatsapp/test"): "sends one message; touches no collection",
     # The operator works across tenants by definition. These read the properties
     # collection, which stands outside tenancy, and counts through a handle bound to the
     # property being inspected — never a guest, booking or folio record.
