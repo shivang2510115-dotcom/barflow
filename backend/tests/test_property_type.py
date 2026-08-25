@@ -399,6 +399,23 @@ def test_the_refusal_says_why_rather_than_just_no(world):
     assert "restaurant" in detail or "bar" in detail
 
 
+def test_the_ceiling_comes_from_the_callers_own_property_not_the_database(world):
+    """A hotel next door is not a licence. Two tenants in one database, one of each
+    kind: the outlet's admin is still refused the hotel domain, and the hotel's admin
+    still gets it — so the rule is read from the caller's own record, exactly as `_mine`
+    reads the roster from it."""
+    _pid, outlet_admin = outlet_world(world)
+    sign_up(PROPERTY_HOTEL, email="owner@grand.example.com", name="The Grand")
+    hotel_admin = founder(world, "owner@grand.example.com")
+
+    assert refused(lambda: run(staff.create_staff(staff.StaffIn(
+        name="Desk", email="desk@tinto.example.com", password="a-good-long-password",
+        role="front_desk", domains=["hotel"]), outlet_admin))).status_code == 400
+    assert run(staff.create_staff(staff.StaffIn(
+        name="Desk", email="desk@grand.example.com", password="a-good-long-password",
+        role="front_desk", domains=["hotel"]), hotel_admin))["domains"] == ["hotel"]
+
+
 def test_a_property_whose_record_has_vanished_cannot_be_hired_into(world):
     """`property_domains(None)` is the empty tuple, so a broken tenant grants nothing
     rather than everything — the same stance `_property_usable` takes."""
