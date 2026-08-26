@@ -6,6 +6,7 @@ import { Building2, LogOut, ShieldCheck } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { LIVE, PENDING, STATUSES, STATUS_BLURB, SUSPENDED } from "@/lib/tenancy";
+import SubscriptionPanel, { SubscriptionCell } from "@/pages/platform/SubscriptionPanel";
 
 /**
  * `/platform` — the operator's console, and the only screen they have.
@@ -76,7 +77,7 @@ function Figure({ label, value }) {
  * in a form and never came back. It is stated as a verdict rather than left to be inferred
  * from six counts, because inferring it six times a day is how it stops being read.
  */
-function Detail({ detail }) {
+function Detail({ detail, payments, onChanged }) {
   const { counts = {}, setup = {} } = detail;
   const checks = [
     ["Rooms built", setup.has_rooms],
@@ -130,10 +131,21 @@ function Detail({ detail }) {
           {detail.suspension_reason}
         </p>
       )}
+      {/* Keyed on the property so every form inside is reset when the operator opens a
+          different business — a half-typed payment carried across would land on the wrong
+          ledger, and the ledger cannot be edited afterwards. */}
+      <SubscriptionPanel
+        key={detail.id}
+        detail={detail}
+        payments={payments}
+        onChanged={onChanged}
+      />
+
       {/* The operator sees a hotel's size, never its guests: there is no route on the
           platform API that returns a booking, a folio or an identity document, and this
-          panel is everything the detail endpoint answers. */}
-      <p className="mt-6 text-xs text-stone-500 max-w-2xl">
+          panel is everything the detail endpoint answers. Money is the exception and it is
+          the operator's own record: what was agreed, and what arrived. */}
+      <p className="mt-10 border-t border-stone-800 pt-6 text-xs text-stone-500 max-w-2xl">
         Counts only. Guests, bookings, folios and identity documents are not reachable from
         this console — approving a business does not require reading its customers.
       </p>
@@ -154,6 +166,12 @@ export default function Platform() {
   // is an N+1 and it is fine at one page of hotels; the day the list runs to hundreds,
   // the count belongs in the list response rather than in more requests from here.
   const [details, setDetails] = useState({});
+  // The ledger of the one property that is open, and only that one. Unlike the counts
+  // above it is not cached per property: a payment recorded on another screen, or by
+  // another operator, must not be missing from a list somebody is about to reconcile a
+  // bank statement against. `null` means "still reading", which the table says out loud
+  // rather than showing as an empty ledger.
+  const [payments, setPayments] = useState(null);
   const [selected, setSelected] = useState(null); // property id
   const [confirming, setConfirming] = useState(null); // {id, name, status, to, label, reason}
   const [busy, setBusy] = useState(false);
@@ -198,6 +216,38 @@ export default function Platform() {
     // decide which fetches are owed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids, fetchDetail]);
+
+  const fetchPayments = useCallback(
+    (id) =>
+      api
+        .get(`/platform/properties/${id}/payments`)
+        .then((r) => setPayments(r.data || []))
+        .catch((e) => {
+          // Not swallowed the way a missing room count is. An empty ledger and a ledger
+          // that failed to load look identical, and one of them means "this business has
+          // never paid" — which is the sentence somebody is about to act on.
+          setPayments([]);
+          toast.error(formatApiErrorDetail(e.response?.data?.detail));
+        }),
+    [],
+  );
+
+  useEffect(() => {
+    if (!selected) {
+      setPayments(null);
+      return;
+    }
+    setPayments(null);
+    fetchPayments(selected);
+  }, [selected, fetchPayments]);
+
+  // After any write from the detail panel: the row, the record and the ledger, all re-read
+  // from the server. Nothing is patched in place from a response — the summary the write
+  // answered with is the same shape as the list row, and trusting one of the two to stay in
+  // step with the other is how a paid-until goes stale on screen but not in the database.
+  const refresh = useCallback(async () => {
+    await Promise.all([load(), fetchDetail(selected), fetchPayments(selected)]);
+  }, [load, fetchDetail, fetchPayments, selected]);
 
   const counts = useMemo(() => {
     const out = { "": rows.length };
@@ -314,6 +364,7 @@ export default function Platform() {
                 <th className="text-left py-2 px-3 border-b border-stone-800">City</th>
                 <th className="text-left py-2 px-3 border-b border-stone-800">GSTIN</th>
                 <th className="text-right py-2 px-3 border-b border-stone-800">Rooms</th>
+                <th className="text-left py-2 px-3 border-b border-stone-800">Subscription</th>
                 <th className="text-left py-2 px-3 border-b border-stone-800">Signed up</th>
                 <th className="text-left py-2 px-3 border-b border-stone-800">Status</th>
                 <th className="border-b border-stone-800" />
@@ -348,6 +399,12 @@ export default function Platform() {
                     </td>
                     <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums text-stone-300">
                       {rooms == null ? "…" : rooms}
+                    </td>
+                    {/* Carried on the list row itself — `subscription` is on every summary,
+                        so unlike the room count this needs no second request and is never
+                        briefly blank. */}
+                    <td className="py-2 px-3 border-b border-stone-800">
+                      <SubscriptionCell subscription={r.subscription} />
                     </td>
                     <td className="py-2 px-3 border-b border-stone-800 text-stone-400 tabular-nums whitespace-nowrap">
                       {signupDate(r.created_at)}
@@ -467,7 +524,7 @@ export default function Platform() {
           </div>
         )}
 
-        {detail && <Detail detail={detail} />}
+        {detail && <Detail detail={detail} payments={payments} onChanged={refresh} />}
 
         <div className="mt-10 border-t border-stone-800 pt-6 max-w-3xl space-y-1">
           {STATUSES.map((s) => (
@@ -476,6 +533,14 @@ export default function Platform() {
               {STATUS_BLURB[s]}
             </p>
           ))}
+          {/* Overdue is deliberately not in that list. It is not a fourth status and it
+              stops nothing: the amber flag in the Subscription column is about an invoice,
+              and the only thing that ends trade is Suspend, above, pressed by a person. */}
+          <p className="text-xs text-stone-500 pt-2">
+            <span className="tracking-widest uppercase text-amber-400">overdue</span> — not a
+            status. An invoice went past due and the business is still trading; suspending is a
+            separate, deliberate press.
+          </p>
         </div>
       </div>
     </div>

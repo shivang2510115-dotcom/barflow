@@ -28,6 +28,7 @@ import { OUTLET } from "@/lib/domains";
 import { SectionProvider } from "@/contexts/SectionContext";
 import { PropertyProvider, useOwnProperty } from "@/contexts/PropertyContext";
 import PendingBanner from "@/components/app/PendingBanner";
+import OverdueBanner from "@/components/app/OverdueBanner";
 import {
   availableSections,
   firstPathIn,
@@ -361,6 +362,11 @@ export default function AppLayout({ children }) {
               It renders null for a live property and for anyone with no property at all —
               see lib/tenancy.js::showsPendingBanner. */}
           <PendingBanner />
+          {/* Same reasoning, same place, and it blocks nothing: an overdue business is
+              still trading and this is a note about an invoice, not a lock. It sits under
+              the pending banner because both can be true at once and neither is written as
+              though the other were absent. */}
+          <OverdueBanner />
           {children}
         </main>
       </div>

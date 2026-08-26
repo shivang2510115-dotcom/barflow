@@ -95,6 +95,23 @@ export function showsPendingBanner(user, property) {
 }
 
 /**
+ * Whether the overdue banner shows.
+ *
+ * The same shape as `showsPendingBanner` above and for the same reasons — not for the
+ * operator, who has no property, and not while the record is still in flight.
+ *
+ * The two are independent and both may be true: a business can be pending *and* overdue.
+ * The banner it produces is quiet on purpose and blocks nothing, because an overdue
+ * business is still trading — the server suspends nobody on a date, and the only thing
+ * that stops trade is the operator pressing Suspend. `subscription.overdue` is derived by
+ * the server on every read, so this is never a stale flag left on a record.
+ */
+export function showsOverdueBanner(user, property) {
+  if (!readsOwnProperty(user)) return false;
+  return Boolean(property?.subscription?.overdue);
+}
+
+/**
  * What a pending property can do now, and what waits for approval. Shown on the signup
  * confirmation and on the in-app banner, which is why they are built here rather than
  * written out twice.

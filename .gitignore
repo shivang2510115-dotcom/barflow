@@ -35,3 +35,4 @@ backend/db.json
 npm-debug.log*
 yarn-error.log*
 .superpowers/
+.deploy-secrets
