@@ -1,3 +1,13 @@
+"""The JSON-file database, and — since firestore_db.py — the query grammar itself.
+
+`matches()` and `apply_update()` below started as private methods on MockCollection and
+were lifted out unchanged when Firestore became a third backend. Firestore can push some
+of a filter down to the server and none of the rest (no substring search, no comparing
+two fields of one document, no `$exists`), so it fetches a superset and re-applies the
+whole filter in Python — with *this* function, not a second copy of it. One grammar, one
+place it is defined, and no way for the two backends to disagree about what `$ne` means
+on a document that does not have the field.
+"""
 import json
 import operator
 import os
@@ -10,6 +20,110 @@ _COMPARISON_OPS = {
     "$lt": operator.lt,
     "$lte": operator.le,
 }
+
+
+def field_matches(field_val, condition):
+    """Handle a Mongo-style operator dict for a single field, e.g. {"$ne": x}."""
+    for op, opval in condition.items():
+        if op == "$ne":
+            if field_val == opval:
+                return False
+        elif op == "$in":
+            if field_val not in opval:
+                return False
+        elif op == "$nin":
+            if field_val in opval:
+                return False
+        elif op == "$exists":
+            if (field_val is not None) != bool(opval):
+                return False
+        elif op == "$regex":
+            flags = re.IGNORECASE if condition.get("$options") == "i" else 0
+            if not re.search(opval, field_val if isinstance(field_val, str) else "", flags):
+                return False
+        elif op == "$options":
+            continue  # handled alongside $regex
+        elif op in _COMPARISON_OPS:
+            # Values here are usually YYYY-MM-DD strings, but keep this generic —
+            # Python's ordering operators work for strings and numbers alike. A
+            # document missing the field (None) or holding an incomparable type
+            # must simply not match rather than raise.
+            try:
+                if not _COMPARISON_OPS[op](field_val, opval):
+                    return False
+            except TypeError:
+                return False
+        else:
+            raise ValueError(f"mock_db: unsupported operator {op}")
+    return True
+
+
+def matches(doc, filter_query):
+    """Whether one document satisfies one filter. The whole query grammar, in one place."""
+    if not filter_query:
+        return True
+    for k, v in filter_query.items():
+        if k == "$or":
+            if not any(matches(doc, sub) for sub in v):
+                return False
+        elif k == "$expr":
+            if "$lte" in v:
+                left, right = v["$lte"]
+                left_val = doc.get(left.lstrip("$")) if isinstance(left, str) and left.startswith("$") else left
+                right_val = doc.get(right.lstrip("$")) if isinstance(right, str) and right.startswith("$") else right
+                try:
+                    if not (left_val <= right_val):
+                        return False
+                except Exception:
+                    return False
+        elif isinstance(v, dict) and v and all(str(op).startswith("$") for op in v):
+            if not field_matches(doc.get(k), v):
+                return False
+        else:
+            if doc.get(k) != v:
+                return False
+    return True
+
+
+def apply_update(item, update_query):
+    """Apply $set/$push/$inc to one document. Returns whether anything changed.
+
+    Unknown operators raise, for the reason `field_matches` gives about query
+    operators: silently ignoring `$inc` would make a counter that never counts, and
+    the code depending on it would pass its tests locally and be wrong against real
+    MongoDB. Loud beats plausible.
+    """
+    modified = False
+    for op, fields in update_query.items():
+        if op == "$set":
+            changed = any(item.get(uk) != uv for uk, uv in fields.items())
+            for uk, uv in fields.items():
+                item[uk] = uv
+            modified = modified or changed
+        elif op == "$push":
+            for uk, uv in fields.items():
+                item.setdefault(uk, [])
+                item[uk].append(uv)
+            modified = True
+        elif op == "$inc":
+            # Mongo treats a missing field as zero and creates it, which is what
+            # makes `$inc` with an upsert a whole counter in one round trip.
+            for uk, uv in fields.items():
+                item[uk] = (item.get(uk) or 0) + uv
+            modified = True
+        else:
+            raise ValueError(f"mock_db: unsupported update operator {op}")
+    return modified
+
+
+def upsert_seed(filter_query):
+    """The document Mongo creates when an upsert matches nothing, before the update.
+
+    The filter's plain equality terms and nothing else: operator terms (`{"$lt": ...}`)
+    contribute no value to create, exactly as Mongo does.
+    """
+    return {k: v for k, v in (filter_query or {}).items()
+            if not (isinstance(v, dict) and any(str(o).startswith("$") for o in v))}
 
 class MockCursor:
     def __init__(self, items):
@@ -43,64 +157,10 @@ class MockCollection:
         self.db.save()
 
     def _field_matches(self, field_val, condition):
-        """Handle a Mongo-style operator dict for a single field, e.g. {"$ne": x}."""
-        for op, opval in condition.items():
-            if op == "$ne":
-                if field_val == opval:
-                    return False
-            elif op == "$in":
-                if field_val not in opval:
-                    return False
-            elif op == "$nin":
-                if field_val in opval:
-                    return False
-            elif op == "$exists":
-                if (field_val is not None) != bool(opval):
-                    return False
-            elif op == "$regex":
-                flags = re.IGNORECASE if condition.get("$options") == "i" else 0
-                if not re.search(opval, field_val if isinstance(field_val, str) else "", flags):
-                    return False
-            elif op == "$options":
-                continue  # handled alongside $regex
-            elif op in _COMPARISON_OPS:
-                # Values here are usually YYYY-MM-DD strings, but keep this generic —
-                # Python's ordering operators work for strings and numbers alike. A
-                # document missing the field (None) or holding an incomparable type
-                # must simply not match rather than raise.
-                try:
-                    if not _COMPARISON_OPS[op](field_val, opval):
-                        return False
-                except TypeError:
-                    return False
-            else:
-                raise ValueError(f"mock_db: unsupported operator {op}")
-        return True
+        return field_matches(field_val, condition)
 
     def _match(self, doc, filter_query):
-        if not filter_query:
-            return True
-        for k, v in filter_query.items():
-            if k == "$or":
-                if not any(self._match(doc, sub) for sub in v):
-                    return False
-            elif k == "$expr":
-                if "$lte" in v:
-                    left, right = v["$lte"]
-                    left_val = doc.get(left.lstrip("$")) if isinstance(left, str) and left.startswith("$") else left
-                    right_val = doc.get(right.lstrip("$")) if isinstance(right, str) and right.startswith("$") else right
-                    try:
-                        if not (left_val <= right_val):
-                            return False
-                    except Exception:
-                        return False
-            elif isinstance(v, dict) and v and all(str(op).startswith("$") for op in v):
-                if not self._field_matches(doc.get(k), v):
-                    return False
-            else:
-                if doc.get(k) != v:
-                    return False
-        return True
+        return matches(doc, filter_query)
 
     async def create_index(self, keys, unique=False, sparse=False,
                            partialFilterExpression=None, expireAfterSeconds=None):
@@ -160,34 +220,7 @@ class MockCollection:
         return InsertManyResult([d.get("id") for d in docs_copy])
 
     def _apply_update(self, item, update_query):
-        """Apply $set/$push/$inc to one document. Returns whether anything changed.
-
-        Unknown operators raise, for the reason `_field_matches` gives about query
-        operators: silently ignoring `$inc` would make a counter that never counts, and
-        the code depending on it would pass its tests locally and be wrong against real
-        MongoDB. Loud beats plausible.
-        """
-        modified = False
-        for op, fields in update_query.items():
-            if op == "$set":
-                changed = any(item.get(uk) != uv for uk, uv in fields.items())
-                for uk, uv in fields.items():
-                    item[uk] = uv
-                modified = modified or changed
-            elif op == "$push":
-                for uk, uv in fields.items():
-                    item.setdefault(uk, [])
-                    item[uk].append(uv)
-                modified = True
-            elif op == "$inc":
-                # Mongo treats a missing field as zero and creates it, which is what
-                # makes `$inc` with an upsert a whole counter in one round trip.
-                for uk, uv in fields.items():
-                    item[uk] = (item.get(uk) or 0) + uv
-                modified = True
-            else:
-                raise ValueError(f"mock_db: unsupported update operator {op}")
-        return modified
+        return apply_update(item, update_query)
 
     async def update_one(self, filter_query, update_query, upsert=False):
         """`upsert` included because a counter needs it: increment-or-create is one
@@ -209,9 +242,7 @@ class MockCollection:
                     modified_count = 1
                 break
         if matched_count == 0 and upsert:
-            created = {k: v for k, v in (filter_query or {}).items()
-                       if not (isinstance(v, dict) and any(str(o).startswith("$")
-                                                           for o in v))}
+            created = upsert_seed(filter_query)
             self._apply_update(created, update_query)
             items.append(created)
             upserted_id = created.get("id")
