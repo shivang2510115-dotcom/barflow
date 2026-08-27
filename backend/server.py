@@ -146,6 +146,44 @@ def demo_content_enabled() -> bool:
     return os.environ.get("SEED_DEMO_CONTENT", "false").lower() == "true"
 
 
+async def _unique_identifier_index(field: str) -> None:
+    """`users.<field>` unique among the accounts that actually have one.
+
+    **Partial, not plain, and that is the whole reason this is a function.** Either
+    identifier may now be absent — a waiter has a phone and no email, an owner the other
+    way round — and both are stored as an explicit `None`. A plain unique index treats
+    every one of those nulls as the same value, so the *second* phone-only account on
+    real MongoDB would be refused for duplicating an email address it does not have. The
+    partial filter indexes only the documents where the field is a string, which is the
+    same reasoning `folio_entries` already uses one for, one block down.
+
+    Sparse would not do it either, for the same reason it does not there: `None` is a
+    present key, so a sparse index still covers every account holding one.
+
+    The catch is for an existing MongoDB deployment. `users.email` was declared plain
+    unique before this change, and Mongo refuses to redefine an index whose options
+    differ rather than replacing it. Dropping it here would mean a startup path that
+    quietly deletes a uniqueness constraint on the users collection, which is not a thing
+    that should happen without somebody deciding to — so it is said out loud instead,
+    naming the exact command. Until it is run, that deployment keeps the old index and
+    behaves exactly as it does today for email; the phone index is new and unaffected.
+    Firestore and the JSON mock no-op `create_index` entirely, so neither sees any of
+    this, and the routers' pre-checks are what enforce uniqueness there regardless.
+    """
+    try:
+        await unscoped_db.users.create_index(
+            field, unique=True,
+            partialFilterExpression={field: {"$type": "string"}})
+    except Exception as exc:  # noqa: BLE001 — surface anything the driver raises
+        logger.warning(
+            "users.%s could not be indexed as unique-when-present (%s). If this is "
+            "MongoDB carrying the older plain index, drop it once and restart: "
+            "db.users.dropIndex('%s_1'). Until then an account with no %s may be "
+            "refused as a duplicate of another that has none either. The duplicate "
+            "pre-checks in routers/staff.py and routers/signup.py are unaffected.",
+            field, exc, field, field)
+
+
 async def seed_data():
     # Indexes.
     #
@@ -158,12 +196,14 @@ async def seed_data():
     # the scoped handle puts it in the filter, so an index that does not start there is
     # one the planner cannot use.
     #
-    # `users.email` stays globally unique on purpose. A login is found by email before
-    # anyone knows which hotel it belongs to, so two hotels cannot share one.
+    # `users.email` and `users.phone` stay globally unique on purpose. A login is found by
+    # its identifier before anyone knows which hotel it belongs to, so two hotels cannot
+    # share one.
     #
     # None of this takes effect against the JSON mock, whose create_index is a no-op —
     # locally the routers' own duplicate checks (now scoped) are what enforce it.
-    await unscoped_db.users.create_index("email", unique=True)
+    await _unique_identifier_index("email")
+    await _unique_identifier_index("phone")
     await unscoped_db.tables.create_index([("property_id", 1), ("label", 1)])
     await unscoped_db.reservations.create_index([("property_id", 1), ("date", 1)])
     await unscoped_db.menu.create_index([("property_id", 1), ("category", 1)])
@@ -245,6 +285,11 @@ async def seed_data():
             await unscoped_db.users.insert_one({
                 "id": str(uuid.uuid4()),
                 "email": op_email,
+                # Seeded by email and only ever by email — PLATFORM_ADMIN_EMAIL is the
+                # variable this account is configured by and nothing about that changes.
+                # The key is written as an explicit None so the document has the same
+                # shape as every other user record.
+                "phone": None,
                 "name": "Platform Operator",
                 "role": "platform_admin",
                 "password_hash": hash_password(op_pw),
@@ -261,7 +306,11 @@ async def seed_data():
         if existing is None:
             await unscoped_db.users.insert_one({
                 "id": str(uuid.uuid4()),
+                # The seeded admin and the demo logins are created by email, exactly as
+                # they always have been. ADMIN_EMAIL still decides the first account and
+                # nothing here takes a phone number.
                 "email": u["email"],
+                "phone": None,
                 "name": u["name"],
                 "role": u["role"],
                 "password_hash": hash_password(u["password"]),

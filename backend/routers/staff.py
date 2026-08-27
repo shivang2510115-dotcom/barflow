@@ -5,12 +5,12 @@ created_by on orders and folio entries must still resolve to a name — deleting
 would orphan the audit trail the ledger exists to keep.
 
 This is the one router that reaches `unscoped_db`, because `users` stands outside
-tenancy: a login has to be findable by email before anyone knows which hotel it belongs
-to, so the collection cannot be filtered by property in the handle. The roster is still
-one hotel's, so every query here says `_mine(user)` out loud instead — the explicitness
-the scoped handle buys everywhere else, paid for by hand in the one place it cannot.
-The email uniqueness check is the deliberate exception: it is global, because two hotels
-cannot share a login.
+tenancy: a login has to be findable by its identifier before anyone knows which hotel it
+belongs to, so the collection cannot be filtered by property in the handle. The roster is
+still one hotel's, so every query here says `_mine(user)` out loud instead — the
+explicitness the scoped handle buys everywhere else, paid for by hand in the one place it
+cannot. The identifier uniqueness checks are the deliberate exception: they are global,
+because two hotels cannot share a login.
 """
 import uuid
 from datetime import datetime, timezone
@@ -25,6 +25,8 @@ from security import Role, hash_password, require_access, resolve_property
 from services.access import (
     DOMAINS, SCREENS, SHARED, default_permissions, permission_in_domains,
     property_domains)
+from services.identity import (
+    NEITHER_IDENTIFIER, PHONE_SHAPE, normalise_email, normalise_phone)
 from services.password import password_problem
 
 router = APIRouter()
@@ -56,13 +58,27 @@ if get_args(Domain) != DOMAINS:
         f"staff.Domain {get_args(Domain)} has drifted from services.access.DOMAINS "
         f"{DOMAINS} — update the Literal above to match")
 
-# The message a duplicate email gets, whether the pre-check or the unique index caught it.
+# The message a duplicate gets, whether the pre-check or the unique index caught it. One
+# per identifier, because the owner has two fields in front of them and needs to know
+# which one to change.
 DUPLICATE_EMAIL = "A staff member with this email already exists"
+DUPLICATE_PHONE = "A staff member with this phone number already exists"
 
 
 class StaffIn(BaseModel):
     name: str
-    email: EmailStr
+    # Both optional, and at least one required — the rule is `_login_identifiers` below,
+    # not this declaration, because "one of these two" is not something a field type can
+    # say. A great many waiters and kitchen hands in India have no email address and
+    # always have a phone; requiring an email is what produced `waiter1@fake.com`, which
+    # cannot receive a password reset and collides across properties.
+    #
+    # `EmailStr` stays on the address: where a form is being filled in, a malformed one is
+    # a typo worth naming. The phone is a plain `str` and is validated by
+    # `services.identity.normalise_phone`, which has to run anyway to produce the stored
+    # form — a Pydantic pattern beside it would be the same rule written twice.
+    email: EmailStr | None = None
+    phone: str | None = None
     password: str
     # security.Role is the one list of roles; duplicating it here would let the two drift.
     role: Role
@@ -94,6 +110,72 @@ class PasswordIn(BaseModel):
     password: str
 
 
+def _login_identifiers(email, phone) -> tuple[str | None, str | None]:
+    """The two identifiers to store, in their canonical forms — and the refusals.
+
+    Shared by `POST /api/staff` and `POST /api/signup`, which is the whole reason it is a
+    function: the founding admin of a property and the waiter hired a week later are the
+    same kind of record, and two copies of this rule is how one of them ends up storing
+    `9876543210` while the other stores `+919876543210` and neither can find the other's.
+
+    Three refusals, all 400 and never 422, because in each case the request is perfectly
+    well formed and what is wrong is what the resulting account could do:
+
+    * **neither identifier** — the rule this change exists for. Both fields are
+      individually optional, and an account holding neither has nothing to type at the
+      sign-in box, so it can never be used. Stored, it would sit in the roster looking
+      exactly like a working account until the waiter is standing at the till.
+    * **a phone that is not a phone** — refused by shape rather than stored as typed.
+      `1234567890` is what somebody enters to get past a field they do not want to fill
+      in, which is `waiter1@fake.com` in its new spelling.
+    * a blank string in either field, which is not an identifier and must not be stored
+      as one: two accounts both holding `""` would read as two accounts holding the same
+      address, and the uniqueness check would refuse the second.
+    """
+    stored_email = normalise_email(str(email) if email is not None else None)
+    # The order matters: a number that was typed and cannot be read is a refusal, not a
+    # reason to fall through to "you gave neither". The owner did give one, and telling
+    # them otherwise sends them looking for a field they have already filled in.
+    if phone is not None and str(phone).strip():
+        stored_phone = normalise_phone(str(phone))
+        if stored_phone is None:
+            raise HTTPException(400, f"That is not a phone number this can store. Give "
+                                     f"{PHONE_SHAPE}.")
+    else:
+        stored_phone = None
+
+    if not stored_email and not stored_phone:
+        raise HTTPException(400, NEITHER_IDENTIFIER)
+    return stored_email, stored_phone
+
+
+async def _identifier_taken(email: str | None, phone: str | None) -> None:
+    """Refuse an identifier that already belongs to somebody, anywhere on the platform.
+
+    The manual pre-check that has always guarded `email`, extended to cover `phone` and
+    to look for each value in *both* columns. Firestore has no unique indexes at all and
+    the JSON mock's `create_index` is a no-op, so this read-then-write is the only thing
+    enforcing uniqueness on two of the three backends — which is why the existing pattern
+    is extended rather than a second mechanism invented beside it. `create_staff` still
+    catches `DuplicateKeyError` underneath for the concurrent case on real MongoDB.
+
+    Across both columns rather than within each: nothing can produce that clash today,
+    since a canonical number starts `+91` and an address needs an `@`. It costs one extra
+    query on a route an owner uses a handful of times a year, and the day either format
+    loosens is not the day to find out that the check was narrower than the sentence
+    "a phone must not collide with anything".
+
+    Global, not `_mine(user)`. Two hotels cannot share a login, because the login is
+    resolved before anyone knows which hotel it belongs to.
+    """
+    for value, message in ((email, DUPLICATE_EMAIL), (phone, DUPLICATE_PHONE)):
+        if not value:
+            continue
+        if await unscoped_db.users.find_one({"email": value}) \
+                or await unscoped_db.users.find_one({"phone": value}):
+            raise HTTPException(409, message)
+
+
 def _public(user: dict) -> dict:
     """Never return password_hash. Building the response explicitly rather than
     deleting keys means a new sensitive field cannot leak by being forgotten."""
@@ -101,6 +183,9 @@ def _public(user: dict) -> dict:
         "id": user["id"],
         "name": user.get("name"),
         "email": user.get("email"),
+        # `.get` and not `["phone"]`: every account created before this change is stored
+        # without the key, and it has to read as "no number" rather than raise.
+        "phone": user.get("phone"),
         "role": user.get("role"),
         "domains": user.get("domains") or [],
         # Filtered to the catalogue on the way out: a key retired from the code is
@@ -244,13 +329,21 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     # An account that can reach nothing is a mistake, not a state worth storing.
     if payload.role != "admin" and not payload.domains:
         raise HTTPException(400, "A non-admin needs at least one work domain")
-    problem = password_problem(payload.password, str(payload.email))
+
+    # Before the password rule, so that an account with no way in is refused for the
+    # reason that actually stops it rather than for a weak password the owner would then
+    # fix and be refused again.
+    email, phone = _login_identifiers(payload.email, payload.phone)
+
+    # Still checked against the address and not the number. A password that is somebody's
+    # own phone number is just as guessable, and services/password.py should learn that —
+    # but it is a rule about passwords, it applies to the two other routes that set one
+    # as well, and bolting it on here would leave those two disagreeing with this one.
+    problem = password_problem(payload.password, email)
     if problem:
         raise HTTPException(400, problem)
 
-    email = payload.email.lower().strip()
-    if await unscoped_db.users.find_one({"email": email}):
-        raise HTTPException(409, DUPLICATE_EMAIL)
+    await _identifier_taken(email, phone)
 
     allowed = await _property_domains(user)
     _within_the_property(payload.domains, allowed)
@@ -258,7 +351,11 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     doc = {
         "id": str(uuid.uuid4()),
         "name": payload.name.strip(),
+        # Both written explicitly, `None` and never omitted, so that every user document
+        # says what it holds. A key that is sometimes absent and sometimes null is two
+        # shapes for one fact, and the uniqueness pre-check above reads this column.
         "email": email,
+        "phone": phone,
         "role": payload.role,
         "domains": domains,
         "permissions": _stored_permissions(payload.permissions, payload.role, domains),
@@ -273,12 +370,15 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     }
     try:
         await unscoped_db.users.insert_one(doc)
-    except DuplicateKeyError:
-        # server.py declares email unique. Locally the pre-check above is what does the
-        # work, because the mock database's create_index is a no-op and its insert never
-        # raises. Against real MongoDB two concurrent creates both pass the pre-check and
-        # the loser lands here — without this it would reach the client as a 500.
-        raise HTTPException(409, DUPLICATE_EMAIL)
+    except DuplicateKeyError as exc:
+        # server.py declares email and phone unique. Locally the pre-check above is what
+        # does the work, because the mock database's create_index is a no-op and its
+        # insert never raises. Against real MongoDB two concurrent creates both pass the
+        # pre-check and the loser lands here — without this it would reach the client as
+        # a 500. The driver names the index it violated, so the owner is told which of
+        # the two fields to change rather than being told "email" about a number.
+        raise HTTPException(
+            409, DUPLICATE_PHONE if "phone" in str(exc) else DUPLICATE_EMAIL)
     return _public(doc)
 
 
