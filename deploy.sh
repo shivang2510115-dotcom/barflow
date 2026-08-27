@@ -62,7 +62,27 @@ sys.exit("firebase.json has no /api/** function rewrite")
 ')"
 
 # ---------------------------------------------------------------- settings
-if [ ! -f "$SECRETS_FILE" ]; then
+# An existing file is not the same as a complete one. A run that was interrupted, or one
+# where somebody pressed Enter through the prompts, leaves a file with the keys present
+# and the values blank — and skipping the interview on "the file exists" then failed much
+# later with an empty password, having already created a project alias. Ask again for
+# whatever is actually missing.
+INCOMPLETE=""
+if [ -f "$SECRETS_FILE" ]; then
+  set -a; . "./$SECRETS_FILE"; set +a
+  for _v in PROJECT ADMIN_EMAIL ADMIN_PASSWORD PLATFORM_ADMIN_EMAIL PLATFORM_ADMIN_PASSWORD; do
+    [ -n "${!_v:-}" ] || INCOMPLETE="yes"
+  done
+  if [ -n "$INCOMPLETE" ]; then
+    echo "$SECRETS_FILE exists but is missing some answers. Asking for those again."
+    echo "Anything already filled in is kept — in particular the two generated keys,"
+    echo "because regenerating GUEST_ID_ENCRYPTION_KEY would orphan any guest ID"
+    echo "numbers already written under it."
+    echo
+  fi
+fi
+
+if [ ! -f "$SECRETS_FILE" ] || [ -n "$INCOMPLETE" ]; then
   echo "First run. Three answers, then it is automatic from here."
   echo
   echo "The Firebase project must be on the Blaze plan. Functions, Cloud Scheduler and"
@@ -74,19 +94,29 @@ if [ ! -f "$SECRETS_FILE" ]; then
   echo "  Console -> Build -> Firestore Database -> Create database"
   echo "  Production mode, and the region nearest your hotels (asia-south1 for India)."
   echo
-  read -rp "Firebase project id (e.g. barflow-prod): " PROJECT
+  # Each prompt keeps what is already there, so a re-run after an interrupted one asks
+  # only for the gaps. Empty answer = keep the existing value.
+  ask()  { local cur="${!2:-}" a; read -rp "$1${cur:+ [$cur]}: " a; printf '%s' "${a:-$cur}"; }
+  asks() { local cur="${!2:-}" a; read -rsp "$1${cur:+ [unchanged]}: " a; echo >&2;
+           printf '%s' "${a:-$cur}"; }
+
+  PROJECT="$(ask 'Firebase project id (e.g. barflow-prod)' PROJECT)"
   echo
   echo "Your own login — the hotel admin of the first property."
-  read -rp "  ADMIN_EMAIL: " ADMIN_EMAIL
-  read -rsp "  ADMIN_PASSWORD: " ADMIN_PASSWORD; echo
+  ADMIN_EMAIL="$(ask '  ADMIN_EMAIL' ADMIN_EMAIL)"
+  ADMIN_PASSWORD="$(asks '  ADMIN_PASSWORD' ADMIN_PASSWORD)"
   echo
   echo "The platform operator — the account that approves and suspends hotels."
   echo "  This is not a hotel login. Without it nobody can approve anything."
-  read -rp "  PLATFORM_ADMIN_EMAIL: " PLATFORM_ADMIN_EMAIL
-  read -rsp "  PLATFORM_ADMIN_PASSWORD: " PLATFORM_ADMIN_PASSWORD; echo
+  PLATFORM_ADMIN_EMAIL="$(ask '  PLATFORM_ADMIN_EMAIL' PLATFORM_ADMIN_EMAIL)"
+  PLATFORM_ADMIN_PASSWORD="$(asks '  PLATFORM_ADMIN_PASSWORD' PLATFORM_ADMIN_PASSWORD)"
 
-  JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
-  GUEST_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+  # Generated once and never again. A new GUEST_ID_ENCRYPTION_KEY would orphan every
+  # guest identity number already written under the old one — it is encryption, not
+  # hashing, so there is no way back — and a new JWT_SECRET signs every existing session
+  # out. Both are kept if the file already has them.
+  JWT_SECRET="${JWT_SECRET:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')}"
+  GUEST_KEY="${GUEST_ID_ENCRYPTION_KEY:-$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')}"
 
   umask 077
   cat > "$SECRETS_FILE" <<EOF
