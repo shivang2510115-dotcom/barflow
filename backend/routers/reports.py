@@ -429,20 +429,76 @@ async def whatsapp_test(payload: WhatsAppTestIn,
 _last_brief_sent = {"date": None}
 
 
-async def daily_brief_scheduler():
-    """Once a day at OWNER_BRIEF_TIME, send the owner brief — one per live property.
+async def send_daily_brief(day: Optional[str] = None) -> int:
+    """Send the owner brief for `day` — one message per live property. Returns how many.
 
     The clock is the property's, not the server's: an 11pm brief must go out at 11pm
-    where the bar is, and cover that same local day's trade.
+    where the bar is, and cover that same local day's trade. `day` defaults to the
+    property-local today for that reason, and is only passed in by a caller that has
+    already worked out which local day it is asking about.
 
-    Nothing here belongs to a request, so there is no caller to scope from: the loop
-    reads the tenant list from `unscoped_db` and builds each brief through a handle bound
-    to that one hotel, so no property's figures can be added to another's. Suspended and
+    Nothing here belongs to a request, so there is no caller to scope from: this reads
+    the tenant list from `unscoped_db` and builds each brief through a handle bound to
+    that one hotel, so no property's figures can be added to another's. Suspended and
     pending hotels are skipped — a hotel that cannot trade has no day to report.
 
     A hotel's brief still goes to the single OWNER_PHONE, which is the operator's, not
     the hotel's. Per-hotel delivery belongs with the subscription record — the property
     name is in the message so the two are at least distinguishable meanwhile.
+
+    Split out of `daily_brief_scheduler` so that the two deployments can each drive it
+    from the clock they actually have: the container has a process that lives all night
+    and can watch a clock, a function does not and is woken by Cloud Scheduler instead.
+    The message and the tenant scoping are the same code either way, which is the point
+    — a second copy would drift, and its first divergence would be a number in a WhatsApp
+    message that nobody could reconcile against the Reports screen.
+    """
+    day = day or now_local().date().isoformat()
+    properties = await unscoped_db.properties.find(
+        {"status": LIVE}, {"_id": 0}).to_list(1000)
+    to = (os.environ.get("OWNER_PHONE") or "").strip()
+    for record in properties:
+        brief = await build_daily_brief(PropertyScopedDatabase(record["id"]), day)
+        text = f"{record.get('name') or 'Property'}\n{brief['message']}"
+        await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, text)
+    logger.info("[daily-brief] auto-sent for %s to %d propert(ies)", day, len(properties))
+    return len(properties)
+
+
+def in_process_brief_enabled() -> bool:
+    """Whether *this* process should run the brief itself, on its own clock.
+
+    Two things have to be true, and they answer different questions.
+
+    `DAILY_BRIEF_ENABLED` is the operator's switch and always was: it is "false" in
+    `render.yaml` and in `.env.example` because a nightly WhatsApp message to a real
+    phone is not something a clone or a staging box should start doing on its own.
+
+    `FUNCTION_TARGET` is the runtime's answer to "am I a Cloud Function?" — the Functions
+    framework sets it to the name of the entry point it is serving, and nothing else
+    does. Under Functions the brief is a `scheduler_fn.on_schedule` function that Cloud
+    Scheduler wakes at OWNER_BRIEF_TIME, so an in-process loop here would be the second
+    sender, not the first. It would also not work: the loop only makes progress while an
+    instance is alive, and a function instance with no traffic is shut down within
+    minutes, so the 23:00 tick simply never arrives. That silent stop is the bug the move
+    to a scheduled function exists to fix; this check is what stops the fix from being
+    undone by the code it replaced.
+
+    The container path is untouched. `backend/Dockerfile` and `render.yaml` set no
+    `FUNCTION_TARGET`, so a Cloud Run or Render deployment still starts the loop exactly
+    as before, and is still the only sender there.
+    """
+    if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() != "true":
+        return False
+    return not os.environ.get("FUNCTION_TARGET")
+
+
+async def daily_brief_scheduler():
+    """Watch the property's clock and send the brief once, at OWNER_BRIEF_TIME.
+
+    The container's sender. It survives only as long as the process does, which is fine
+    for a container that is always up and is why Functions uses Cloud Scheduler instead
+    — see `in_process_brief_enabled`, which is what keeps exactly one of the two running.
     """
     send_time = os.environ.get("OWNER_BRIEF_TIME", "23:00")
     while True:
@@ -452,17 +508,7 @@ async def daily_brief_scheduler():
             today = now.date().isoformat()
             if hhmm == send_time and _last_brief_sent["date"] != today:
                 _last_brief_sent["date"] = today
-                properties = await unscoped_db.properties.find(
-                    {"status": LIVE}, {"_id": 0}).to_list(1000)
-                to = (os.environ.get("OWNER_PHONE") or "").strip()
-                for record in properties:
-                    brief = await build_daily_brief(
-                        PropertyScopedDatabase(record["id"]), today)
-                    text = f"{record.get('name') or 'Property'}\n{brief['message']}"
-                    await asyncio.get_event_loop().run_in_executor(
-                        None, _send_whatsapp, to, text)
-                logger.info("[daily-brief] auto-sent for %s to %d propert(ies)",
-                            today, len(properties))
+                await send_daily_brief(today)
         except Exception as e:
             logger.warning("[daily-brief] scheduler error: %s", e)
         await asyncio.sleep(30)

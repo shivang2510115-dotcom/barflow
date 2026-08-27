@@ -1,0 +1,23 @@
+# The application's own dependencies are not restated here. `backend/requirements.txt` is
+# read directly out of the vendored copy that functions/vendor-backend.sh writes, so the
+# function and the container install the same versions of the same packages and a bump in
+# one is a bump in both. A second hand-maintained list is the same drift problem as a
+# second copy of the routers, one layer down.
+-r backend/requirements.txt
+
+# The Functions SDK: the decorators in main.py, and the manifest the CLI reads from them.
+firebase-functions>=0.4.0,<1.0
+
+# The ASGI<->WSGI adapter. Firebase hands over a WSGI-flavoured flask.Request and FastAPI
+# speaks ASGI; a2wsgi owns the single long-lived event loop that motor needs. See the
+# comment on `_bridge` in main.py.
+a2wsgi>=1.10
+
+# Pinned below 3.10 on purpose, and this is load-bearing rather than cautious.
+# functions-framework 3.10 requires starlette>=1.0, and backend/requirements.txt pins
+# fastapi==0.110.1, which requires starlette<0.38. Resolved together the newer framework
+# wins and FastAPI is then running on a major version it was never tested against — a
+# deploy that installs cleanly and fails at the first request. 3.9.x asks for
+# starlette>=0.37,<1.0, which is satisfiable alongside FastAPI. Lift this pin when
+# fastapi is upgraded, not before.
+functions-framework>=3.9,<3.10

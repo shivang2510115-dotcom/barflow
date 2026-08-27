@@ -1,7 +1,7 @@
 import axios from "axios";
 
 // Unset means same-origin, which is how the Firebase Hosting deployment works: Hosting
-// serves this bundle and rewrites /api/** to the Cloud Run service, so there is one
+// serves this bundle and rewrites /api/** to the `api` function, so there is one
 // origin and no cross-origin request at all. Left as `${undefined}/api` this built the
 // literal string "undefined/api" and every call 404'd against the hosting rewrite.
 //
