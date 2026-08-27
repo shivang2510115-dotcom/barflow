@@ -1,3 +1,39 @@
 .App {
     min-height: 100vh;
 }
+
+/* ---------------------------------------------------------------------------
+   Printing one document.
+
+   BarFlow has one printable artefact — the platform's GST invoice — and the
+   console it is opened from is not part of it. The document renders into a
+   portal on <body> and stamps `printing-document` there while it is open, so
+   this rule can take the whole application out of the printed page by name.
+   Hiding the overlay's own chrome with Tailwind's `print:` variants is not
+   enough on its own: the console behind it would still paginate.
+
+   The same shape the pitch decks in /pitch already use — hide the furniture,
+   let the content flow — written here because a React page has furniture the
+   decks do not.
+   --------------------------------------------------------------------------- */
+@media print {
+    body.printing-document > *:not(.print-root) {
+        display: none !important;
+    }
+
+    body.printing-document {
+        background: #fff;
+    }
+
+    /* Nobody prints a dark background, and a browser asked to would drop it and
+       leave white text on white paper. */
+    body.printing-document .print-root {
+        position: static;
+        background: #fff;
+        color: #000;
+    }
+
+    @page {
+        margin: 16mm;
+    }
+}
