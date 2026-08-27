@@ -92,6 +92,7 @@ import threading
 import time
 from typing import Any, Iterable, Optional
 
+from google.api_core.exceptions import FailedPrecondition
 from google.cloud.firestore_v1.async_client import AsyncClient
 from google.cloud.firestore_v1.base_query import FieldFilter
 
@@ -508,7 +509,22 @@ class FirestoreCollection:
             return [_Row(snapshot.reference, snapshot.to_dict() or {})
                     async for snapshot in query.stream()]
 
-        return await _io(op)
+        try:
+            return await _io(op)
+        except FailedPrecondition as exc:
+            # The one Firestore failure that is a deploy bug rather than a runtime one:
+            # a query whose composite index does not exist. It fails at the moment a user
+            # opens the page, which is why `firestore.indexes.json` exists — so say which
+            # query it was and where the answer lives, rather than leaving a raw gRPC
+            # message and Google's create-this-index link as the only clue.
+            logger.error(
+                "Firestore has no index for a query this application makes: "
+                "collection %r, equality on %s, range on %r. firestore.indexes.json is "
+                "meant to declare every one of these — add it there and "
+                "`firebase deploy --only firestore:indexes`, rather than only clicking "
+                "the link below, or the next deployment is missing it again.\n  %s",
+                name, sorted(equality) or "nothing", range_field, exc)
+            raise
 
     def find(self, filter_query=None, projection=None) -> FirestoreCursor:
         return FirestoreCursor(self, filter_query, projection)
