@@ -10,6 +10,7 @@ import {
   BookOpen,
   LineChart,
   LogOut,
+  KeyRound,
   Wine,
   BedDouble,
   UserCheck,
@@ -288,10 +289,21 @@ export default function AppLayout({ children }) {
             </div>
             <div className="mt-1 text-sm">{user?.name}</div>
             <div className="text-xs font-mono text-orange-500 uppercase mt-0.5">{user?.role}</div>
+            {/* Under the name rather than in the nav above it: changing your own password
+                is not a screen of the business, it is a thing about the person signed in,
+                and this block is the only part of the sidebar that is about them. It has
+                no screen key and no role list — everybody has a password. */}
+            <NavLink
+              to="/account"
+              data-testid="account-link"
+              className="mt-4 w-full flex items-center justify-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+            >
+              <KeyRound size={14} /> Password
+            </NavLink>
             <button
               data-testid="logout-button"
               onClick={signOut}
-              className="mt-4 w-full flex items-center justify-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+              className="mt-2 w-full flex items-center justify-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
             >
               <LogOut size={14} /> Sign out
             </button>
@@ -305,13 +317,25 @@ export default function AppLayout({ children }) {
               <Wine className="text-orange-500" size={18} />
               <span className="font-display uppercase">BarFlow</span>
             </div>
-            <button
-              data-testid="logout-button-mobile"
-              onClick={signOut}
-              className="text-xs font-mono uppercase text-stone-400"
-            >
-              Sign out
-            </button>
+            {/* The mobile bar has no account block to hang this under, so it sits beside
+                the sign-out it is the neighbour of everywhere else. Both shells and both
+                widths reach the same page. */}
+            <div className="flex items-center gap-4">
+              <NavLink
+                to="/account"
+                data-testid="account-link-mobile"
+                className="text-xs font-mono uppercase text-stone-400"
+              >
+                Password
+              </NavLink>
+              <button
+                data-testid="logout-button-mobile"
+                onClick={signOut}
+                className="text-xs font-mono uppercase text-stone-400"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
           {sections.length > 1 && (
             <div className="px-4 pb-3 overflow-x-auto no-scrollbar">

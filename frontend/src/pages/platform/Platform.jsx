@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Building2, LogOut, ShieldCheck } from "lucide-react";
+import { Building2, KeyRound, LogOut, ShieldCheck } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -308,6 +308,18 @@ export default function Platform() {
             </div>
             <div className="text-xs font-mono text-stone-300 mt-0.5">{user?.email}</div>
           </div>
+          {/* The operator's only route out of this console, and the reason /account is
+              not inside the app shell: they belong to no hotel, so /app sends them
+              straight back here. Their own password is not a hotel endpoint — see
+              backend/routers/auth.py — and this is the only screen from which they can
+              change it, because there is no admin above them to reset it for them. */}
+          <Link
+            to="/account"
+            data-testid="platform-account-link"
+            className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+          >
+            <KeyRound size={14} /> Password
+          </Link>
           <button
             data-testid="platform-logout"
             onClick={signOut}
