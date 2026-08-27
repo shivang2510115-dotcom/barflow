@@ -193,7 +193,20 @@ EOF
       echo "    $name is empty in $SECRETS_FILE. Fill it in and re-run."
       exit 1
     fi
-    have="$(firebase functions:secrets:access "${name}@latest" --project "$PROJECT" 2>/dev/null || true)"
+    probe="$(firebase functions:secrets:access "${name}@latest" --project "$PROJECT" 2>&1)" \
+      && have="$probe" || have=""
+    # A missing secret and an unusable project look identical through a silenced probe,
+    # and the second one is not something to keep quiet about: on the Spark plan Secret
+    # Manager cannot even be enabled, so the script would exit here having said nothing.
+    case "$probe" in
+      *"must be on the Blaze"*|*"billing"*|*"PERMISSION_DENIED"*)
+        echo
+        echo "$probe"
+        echo
+        echo "Secrets need the Blaze plan. Upgrade, then re-run — every answer is saved."
+        echo "  https://console.firebase.google.com/project/$PROJECT/usage/details"
+        exit 1 ;;
+    esac
     if [ "$have" = "$want" ]; then
       echo "    $name unchanged"
     else
