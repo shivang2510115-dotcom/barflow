@@ -1,15 +1,15 @@
 # Deploying BarFlow: Firebase, end to end
 
 **Frontend** on Firebase Hosting. **API** as a Python Cloud Function (2nd gen). **Nightly
-brief** as a scheduled function. **Database** on MongoDB Atlas.
+brief** as a scheduled function. **Database** on Firestore, in the same project.
 
-One CLI, one project, one console. `firebase deploy` ships the whole product.
+One CLI, one project, one console, one bill. `firebase deploy` ships the whole product.
 
 ```
 yourhotel.web.app
   ├─ /          → Firebase Hosting (the React build)
   └─ /api/**    → Function: api  (functions/main.py serves backend/server.py::app)
-                    └─ MongoDB Atlas
+                    └─ Firestore (same project, service-account auth)
 
   23:00 IST     → Cloud Scheduler → Function: daily_brief → WhatsApp
 ```
@@ -19,9 +19,18 @@ do is rewrite `/api/**` to a function, which is why this pairing is worth the se
 service: the browser sees **one origin**, so there is no cross-origin request, no
 preflight, and CORS stops being load-bearing.
 
-**The database is Atlas and stays Atlas.** Firestore is not a smaller change than it
-looks — it is a rewrite of every query in the application and a fresh proof that no hotel
-can read another's rows. It is not planned.
+**The database is Firestore.** An earlier version of this page said it was Atlas and
+would stay Atlas, on the grounds that moving meant rewriting every query. That turned out
+to be wrong about this codebase, and the reason is worth keeping: there are ~244 database
+call sites but they all go through **one handle**. `backend/db.py` picks a backend,
+`backend/scoped_db.py` binds it to a tenant, and `backend/mock_db.py` was already a
+second implementation of that interface over a JSON file. Firestore is a third —
+`backend/firestore_db.py` — and no router changed. The proof is the existing suite: all
+445 pure tests and all 132 API tests run unmodified against the Firestore emulator, and
+those already cover tenant isolation, the money paths and the access boundary.
+
+**Atlas still works and has not been removed.** `DB_BACKEND=mongo` with a `MONGO_URL` is
+the same path it always was.
 
 ---
 
@@ -47,16 +56,23 @@ install identical versions.
 
 ## Before you start
 
-You need the `firebase` CLI, a Firebase project **on the Blaze plan** (Functions, Cloud
-Scheduler and Secret Manager all require a billing account; the free tier still applies),
-and an Atlas cluster.
+You need the `firebase` CLI and a Firebase project **on the Blaze plan** (Functions, Cloud
+Scheduler and Secret Manager all require a billing account; the free tier still applies).
 
 ```bash
 npm install -g firebase-tools
 firebase login
 ```
 
-There is no `gcloud` step, and no second console to visit.
+You also need a **Firestore database** in that project, created once by hand:
+
+> Console → Build → Firestore Database → **Create database** → production mode →
+> the region nearest your hotels (`asia-south1` for India).
+
+`deploy.sh` does not do this for you, on purpose: a Firestore database's location is
+permanent and cannot be changed afterwards. Put it in the same region as the function.
+
+There is no `gcloud` step, no second console to visit, and no database account to open.
 
 ---
 
@@ -66,7 +82,7 @@ There is no `gcloud` step, and no second console to visit.
 ./deploy.sh
 ```
 
-It asks four questions the first time, generates `JWT_SECRET` and
+It asks three questions the first time, generates `JWT_SECRET` and
 `GUEST_ID_ENCRYPTION_KEY`, keeps them in `.deploy-secrets` (gitignored, owner-readable
 only), pushes the secrets to Secret Manager, writes `functions/.env`, deploys both
 functions and the site, and curls `/api/` at the end. Re-running it reuses the same
@@ -78,8 +94,8 @@ The rest of this page is what it does, for when it does not work.
 
 ## 1. Generate the secrets before you need them
 
-Two of these cannot be recovered later, so make them now and put them where you keep the
-Atlas password.
+Two of these cannot be recovered later, so make them now and put them wherever your
+organisation keeps things it cannot regenerate.
 
 ```bash
 # Signs every login token. If this leaks, anyone can forge an admin session for any hotel.
@@ -90,16 +106,77 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))"
 python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-## 2. Atlas
+## 2. Firestore: indexes and rules
 
-Network Access must allow **`0.0.0.0/0`**. A function's outbound address is not fixed, so
-an IP allowlist cannot name it. (If that is unacceptable, the alternative is a VPC
-connector with Cloud NAT and a static egress IP — more moving parts, and worth it only if
-a policy demands it.)
+There is nothing to configure to *connect*. The function authenticates as its own service
+account, the project comes from the metadata server, and there is no connection string, no
+password and no IP allowlist. What there is instead is two files, both deployed by
+`firebase deploy --only firestore` (which `./deploy.sh` runs as part of `api` and `all`,
+and on its own as `./deploy.sh data`).
 
-In the connection string, replace `<db_password>` with the real password and
-percent-encode any `@ : / ? # [ ] %` in it. A literal `<db_password>` left in place is the
-single most common cause of the API failing at startup.
+**`firestore.indexes.json` — the composite indexes.** Firestore requires a declared index
+for any query that combines an equality filter with a range on a different field, and it
+fails such a query **at runtime**, with a 500 and a create-this-index link in the log. So
+the indexes must exist before the traffic does. There are six and they are derived, not
+guessed:
+
+| collection | fields | the query |
+|---|---|---|
+| `bookings` | `property_id`, `check_out` | `GET /bookings?start=` |
+| `bookings` | `property_id`, `status`, `check_out` | `GET /bookings?start=&status=` |
+| `bookings` | `property_id`, `check_in` | `GET /bookings?end=` |
+| `bookings` | `property_id`, `status`, `check_in` | `GET /bookings?end=&status=` |
+| `orders` | `property_id`, `status`, `settled_at` | the revenue report's date window |
+| `rate_limit_hits` | `key`, `at` | the fixed-window counter in `services/ratelimit.py` |
+
+How they were found: `FIRESTORE_INDEX_TRACE=<path>` makes the adapter record the shape of
+every query it runs — collection, equality fields, range field — which is exactly the
+shape of the index that query needs. Running the whole suite against the emulator, then
+reading the trace against a grep for every `$lt`/`$gte`/`$gt`/`$lte` site in `routers/`
+and `services/`, then driving by hand the one endpoint the suite never exercises with
+dates. Use the same trace if you add a query: the emulator does **not** enforce indexes,
+so a passing test is not evidence that production will serve it.
+
+Every other query the application makes filters on equality only, and Firestore serves
+those by merging its automatic single-field indexes. Declaring composites for them anyway
+would cost an index write per document write for nothing. If that turns out to be wrong
+somewhere, the log says so by name: `firestore_db._query` catches `FAILED_PRECONDITION`
+and reports the collection and fields involved.
+
+**`firestore.rules` — deny everything.** This does not restrict the application at all,
+which is the point worth understanding: it runs as a service account, and admin
+credentials bypass security rules entirely. The rules close the *other* door — the
+Firestore Web SDK, which any visitor to the site could otherwise point at the project's
+public config and read every hotel's bookings with. Tenancy stays in
+`backend/scoped_db.py` rather than being written a second time in the rules language,
+where the two copies could disagree.
+
+### Uniqueness is enforced by the application, and only by the application
+
+**Firestore has no unique indexes.** `seed_data()` still declares four, and against
+Firestore `create_index` is a documented no-op:
+
+| constraint | what actually enforces it |
+|---|---|
+| `users.email` | a lookup before insert in `routers/staff.py` and `routers/signup.py` |
+| `guests(property_id, phone)` | `routers/guests.py`, which returns 409 with the existing guest |
+| `bookings(property_id, reference)` | generate-and-check in `routers/bookings.py` |
+| `folio_entries(property_id, folio_id, charge_date)` for room nights | `services/folio.py::unposted_nights` |
+
+Each is a read followed by a write, so two simultaneous requests can both read "no
+duplicate" and both insert. **This was already true under the JSON mock**, whose
+`create_index` is also a no-op, and the pre-checks were written knowing it — but MongoDB
+was the thing that would have closed the race, and choosing Firestore is choosing not to.
+The one to watch is the folio room-night entry, because a duplicate there is a guest
+charged twice for one night; `unposted_nights` re-reads what is already posted
+immediately before writing, which narrows it to the width of that one call. If it ever
+matters, the fix is a Firestore transaction in `services/folio.py`, not an index.
+
+The rate limiter's TTL is the other half of this. Firestore's TTL is a field policy, not
+something a client can request, so it is declared in `firestore.indexes.json` under
+`fieldOverrides` on `rate_limit_hits.expires_at`. It sweeps within 24 hours and is
+best-effort, so `services/ratelimit.py` keeps pruning by hand — as it already does for
+the mock.
 
 ## 3. Configuration, in two places on purpose
 
@@ -113,7 +190,7 @@ environment. It is gitignored and regenerated by `deploy.sh`; write it by hand o
 are not using that script.
 
 ```
-DB_NAME=barflow
+DB_BACKEND=firestore
 ADMIN_EMAIL=you@yourhotel.in
 PLATFORM_ADMIN_EMAIL=ops@yourcompany.in
 CORS_ORIGINS=https://barflow-prod.web.app
@@ -125,14 +202,19 @@ SEED_DEMO_CONTENT=false
 DAILY_BRIEF_ENABLED=true
 OWNER_BRIEF_TIME=23:00
 API_MAX_INSTANCES=10
-BARFLOW_SECRETS=MONGO_URL,JWT_SECRET,ADMIN_PASSWORD,PLATFORM_ADMIN_PASSWORD,GUEST_ID_ENCRYPTION_KEY
+BARFLOW_SECRETS=JWT_SECRET,ADMIN_PASSWORD,PLATFORM_ADMIN_PASSWORD,GUEST_ID_ENCRYPTION_KEY
 ```
 
-**Secret Manager** — the five values that must never sit in a file on a laptop or in a
+**`DB_BACKEND=firestore` is the load-bearing line in that file.** Without it `backend/db.py`
+falls back to the JSON-file mock, and the function starts, serves, and writes real
+bookings to a container disk that the next cold start throws away. It is not a secret, so
+it belongs here rather than in Secret Manager — but it is the one plain setting whose
+absence is silent.
+
+**Secret Manager** — the four values that must never sit in a file on a laptop or in a
 function's plain configuration:
 
 ```bash
-firebase functions:secrets:set MONGO_URL
 firebase functions:secrets:set JWT_SECRET
 firebase functions:secrets:set ADMIN_PASSWORD
 firebase functions:secrets:set PLATFORM_ADMIN_PASSWORD
@@ -155,7 +237,15 @@ every business on the platform.
 
 **The app refuses to start** against a real database if `JWT_SECRET` or `ADMIN_PASSWORD`
 is still the value published in this repository. That is intentional — read the error, do
-not work around it.
+not work around it. Firestore counts as a real database for this: `db.py` reports
+`using_mock = False` for it exactly as it does for Atlas, which is the switch those two
+guards, and the `CORS_ORIGINS` one, all read.
+
+**Upgrading a deployment that used Atlas:** `MONGO_URL` is no longer in `BARFLOW_SECRETS`,
+so the function stops being given it, and the old secret can be destroyed in Secret
+Manager at your leisure. `.deploy-secrets` may still contain a `MONGO_URL=` line; it is
+ignored and can be deleted. There is no data migration path here and none is offered —
+this change was made before anything was deployed.
 
 ## 4. Deploy the functions
 
@@ -268,15 +358,16 @@ shut down when it goes quiet, so "startup" happens repeatedly.
 once-per-instance hook: it runs before the first invocation that instance serves and
 never again, and never at import — which matters, because the CLI imports `main.py` on
 your own machine just to find out what functions exist, and startup at import would mean
-a deploy tried to reach Atlas to answer that question.
+a deploy tried to reach the database to answer that question.
 
 What runs is the app's real ASGI lifespan, not a copy of it, so `@app.on_event("startup")`
 in `server.py` stays the single definition: the connection ping, the seed (the admin
 account, the GST bands, the meal plans) and the five migrations. Measured against the
 mock, a cold start on an already-seeded database is **40 database round trips** and no
-writes; the wall-clock cost is those 40 round trips plus the Python import, so in the
-same region as your Atlas cluster expect a few hundred milliseconds on top of the
-container start. Put the cluster in the same region as the function.
+writes; the wall-clock cost is those 40 round trips plus the Python import, so expect a
+few hundred milliseconds on top of the container start. Create the Firestore database in
+the same region as the function — that decision is permanent, so it is worth getting
+right on the day.
 
 If startup fails, the runtime's flag is left unset and the next invocation tries again,
 rather than the instance serving 500s for ever out of a half-seeded state.
@@ -295,11 +386,46 @@ through `/signup` like any other.
 **Custom domain:** `firebase hosting:sites` → add a domain in the Firebase console, then
 add it to `CORS_ORIGINS` in `functions/.env` and redeploy the functions.
 
-**Redeploying:** `./deploy.sh`, or `./deploy.sh api` / `./deploy.sh web` for one half.
-Secrets persist; you only set them again when they change.
+**Redeploying:** `./deploy.sh`, or `./deploy.sh api` / `./deploy.sh web` / `./deploy.sh
+data` for one part. Secrets persist; you only set them again when they change.
 
 **Running it locally:** unchanged — `cd backend && uvicorn server:app --reload` with
-`MONGO_URL` unset uses the JSON mock, exactly as before.
+`MONGO_URL` and `DB_BACKEND` unset uses the JSON mock, exactly as before. Nothing about
+this change touches local development.
+
+To run against Firestore locally instead, use the emulator rather than the real database:
+
+```bash
+firebase emulators:start --only firestore --project demo-barflow   # no login needed
+
+cd backend
+DB_BACKEND=firestore FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  JWT_SECRET=… ADMIN_PASSWORD=… CORS_ORIGINS=http://localhost:3000 \
+  uvicorn server:app --reload
+```
+
+`JWT_SECRET`, `ADMIN_PASSWORD` and `CORS_ORIGINS` are needed here and not under the mock,
+because Firestore is a real database as far as those three guards are concerned.
+
+The whole test suite runs this way too, which is how the adapter is verified:
+
+```bash
+# 445 pure tests — tests/conftest.py points MockDatabase at the emulator
+DB_BACKEND=firestore FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  JWT_SECRET=… ADMIN_PASSWORD=… CORS_ORIGINS=http://localhost:3000 \
+  python3 -m pytest tests/ --ignore=tests/backend_test.py --ignore=tests/hotel_api_test.py
+
+# 132 API tests — against a server started as above
+REACT_APP_BACKEND_URL=http://127.0.0.1:8000 ADMIN_PASSWORD=… \
+  python3 -m pytest tests/hotel_api_test.py
+
+# 26 adapter tests — every operator, diffed against the mock's answer
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 python3 -m pytest tests_firestore/
+```
+
+`tests/backend_test.py` is the exception and stays on the mock: it pins
+`ADMIN_PASSWORD = "admin123"` in its source, which the app refuses on any real backend by
+design. That was equally true of Atlas.
 
 To exercise the function path instead:
 
@@ -312,7 +438,7 @@ firebase emulators:start --only functions --project demo-barflow
 
 The venv must be built with the same Python version as `runtime` in `firebase.json`; the
 CLI looks for that exact interpreter by name. `--project demo-barflow` needs no login.
-The emulator will still try to read the five secrets from Secret Manager and fail with a
+The emulator will still try to read the four secrets from Secret Manager and fail with a
 403 if you are not authenticated — put local stand-ins in `functions/.secret.local`
 (gitignored, same `KEY=value` format as `.env`) or leave them unset, in which case the
 app falls back to the JSON mock as it does anywhere else.
