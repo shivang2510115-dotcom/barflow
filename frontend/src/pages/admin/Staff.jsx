@@ -5,6 +5,7 @@ import { useProperty } from "@/contexts/PropertyContext";
 import { toast } from "sonner";
 import { DOMAIN_LABELS, propertyDomains } from "@/lib/domains";
 import { screenInDomains } from "@/lib/sections";
+import PasswordInput from "@/components/app/PasswordInput";
 
 const ROLES = ["admin", "manager", "front_desk", "waiter", "kitchen"];
 
@@ -343,17 +344,32 @@ export default function Staff() {
             ["name", "Name", "text"],
             ["email", "Email", "email"],
             ["password", "Password", "password"],
-          ].map(([k, label, type]) => (
-            <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
-              {label}
-              <input
-                type={type}
-                value={creating[k]}
-                onChange={(e) => setCreating({ ...creating, [k]: e.target.value })}
-                className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
-              />
-            </label>
-          ))}
+          ].map(([k, label, type]) => {
+            // The admin is inventing this password for somebody else and then has to read
+            // it out to them, so being able to see what was typed is the whole point of
+            // the field. `block mt-2` moves to the wrapper: it is what the reveal button
+            // is positioned against, and a margin left on the input would drop the icon
+            // below the line.
+            const password = type === "password";
+            const Control = password ? PasswordInput : "input";
+            return (
+              <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+                {label}
+                <Control
+                  {...(password
+                    ? { label: "the new staff member's password", autoComplete: "new-password",
+                        wrapperClassName: "block mt-2",
+                        "data-testid": "staff-create-password" }
+                    : { type })}
+                  value={creating[k]}
+                  onChange={(e) => setCreating({ ...creating, [k]: e.target.value })}
+                  className={`bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none ${
+                    password ? "" : "block mt-2"
+                  }`}
+                />
+              </label>
+            );
+          })}
           <label className="text-xs tracking-widest uppercase text-stone-500">
             Role
             <select
@@ -654,12 +670,17 @@ export default function Staff() {
           <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
             Set a new password for {resetting.name}
           </h3>
-          <input
+          {/* autoFocus stays on the *field*, never on the reveal button: the person
+              opening this panel has come here to type. */}
+          <PasswordInput
             autoFocus
-            type="password"
+            label={`the new password for ${resetting.name}`}
+            autoComplete="new-password"
+            data-testid="staff-reset-password"
             value={resetting.password}
             onChange={(e) => setResetting({ ...resetting, password: e.target.value })}
             placeholder="At least 8 characters"
+            wrapperClassName="inline-block"
             className="bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
           />
           <div className="flex gap-3 mt-5">

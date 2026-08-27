@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { ArrowRight, Check, Lock, Wine } from "lucide-react";
 import { lockedUntilApproved, unlockedWhilePending } from "@/lib/tenancy";
 import { PROPERTY_TYPE_CHOICES } from "@/lib/domains";
+import PasswordInput from "@/components/app/PasswordInput";
 
 /**
  * `/signup` — public, unauthenticated, and the only way a new hotel comes into existence.
@@ -47,15 +48,23 @@ const FIELDS = [
 ];
 
 function Field({ id, label, type, placeholder, required, value, onChange }) {
+  // The one password on this form is the owner's own, invented thirty seconds ago and
+  // never typed before, so it is the field on this screen most worth being able to read
+  // back. Same input treatment either way — only the reveal control is added.
+  const Control = type === "password" ? PasswordInput : "input";
+  const extra =
+    type === "password"
+      ? { label: "password", autoComplete: "new-password" }
+      : { type };
   return (
     <label className="block">
       <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
         {label}
         {!required && <span className="text-stone-600 normal-case tracking-normal ml-2">optional</span>}
       </span>
-      <input
+      <Control
         data-testid={`signup-${id}`}
-        type={type}
+        {...extra}
         required={required}
         value={value}
         placeholder={placeholder}
