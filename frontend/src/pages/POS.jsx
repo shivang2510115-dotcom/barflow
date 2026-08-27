@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
+import { useProperty } from "@/contexts/PropertyContext";
+import { gstLabel, gstSettings, outletTotals } from "@/lib/tax";
 import { Plus, Minus, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,6 +12,11 @@ import EmptyState from "@/components/app/EmptyState";
 
 export default function POS() {
   const { tableId } = useParams();
+  // The hotel's own GST rate, fetched once for the whole console by AppLayout. Only the
+  // bill *foot* is worked out here, and only while a waiter is typing a discount — every
+  // total on a saved order comes back from the server, which is the authority on it.
+  const property = useProperty();
+  const gst = gstSettings(property);
   const nav = useNavigate();
   const [tables, setTables] = useState([]);
   const [menu, setMenu] = useState([]);
@@ -127,7 +134,7 @@ export default function POS() {
       return;
     }
     try {
-      const finalTotal = (order.subtotal || 0) + (order.tax || 0) - Number(discount || 0);
+      const finalTotal = outletTotals(order.subtotal || 0, gst, discount).total;
       await api.post(`/orders/${order.id}/settle`, {
         payment_method: pay,
         discount: Number(discount) || 0,
@@ -152,6 +159,12 @@ export default function POS() {
       }
     }
   };
+
+  // The foot of the bill, re-derived from the lines rather than read off the order, so
+  // the total follows the discount box as it is typed. The server prices the same lines
+  // the same way when the bill is settled — see backend/services/tax.py, which this
+  // mirrors — and it is the server's answer that is stored.
+  const foot = outletTotals(order?.subtotal || 0, gst, discount);
 
   return (
     <div className="p-4 md:p-6 grid lg:grid-cols-[1fr_420px] gap-4 min-h-screen">
@@ -298,8 +311,14 @@ export default function POS() {
         </div>
 
         <div className="mt-4 space-y-1 border-t border-stone-800 pt-4 text-sm font-mono">
-          <Row label="Subtotal" value={currency(order?.subtotal || 0)} />
-          <Row label="Tax (10%)" value={currency(order?.tax || 0)} />
+          {/* "Taxable value" when the rate is inclusive, because the subtotal and the
+              total are then the same number and two identical lines with different names
+              is how a guest is told the bill is wrong. */}
+          <Row
+            label={gst.inclusive ? "Taxable value" : "Subtotal"}
+            value={currency(gst.inclusive ? foot.taxableValue : foot.subtotal)}
+          />
+          <Row label={gstLabel(gst)} value={currency(foot.tax)} />
           <div className="flex items-center justify-between text-stone-400">
             <span className="text-[10px] uppercase tracking-widest">Discount</span>
             <input
@@ -311,7 +330,7 @@ export default function POS() {
               className="w-24 bg-transparent border-b border-stone-700 text-right py-0.5 focus-neon"
             />
           </div>
-          <Row label="Total" value={currency((order?.subtotal || 0) + (order?.tax || 0) - Number(discount || 0))} bold />
+          <Row label="Total" value={currency(foot.total)} bold />
         </div>
 
         <div className="mt-4">

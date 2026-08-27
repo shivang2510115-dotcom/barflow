@@ -6,9 +6,11 @@ from typing import Optional, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+import db as _db_module
 from scoped_db import PropertyScopedDatabase, db_for_table, tenant_db
 from security import require_access
 from services.access import OUTLET
+from services.tax import outlet_gst_settings
 
 router = APIRouter()
 
@@ -92,9 +94,19 @@ async def get_table_public(table_id: str, request: Request = None):
     Unauthenticated, like the order routes it sits beside, and scoped the same way — the
     table names its own hotel, and a pending or suspended one's link stops working here
     too. `db_for_table` does both, so the QR entry points cannot drift apart.
+
+    It also carries the outlet's GST rate, because the QR page shows the guest a running
+    total *before* an order exists and therefore before the server has priced anything.
+    That preview used to be a hardcoded 10% — the same wrong figure `compute_totals`
+    carried — so a guest watched their cart add up to one number and were handed a bill
+    with another. Two fields, both already printed on the bill the waiter brings; nothing
+    here is private to the hotel.
     """
-    _db, table = await db_for_table(table_id, request)
-    return table
+    scoped, table = await db_for_table(table_id, request)
+    record = await _db_module.unscoped_db.properties.find_one(
+        {"id": scoped.property_id}, {"_id": 0})
+    rate, inclusive = outlet_gst_settings(record)
+    return {**table, "outlet_gst_rate": rate, "gst_inclusive": inclusive}
 
 
 @router.post("/tables")

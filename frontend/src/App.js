@@ -36,6 +36,7 @@ import Staff from "@/pages/admin/Staff";
 import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
 import Notifications from "@/pages/admin/Notifications";
+import Settings from "@/pages/admin/Settings";
 import CustomerMenu from "@/pages/CustomerMenu";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
@@ -96,6 +97,10 @@ function AppShell() {
         <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />
         <Route path="/admin/analytics" element={<Protected roles={["admin", "manager"]}><Analytics /></Protected>} />
         <Route path="/admin/notifications" element={<Protected roles={["admin"]}><Notifications /></Protected>} />
+        {/* Admin only, twice: this route names the role, and `PUT /api/property` behind
+            it names "admin" as well. A waiter who types the address gets the screen's
+            redirect; one who calls the API gets a 403. */}
+        <Route path="/admin/settings" element={<Protected roles={["admin"]}><Settings /></Protected>} />
       </Routes>
     </AppLayout>
   );
