@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// Nothing reaches this database from a browser, and these rules say so out loud.
+//
+// BarFlow's data is read and written by one thing only: the FastAPI application in
+// `backend/`, running as a Cloud Function with a service account. Admin credentials
+// bypass security rules entirely, so this file does not restrict the app at all — it
+// closes the *other* door, the Firestore Web SDK, which any visitor to the site could
+// otherwise use with the project's public config to read every hotel's bookings.
+//
+// Tenancy in this product is enforced in `backend/scoped_db.py`, which binds a property
+// filter to every query. Reproducing that here in the rules language would be a second
+// copy of the tenancy model, able to disagree with the first. A total deny is the honest
+// alternative: there is exactly one path to the data and it is the one under test.
+//
+// If a future feature ever needs a browser to read Firestore directly, this file becomes
+// load-bearing and must be written and tested before that feature ships — not loosened
+// to `allow read, write: if true` to make something work.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

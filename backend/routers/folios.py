@@ -3,6 +3,7 @@
 Nothing in this module updates or deletes an entry. Corrections are new reversing
 entries, so a folio can always be reconstructed and a disputed bill has an audit trail.
 """
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -49,13 +50,23 @@ async def _require_open(db, folio_id: str) -> dict:
     return folio
 
 
+# A fixed namespace so the id is stable across processes and restarts — uuid4 would be
+# random per call, which is exactly the property we do not want here.
+_NIGHT_NAMESPACE = uuid.UUID("6f1c9a3e-4b7d-5e2a-9c8f-1d0b3a7e5c42")
+
+
+def _night_entry_id(folio_id: str, night: str) -> str:
+    return str(uuid.uuid5(_NIGHT_NAMESPACE, f"{folio_id}|{night}"))
+
+
 async def post_due_nights(db, folio_id: str) -> int:
     """Post every room night due but not yet posted. Called on every folio read.
 
     Lazy rather than scheduled: a server that slept cannot silently skip a night, and
-    under real MongoDB the unique index on (folio_id, charge_date), partial on
-    kind: "room_night", also guards this, but mock_db's create_index is a no-op, so
-    unposted_nights is the real protection.
+    `unposted_nights` does the ordinary work, and the entry's id is derived from
+    (folio_id, charge_date) so two requests racing past it write the same document
+    rather than two — see _night_entry_id. The MongoDB unique index this used to lean
+    on never existed on the backends the app actually runs on.
     Amounts come from the booking's quote snapshot so the folio agrees with the price
     the guest was actually quoted, even if rates have changed since.
     """
@@ -79,10 +90,26 @@ async def post_due_nights(db, folio_id: str) -> int:
             continue
         amount = round(float(priced["tariff"]) + float(priced["gst_amount"]), 2)
         entry = FolioEntry(
+            # Deterministic, not random: one night on one folio is always the same
+            # document. Two requests racing to post the same night therefore write the
+            # same id twice — an overwrite, never a second line — so the guest cannot be
+            # charged twice for one night. `unposted_nights` still does the ordinary
+            # work; this is what holds when two readers pass it at the same instant.
+            #
+            # It replaces a unique index that only ever existed on MongoDB: Firestore has
+            # no unique constraints and mock_db's create_index is a no-op, so on the two
+            # backends this app actually runs on there was nothing underneath.
+            id=_night_entry_id(folio_id, night),
             folio_id=folio_id, kind="room_night", direction="debit", amount=amount,
             description=f"Room night {night}", charge_date=night,
             posted_by="system").model_dump()
-        await db.folio_entries.insert_one(entry)
+        # Upsert on the deterministic id, not insert: an insert appends, so two writers
+        # racing past `unposted_nights` would each append and the guest would be charged
+        # twice for one night. Keyed on the id, the second writer overwrites the first
+        # with an identical row. Same behaviour on all three backends rather than relying
+        # on a unique index that only MongoDB ever had.
+        await db.folio_entries.update_one(
+            {"id": entry["id"]}, {"$set": entry}, upsert=True)
         posted += 1
 
     if posted:
