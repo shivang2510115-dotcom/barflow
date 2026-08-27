@@ -169,10 +169,12 @@ def outlet_gst_settings(property_record) -> tuple[float, bool]:
     tax it has no registration to collect.
     """
     record = property_record or {}
+    stored = record.get("outlet_gst_rate", DEFAULT_OUTLET_GST_RATE)
     try:
-        rate = normalise_rate(record.get("outlet_gst_rate", DEFAULT_OUTLET_GST_RATE))
+        # A record written before this field existed, or one whose migration has not run,
+        # holds None here — `normalise_rate` refuses it and the default is used, which is
+        # the same answer the key being absent gives.
+        rate = normalise_rate(stored)
     except TaxRateError:
-        rate = DEFAULT_OUTLET_GST_RATE
-    if record.get("outlet_gst_rate") is None:
         rate = DEFAULT_OUTLET_GST_RATE
     return rate, bool(record.get("gst_inclusive", DEFAULT_GST_INCLUSIVE))
