@@ -105,11 +105,15 @@ def _secrets() -> list[str]:
     name in a config file, not an edit to this module.
 
     Every name listed here must already exist in Secret Manager or the deploy is refused,
-    which is why the default is only the five the application genuinely cannot run
+    which is why the default is only the four the application genuinely cannot run
     without. deploy.sh creates exactly those.
+
+    MONGO_URL was the fifth and is not one any more: the database is Firestore, in this
+    same Firebase project, reached with the function's own service account. There is no
+    connection string to keep. Leaving it in this default would refuse every deploy of a
+    project that has correctly never created that secret.
     """
-    default = ("MONGO_URL,JWT_SECRET,ADMIN_PASSWORD,PLATFORM_ADMIN_PASSWORD,"
-               "GUEST_ID_ENCRYPTION_KEY")
+    default = "JWT_SECRET,ADMIN_PASSWORD,PLATFORM_ADMIN_PASSWORD,GUEST_ID_ENCRYPTION_KEY"
     return [name.strip() for name in os.environ.get("BARFLOW_SECRETS", default).split(",")
             if name.strip()]
 
@@ -224,8 +228,8 @@ def _cold_start() -> None:
     `core.init` is the Functions runtime's own answer to this, and it is a better one
     than doing the work at import: the Firebase CLI imports this module on the
     developer's machine to discover what functions exist, and startup at import would
-    mean a deploy tried to reach Atlas — or, with no MONGO_URL set, quietly seeded the
-    local JSON mock — just to find out the name of an endpoint.
+    mean a deploy tried to reach Firestore — or, with no DB_BACKEND set, quietly seeded
+    the local JSON mock — just to find out the name of an endpoint.
 
     A failure here leaves the runtime's `_did_init` flag unset, so the next invocation
     tries again rather than the instance serving 500s for ever from a half-seeded state.
