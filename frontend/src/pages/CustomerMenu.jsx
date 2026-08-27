@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { API, currency } from "@/lib/api";
+import { gstLabel, gstSettings, outletTotals } from "@/lib/tax";
 import { Plus, Minus, ShoppingBag, X, Wine } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -56,9 +57,17 @@ export default function CustomerMenu() {
         .filter(Boolean),
     [cart, menu]
   );
-  const subtotal = cartItems.reduce((s, i) => s + i.price * i.qty, 0);
-  const tax = Math.round(subtotal * 0.1 * 100) / 100;
-  const total = Math.round((subtotal + tax) * 100) / 100;
+  // The outlet's own GST, carried on the table this QR code points at — see
+  // backend/routers/tables.py::get_table_public. This preview used to be a hardcoded 10%,
+  // which is not an Indian GST rate, so the guest watched their cart add up to one figure
+  // and were handed a bill with another. `gstSettings` answers 5% exclusive while the
+  // table is still loading, which is what the server bills an unset property at.
+  const gst = gstSettings(table || null);
+  const cartTotals = outletTotals(
+    cartItems.reduce((s, i) => s + i.price * i.qty, 0),
+    gst,
+  );
+  const { subtotal, taxableValue, tax, total } = cartTotals;
   const cartCount = cartItems.reduce((s, i) => s + i.qty, 0);
 
   const add = (id) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
@@ -342,8 +351,8 @@ export default function CustomerMenu() {
               ))}
             </ul>
             <div className="mt-4 font-mono text-sm space-y-1 border-t border-stone-800 pt-4">
-              <div className="flex justify-between text-stone-400"><span>Subtotal</span><span>{currency(subtotal)}</span></div>
-              <div className="flex justify-between text-stone-400"><span>Tax</span><span>{currency(tax)}</span></div>
+              <div className="flex justify-between text-stone-400"><span>{gst.inclusive ? "Taxable value" : "Subtotal"}</span><span>{currency(gst.inclusive ? taxableValue : subtotal)}</span></div>
+              <div className="flex justify-between text-stone-400"><span>{gstLabel(gst)}</span><span>{currency(tax)}</span></div>
               <div className="flex justify-between text-base pt-2"><span>Total</span><span className="text-orange-400">{currency(total)}</span></div>
             </div>
 

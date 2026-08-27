@@ -722,6 +722,18 @@ SCOPE_FREE = {
     ("POST", "/api/platform/properties/{property_id}/payments"): "the platform's ledger",
     ("GET", "/api/platform/properties/{property_id}/payments"): "the platform's ledger",
     ("POST", "/api/platform/properties/{property_id}/type"): "properties, and every user of one",
+    # The platform's own registration, and the tax documents issued under it. Both
+    # collections stand outside tenancy for the reason `subscription_payments` does — an
+    # invoice from the platform to a hotel is the platform's record of its own supply,
+    # not the hotel's data — and the operator who writes them belongs to no property to
+    # be scoped to. `properties` is read here only to name the customer on the document.
+    ("GET", "/api/platform/settings"): "the platform's own registration, not a tenant's",
+    ("PUT", "/api/platform/settings"): "the platform's own registration, not a tenant's",
+    ("POST", "/api/platform/properties/{property_id}/payments/{payment_id}/invoice"):
+        "the platform's own tax document; properties is read to name the customer",
+    ("GET", "/api/platform/properties/{property_id}/invoices"): "the platform's own series",
+    ("GET", "/api/platform/invoices/{invoice_id}"): "the platform's own series",
+    ("POST", "/api/platform/invoices/{invoice_id}/credit-note"): "the platform's own series",
     ("GET", "/api/whatsapp/status"): "reads configuration, not data",
     ("POST", "/api/whatsapp/test"): "sends one message; touches no collection",
     # The operator works across tenants by definition. These read the properties

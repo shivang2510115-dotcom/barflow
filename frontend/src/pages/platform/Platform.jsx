@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Building2, KeyRound, LogOut, ShieldCheck } from "lucide-react";
+import { Building2, KeyRound, LogOut, Settings2, ShieldCheck } from "lucide-react";
 
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { LIVE, PENDING, STATUSES, STATUS_BLURB, SUSPENDED } from "@/lib/tenancy";
 import SubscriptionPanel, { SubscriptionCell } from "@/pages/platform/SubscriptionPanel";
+import PlatformSettings from "@/pages/platform/PlatformSettings";
 
 /**
  * `/platform` — the operator's console, and the only screen they have.
@@ -175,6 +176,11 @@ export default function Platform() {
   const [selected, setSelected] = useState(null); // property id
   const [confirming, setConfirming] = useState(null); // {id, name, status, to, label, reason}
   const [busy, setBusy] = useState(false);
+  // Whether the operator is looking at the list of hotels or at the platform's own
+  // registration. A view rather than a route, because /platform is the operator's only
+  // address and adding a second one to reach one form is a router entry, a guard and a
+  // redirect for a screen that is opened twice a year.
+  const [showingSettings, setShowingSettings] = useState(false);
 
   const load = useCallback(
     () =>
@@ -321,6 +327,14 @@ export default function Platform() {
             <KeyRound size={14} /> Password
           </Link>
           <button
+            type="button"
+            data-testid="platform-settings-toggle"
+            onClick={() => setShowingSettings((on) => !on)}
+            className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+          >
+            <Settings2 size={14} /> {showingSettings ? "Hotels" : "Platform details"}
+          </button>
+          <button
             data-testid="platform-logout"
             onClick={signOut}
             className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
@@ -333,9 +347,17 @@ export default function Platform() {
       <div className="p-6 md:p-10">
         <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Platform</div>
         <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
-          Hotels
+          {showingSettings ? "Platform details" : "Hotels"}
         </h1>
 
+        {showingSettings && <PlatformSettings />}
+
+        {/* The list and everything hanging off it. Hidden rather than unmounted-and-
+            rebuilt would lose the open property and the ledger under it, so it is a
+            plain conditional: coming back from the settings form re-reads, which is what
+            an operator who has just changed the platform's state wants anyway. */}
+        {!showingSettings && (
+        <>
         <div className="flex flex-wrap gap-2 mb-8">
           {FILTERS.map((f) => (
             <button
@@ -554,6 +576,8 @@ export default function Platform() {
             separate, deliberate press.
           </p>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

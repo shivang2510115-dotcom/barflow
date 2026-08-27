@@ -60,6 +60,11 @@ UNSCOPED_COLLECTIONS = frozenset({
     # The platform's own money: what each business pays us. Nothing a tenant should be
     # able to reach through their own handle, by accident or otherwise.
     "subscription_payments",
+    # And the tax documents issued against it, plus the platform's own registration that
+    # they are issued under. Same reasoning: an invoice from the platform to a hotel is
+    # the platform's record of its own supply, the operator who writes it belongs to no
+    # property, and there is exactly one settings row for a company that is not a tenant.
+    "platform_invoices", "platform_settings",
     # Rate-limit counters, keyed by an address that belongs to no hotel — and the whole
     # point is that a caller cannot earn a fresh allowance by arriving at a different one.
     "rate_limit_hits",

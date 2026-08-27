@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
+import InvoiceDocument from "@/pages/platform/InvoiceDocument";
 import { DOMAIN_LABELS, PROPERTY_TYPE_CHOICES, domainsForPropertyType } from "@/lib/domains";
 import {
   BILLING_PERIODS,
@@ -98,8 +99,15 @@ function Line({ label, value, tone = "text-stone-100" }) {
   );
 }
 
-/** The ledger. Newest first, as the API sorts it — nothing here re-sorts or re-labels. */
-function Ledger({ rows }) {
+/**
+ * The ledger. Newest first, as the API sorts it — nothing here re-sorts or re-labels.
+ *
+ * The last column is the tax document for each line. It says "Issue invoice" once and
+ * then never again: issuing is idempotent per payment on the server, and once a document
+ * exists the button becomes its number, which opens it. A second invoice for money that
+ * arrived once is a second tax invoice, and neither of them could be deleted afterwards.
+ */
+function Ledger({ rows, invoiceFor, onIssue, onOpen, busy }) {
   if (rows === null) return <p className="text-sm text-stone-500 mt-4">Reading the ledger…</p>;
   if (!rows.length) {
     return (
@@ -118,6 +126,7 @@ function Ledger({ rows }) {
             <th className="text-left py-2 px-3 border-b border-stone-800">How</th>
             <th className="text-left py-2 px-3 border-b border-stone-800">Covers</th>
             <th className="text-left py-2 px-3 border-b border-stone-800">Reference</th>
+            <th className="text-left py-2 px-3 border-b border-stone-800">Invoice</th>
           </tr>
         </thead>
         <tbody>
@@ -140,6 +149,28 @@ function Ledger({ rows }) {
               </td>
               <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs text-stone-400">
                 {r.reference || <span className="text-stone-600">none given</span>}
+              </td>
+              <td className="py-2 px-3 border-b border-stone-800 whitespace-nowrap">
+                {invoiceFor(r.id) ? (
+                  <button
+                    type="button"
+                    data-testid={`platform-invoice-open-${r.id}`}
+                    onClick={() => onOpen(invoiceFor(r.id))}
+                    className="font-mono text-xs text-orange-400 hover:text-orange-300 underline underline-offset-4"
+                  >
+                    {invoiceFor(r.id).number}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid={`platform-invoice-issue-${r.id}`}
+                    disabled={busy}
+                    onClick={() => onIssue(r.id)}
+                    className="text-[10px] tracking-widest uppercase border border-stone-700 text-stone-400 hover:border-orange-500 hover:text-orange-400 rounded-full px-3 py-1 disabled:opacity-50"
+                  >
+                    Issue invoice
+                  </button>
+                )}
               </td>
             </tr>
           ))}
@@ -170,6 +201,56 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
   const [retyping, setRetyping] = useState(null); // the type picked, awaiting confirmation
   const [retyped, setRetyped] = useState(null); // what the server reported it did
   const [busy, setBusy] = useState(false);
+  // Every document issued to this business, and the one being looked at. Not cached
+  // across properties: an invoice issued from another window must not be missing from a
+  // list the operator is about to reconcile against, which is the same reasoning the
+  // parent applies to the ledger itself.
+  const [invoices, setInvoices] = useState(null);
+  const [showing, setShowing] = useState(null);
+  const [crediting, setCrediting] = useState(null); // the invoice awaiting confirmation
+  const [creditReason, setCreditReason] = useState("");
+
+  const loadInvoices = useCallback(
+    () =>
+      api
+        .get(`/platform/properties/${id}/invoices`)
+        .then((r) => setInvoices(r.data || []))
+        .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail))),
+    [id],
+  );
+
+  useEffect(() => {
+    loadInvoices();
+  }, [loadInvoices]);
+
+  // The invoice for one payment, if it has one. Credit notes carry no payment id — they
+  // reverse a document, not a transfer — so they never answer this and never turn a
+  // ledger row back into "already invoiced".
+  const invoiceFor = (paymentId) =>
+    (invoices || []).find((i) => i.kind === "invoice" && i.payment_id === paymentId) || null;
+
+  const issueInvoice = (paymentId) =>
+    run(async () => {
+      const { data } = await api.post(
+        `/platform/properties/${id}/payments/${paymentId}/invoice`, {});
+      await loadInvoices();
+      setShowing(data);
+      toast.success(`Invoice ${data.number} issued`);
+    });
+
+  const confirmCredit = () =>
+    run(async () => {
+      const { data } = await api.post(
+        `/platform/invoices/${crediting.id}/credit-note`, { reason: creditReason.trim() });
+      setCrediting(null);
+      setCreditReason("");
+      await loadInvoices();
+      setShowing(data);
+      toast.success(`Credit note ${data.number} issued`);
+    });
+
+  const creditNoteFor = (number) =>
+    (invoices || []).find((i) => i.corrects === number) || null;
 
   const run = async (fn) => {
     setBusy(true);
@@ -431,8 +512,139 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
         <p className="text-xs text-stone-500 mt-2 max-w-3xl" data-testid="platform-ledger-blurb">
           {LEDGER_BLURB}
         </p>
-        <Ledger rows={payments} />
+        <Ledger
+          rows={payments}
+          invoiceFor={invoiceFor}
+          onIssue={issueInvoice}
+          onOpen={setShowing}
+          busy={busy}
+        />
       </div>
+
+      {/* ---------------------------------------------------------------- invoices */}
+      <div className="mt-8">
+        <h4 className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
+          Tax documents
+        </h4>
+        {/* Said in words as well as by omission, exactly as the ledger above is: there is
+            no Edit and no Delete here because the API has neither, and the first thing
+            anybody tries on a mistyped invoice is to fix it in place. */}
+        <p className="text-xs text-stone-500 mt-2 max-w-3xl" data-testid="platform-invoice-blurb">
+          An issued invoice cannot be edited or deleted — it is a tax document, and its
+          number is part of a series an auditor reads for gaps. A correction is a credit
+          note that reverses it and names it; both documents stand.
+        </p>
+
+        {invoices === null ? (
+          <p className="text-sm text-stone-500 mt-4">Reading the invoices…</p>
+        ) : !invoices.length ? (
+          <p className="text-sm text-stone-400 mt-4" data-testid="platform-invoices-empty">
+            Nothing issued yet. Each recorded payment gets one from the ledger above.
+          </p>
+        ) : (
+          <div className="overflow-x-auto mt-4">
+            <table className="w-full text-sm border-collapse" data-testid="platform-invoices">
+              <thead>
+                <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
+                  <th className="text-left py-2 px-3 border-b border-stone-800">Number</th>
+                  <th className="text-left py-2 px-3 border-b border-stone-800">Issued</th>
+                  <th className="text-left py-2 px-3 border-b border-stone-800">Supply</th>
+                  <th className="text-right py-2 px-3 border-b border-stone-800">Total</th>
+                  <th className="text-left py-2 px-3 border-b border-stone-800"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoices.map((inv) => (
+                  <tr key={inv.id}>
+                    <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => setShowing(inv)}
+                        className="text-orange-400 hover:text-orange-300 underline underline-offset-4"
+                      >
+                        {inv.number}
+                      </button>
+                      {inv.corrects && (
+                        <span className="block text-stone-500 mt-1">
+                          reverses {inv.corrects}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 px-3 border-b border-stone-800 text-stone-300 tabular-nums whitespace-nowrap">
+                      {formatDay(inv.issued_on)}
+                    </td>
+                    <td className="py-2 px-3 border-b border-stone-800 text-stone-400 whitespace-nowrap">
+                      {inv.place_of_supply_label}
+                    </td>
+                    <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums text-stone-100">
+                      {currency(inv.total)}
+                    </td>
+                    <td className="py-2 px-3 border-b border-stone-800 whitespace-nowrap">
+                      {inv.kind === "invoice" && !creditNoteFor(inv.number) && (
+                        <button
+                          type="button"
+                          data-testid={`platform-credit-${inv.id}`}
+                          disabled={busy}
+                          onClick={() => {
+                            setCreditReason("");
+                            setCrediting(inv);
+                          }}
+                          className="text-[10px] tracking-widest uppercase border border-stone-700 text-stone-500 hover:border-red-500/60 hover:text-red-300 rounded-full px-3 py-1 disabled:opacity-50"
+                        >
+                          Credit note
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* The same inline two-step confirm this codebase uses for suspend, void and
+            retype — never window.confirm. Red, because this one cannot be taken back. */}
+        {crediting && (
+          <div
+            data-testid="platform-credit-confirm"
+            className="mt-5 p-5 border border-red-500/40 bg-red-950/20 max-w-3xl"
+          >
+            <h5 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+              Credit {crediting.number}?
+            </h5>
+            <p className="text-sm text-red-300 mb-4">
+              This issues a new document reversing {currency(crediting.total)}. The invoice
+              itself is not changed and not removed — it cannot be — and an invoice can be
+              credited once.
+            </p>
+            <label className={LABEL}>
+              Why
+              <input
+                data-testid="platform-credit-reason"
+                value={creditReason}
+                onChange={(e) => setCreditReason(e.target.value)}
+                placeholder="billed the wrong term"
+                className={FIELD}
+              />
+            </label>
+            <div className="flex gap-3 mt-5">
+              <button
+                data-testid="platform-credit-apply"
+                onClick={confirmCredit}
+                disabled={busy}
+                className="bg-red-600 hover:bg-red-500 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase disabled:opacity-50"
+              >
+                {busy ? "Working…" : "Issue credit note"}
+              </button>
+              <button onClick={() => setCrediting(null)} disabled={busy} className={GHOST}>
+                Never mind
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <InvoiceDocument invoice={showing} onClose={() => setShowing(null)} />
 
       {/* ------------------------------------------------------------------- the type */}
       <div className="mt-8 border-t border-stone-800 pt-6 max-w-3xl">
