@@ -23,6 +23,14 @@ from services.access import (
 from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
 from services.registration import GSTIN_SHAPE, validate_gstin
+# The either/or rule and the global uniqueness check, borrowed from the staff router
+# rather than restated here. The founding admin is a staff account like any other, and two
+# copies of "what an identifier is" is how one route ends up storing `9876543210` while
+# the other stores `+919876543210` and neither can find the other's login. They live in
+# routers/staff.py rather than in services/ because both of them raise HTTPException, and
+# services/ is kept free of HTTP — see services/password.py, which returns its message
+# instead for exactly that reason.
+from routers.staff import identifier_taken, login_identifiers
 
 router = APIRouter()
 
@@ -62,7 +70,19 @@ class SignupIn(BaseModel):
     # again, and the operator sees whether it is filled before approving.
     gstin: str = ""
     admin_name: str
-    admin_email: EmailStr
+    # Either identifier, at least one of them — the same rule POST /api/staff applies,
+    # from the same function, because the founding admin is a staff account like any
+    # other. An owner setting a property up from a phone at the end of service has
+    # exactly the problem their waiters do, and leaving signup demanding an address would
+    # make it the one door still asking for the field this change exists to stop asking
+    # for.
+    #
+    # **`admin_email` becomes optional and nothing else about it moves.** It is not
+    # renamed, not reordered and not re-typed; a caller that sends only `admin_email` —
+    # which is every caller that exists today — takes exactly the path it took before,
+    # down to the 409 wording and the address written onto the property record.
+    admin_email: EmailStr | None = None
+    admin_phone: str | None = None
     admin_password: str
 
 
@@ -79,21 +99,34 @@ async def signup(payload: SignupIn, request: Request):
     name = payload.hotel_name.strip()
     if not name:
         raise HTTPException(400, "The business needs a name")
+    # Both identifiers settled first, so that the password rule below has the address to
+    # check against — and so that a registration which can never be signed into is
+    # refused before either of the two writes at the bottom of this function has happened.
+    email, phone = login_identifiers(payload.admin_email, payload.admin_phone)
+
     # The first account of a new hotel, and the one that can reach every screen in it.
-    # Checked against the email too: `thegrand@…` / `thegrand` is a real thing people do
-    # on a signup form.
-    problem = password_problem(payload.admin_password, str(payload.admin_email))
+    # Checked against the email when there is one: `thegrand@…` / `thegrand` is a real
+    # thing people do on a signup form. `password_problem` takes None for the address and
+    # simply skips that clause, so an owner registering by phone still faces the length
+    # rule and the denylist.
+    problem = password_problem(payload.admin_password, email)
     if problem:
         raise HTTPException(400, problem)
     gstin = payload.gstin.strip().upper()
     if not validate_gstin(gstin):
         raise HTTPException(400, f"gstin is not a valid GSTIN — expected {GSTIN_SHAPE}")
 
-    email = str(payload.admin_email).strip().lower()
-    if await unscoped_db.users.find_one({"email": email}):
-        # Deliberately explicit rather than a vague failure: the person is trying to
-        # register their own hotel and needs to know the address is already in use.
-        raise HTTPException(409, "An account with this email already exists")
+    # Deliberately explicit rather than a vague failure: the person is trying to register
+    # their own hotel and needs to know which of the two they gave is already in use. The
+    # staff router's check, unchanged — a number hired into one property is not free in
+    # another, because a login is resolved before its hotel is known.
+    await identifier_taken(
+        email, phone,
+        # Unchanged from what this endpoint has always said, word for word: somebody
+        # registering their own hotel is not "a staff member", and the signup screen is
+        # written against this text.
+        email_message="An account with this email already exists",
+        phone_message="An account with this phone number already exists")
 
     # The whole of what this property is allowed to do, decided once from what it says it
     # is. Read from `services.access` rather than branched on here: the staff routes bound
@@ -109,7 +142,14 @@ async def signup(payload: SignupIn, request: Request):
         "legal_name": "",
         "address_line1": "", "address_line2": "",
         "city": payload.city.strip(), "state": "", "pincode": "",
-        "phone": "", "email": email,
+        # The property's own contact details, which are not the owner's login. `email` is
+        # seeded from the founding address exactly as it always has been; a property
+        # registered by phone alone simply has none yet, and the property screen asks for
+        # it again — the same state a GSTIN that was in a drawer at signup time is left
+        # in. `phone` here is the property's switchboard, has always been blank at signup,
+        # and is deliberately *not* filled in from the owner's mobile: they are different
+        # facts, and one of them is a login.
+        "phone": "", "email": email or "",
         "gstin": gstin, "fssai_licence": "",
         "check_in_time": "14:00", "check_out_time": "11:00",
         "logo": None,
@@ -123,7 +163,11 @@ async def signup(payload: SignupIn, request: Request):
     try:
         await unscoped_db.users.insert_one({
             "id": str(uuid.uuid4()),
+            # Both written explicitly, `None` and never omitted, matching what
+            # POST /api/staff stores: a key that is sometimes absent and sometimes null
+            # is two shapes for one fact, and the uniqueness check reads these columns.
             "email": email,
+            "phone": phone,
             "name": payload.admin_name.strip() or "Owner",
             "role": "admin",
             "password_hash": hash_password(payload.admin_password),

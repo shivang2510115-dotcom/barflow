@@ -67,7 +67,7 @@ DUPLICATE_PHONE = "A staff member with this phone number already exists"
 
 class StaffIn(BaseModel):
     name: str
-    # Both optional, and at least one required — the rule is `_login_identifiers` below,
+    # Both optional, and at least one required — the rule is `login_identifiers` below,
     # not this declaration, because "one of these two" is not something a field type can
     # say. A great many waiters and kitchen hands in India have no email address and
     # always have a phone; requiring an email is what produced `waiter1@fake.com`, which
@@ -110,7 +110,7 @@ class PasswordIn(BaseModel):
     password: str
 
 
-def _login_identifiers(email, phone) -> tuple[str | None, str | None]:
+def login_identifiers(email, phone) -> tuple[str | None, str | None]:
     """The two identifiers to store, in their canonical forms — and the refusals.
 
     Shared by `POST /api/staff` and `POST /api/signup`, which is the whole reason it is a
@@ -149,7 +149,9 @@ def _login_identifiers(email, phone) -> tuple[str | None, str | None]:
     return stored_email, stored_phone
 
 
-async def _identifier_taken(email: str | None, phone: str | None) -> None:
+async def identifier_taken(email: str | None, phone: str | None, *,
+                           email_message: str = DUPLICATE_EMAIL,
+                           phone_message: str = DUPLICATE_PHONE) -> None:
     """Refuse an identifier that already belongs to somebody, anywhere on the platform.
 
     The manual pre-check that has always guarded `email`, extended to cover `phone` and
@@ -167,8 +169,12 @@ async def _identifier_taken(email: str | None, phone: str | None) -> None:
 
     Global, not `_mine(user)`. Two hotels cannot share a login, because the login is
     resolved before anyone knows which hotel it belongs to.
+
+    The two messages are arguments because signup shares this check and does not share
+    the words for it: somebody registering their own hotel is not "a staff member", and
+    that endpoint's existing wording is what its screen is written against.
     """
-    for value, message in ((email, DUPLICATE_EMAIL), (phone, DUPLICATE_PHONE)):
+    for value, message in ((email, email_message), (phone, phone_message)):
         if not value:
             continue
         if await unscoped_db.users.find_one({"email": value}) \
@@ -333,7 +339,7 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     # Before the password rule, so that an account with no way in is refused for the
     # reason that actually stops it rather than for a weak password the owner would then
     # fix and be refused again.
-    email, phone = _login_identifiers(payload.email, payload.phone)
+    email, phone = login_identifiers(payload.email, payload.phone)
 
     # Still checked against the address and not the number. A password that is somebody's
     # own phone number is just as guessable, and services/password.py should learn that —
@@ -343,7 +349,7 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     if problem:
         raise HTTPException(400, problem)
 
-    await _identifier_taken(email, phone)
+    await identifier_taken(email, phone)
 
     allowed = await _property_domains(user)
     _within_the_property(payload.domains, allowed)
