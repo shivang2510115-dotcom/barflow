@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -107,7 +107,7 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices):
     api_router.include_router(module.router)
 
 
@@ -184,6 +184,21 @@ async def seed_data():
     await unscoped_db.folio_entries.create_index(
         [("property_id", 1), ("folio_id", 1), ("charge_date", 1)], unique=True,
         partialFilterExpression={"kind": "room_night"})
+
+    # The platform's own tax documents. `number` is globally unique — a series with two
+    # documents under one number is not a series — and `payment_id` is unique among
+    # invoices so that one recorded payment can never carry two of them. Partial, not
+    # sparse, for the reason above: a credit note has no payment_id, and a plain sparse
+    # index would still cover every one of them and refuse the second.
+    #
+    # Against MongoDB these are what hold when more than one process issues at once.
+    # Both the JSON mock and Firestore no-op create_index, so there the in-process lock
+    # in routers/invoices.py is the whole guarantee — the same limitation every other
+    # unique index in this function already has.
+    await unscoped_db.platform_invoices.create_index("number", unique=True)
+    await unscoped_db.platform_invoices.create_index(
+        "payment_id", unique=True,
+        partialFilterExpression={"kind": "invoice"})
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
