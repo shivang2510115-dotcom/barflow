@@ -16,14 +16,16 @@ const ACCOUNTS = [
 export default function Login() {
   const { login } = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState("");
+  // `identifier` rather than `email`, because a waiter with no email address signs in
+  // here with their phone number and the variable should say what the box holds.
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   const submit = async (e) => {
     e?.preventDefault();
     setLoading(true);
-    const res = await login(email, password);
+    const res = await login(identifier, password);
     setLoading(false);
     if (res.ok) {
       toast.success(`Welcome, ${res.user.name}`);
@@ -36,7 +38,7 @@ export default function Login() {
   };
 
   const quick = async (a) => {
-    setEmail(a.email);
+    setIdentifier(a.email);
     setPassword(a.password);
     setLoading(true);
     const res = await login(a.email, a.password);
@@ -100,17 +102,30 @@ export default function Login() {
           </h1>
 
           <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
-            Email
+            Email or phone
           </label>
+          {/* `type="text"`, and that is the load-bearing detail on this screen. With
+              `type="email"` the browser refuses to submit a phone number before the
+              request is ever made, so a waiter hired with a number would be stopped by
+              their own keyboard with a validation bubble no server message could
+              override. `autoComplete="username"` for the same reason: it is the value a
+              password manager fills whichever of the two it saved. The testid keeps its
+              old name so nothing that drives this form has to be edited. */}
           <input
             data-testid="login-email"
-            type="email"
+            type="text"
+            inputMode="email"
+            autoComplete="username"
             required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 mb-6 text-base placeholder:text-stone-600"
-            placeholder="you@bar.com"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 mb-2 text-base placeholder:text-stone-600"
+            placeholder="you@bar.com or 98765 43210"
           />
+          <p className="text-[11px] text-stone-500 mb-6">
+            Whichever your manager set up for you. A number can be typed however you like
+            — 98765 43210, 098765 43210 and +91 98765 43210 all reach the same account.
+          </p>
 
           <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
             Password
