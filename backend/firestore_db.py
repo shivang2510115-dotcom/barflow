@@ -629,6 +629,31 @@ class FirestoreCollection:
         await _io(op)
 
     async def update_one(self, filter_query: dict, update_query: dict, upsert=False):
+        # An upsert keyed only on `id` is a write to a document we can already name, so
+        # it goes straight there and skips the read. That is not just faster — it is the
+        # difference between correct and not. The general path below reads, decides, then
+        # writes, so two callers racing on the same key both see "nothing there" and both
+        # create a row. Firestore has no unique constraints to catch the second one.
+        #
+        # The one place it matters today is posting a room night: routers/folios.py
+        # derives a deterministic id per (folio, night) precisely so this path is taken,
+        # and a guest cannot be charged twice for one night. A single-document set() is
+        # atomic in Firestore, so the second writer overwrites with an identical row.
+        if upsert and set(filter_query) == {"id"} and isinstance(filter_query["id"], str):
+            document_id = _valid_document_id(filter_query["id"])
+            if document_id:
+                seed = upsert_seed(filter_query)
+                apply_update(seed, update_query)
+                payload = _encode(seed)
+                payload[INSERTION_FIELD] = _next_stamp()
+                path = self._path
+
+                async def op(client):
+                    await client.collection(path).document(document_id).set(payload)
+
+                await _io(op)
+                return UpdateResult(0, 0, seed.get("id"))
+
         rows = await self._fetch(filter_query)
         if rows:
             row = rows[0]
