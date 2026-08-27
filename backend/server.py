@@ -23,7 +23,7 @@ from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
 from routers.payments import webhook_secret
-from routers.reports import daily_brief_scheduler
+from routers.reports import daily_brief_scheduler, in_process_brief_enabled
 from models.hotel import Rate, Room, RoomType
 from services.access import DOMAINS
 from services.password import password_problem
@@ -490,7 +490,12 @@ async def on_startup():
             "STRIPE_WEBHOOK_SECRET is not set. Every Stripe webhook will be refused "
             "(503) and online payments will not settle. Set it to the signing secret "
             "from the Stripe dashboard's webhook endpoint.")
-    if os.environ.get("DAILY_BRIEF_ENABLED", "true").lower() == "true":
+    # The brief has exactly one sender per deployment, and which one it is depends on
+    # whether this process can be relied on to still exist at OWNER_BRIEF_TIME. A
+    # container can; a function instance is shut down as soon as it is idle. So under
+    # Functions this loop stays quiet and `functions/main.py::daily_brief` — woken by
+    # Cloud Scheduler — sends instead. See routers/reports.py::in_process_brief_enabled.
+    if in_process_brief_enabled():
         asyncio.create_task(daily_brief_scheduler())
         logger.info("Daily brief scheduler started (%s).", os.environ.get("OWNER_BRIEF_TIME", "23:00"))
 
