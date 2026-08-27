@@ -18,6 +18,7 @@ from services.registration import (
     FSSAI_SHAPE, GSTIN_SHAPE, validate_fssai, validate_gstin,
 )
 from services.subscription import BILLING_PERIODS, PAYMENT_METHODS
+from services.tax import DEFAULT_GST_INCLUSIVE, DEFAULT_OUTLET_GST_RATE
 
 # Exactly the three the access rule knows. Written as a Literal so an unknown status is
 # refused where the record is built, not discovered later by `_property_usable` treating
@@ -94,6 +95,19 @@ class PropertyFields(BaseModel):
     # A data URI. Stored on the property so a bill printed from the POS carries the
     # hotel's own header rather than the platform's.
     logo: Optional[str] = None
+    # What the outlet charges on a bill, and whether the menu prices already contain it.
+    #
+    # Here on `PropertyFields` — the body of `PUT /api/property`, which is admin-only —
+    # and deliberately not on `Property` beside the subscription block: this is the
+    # hotel's own statutory rate, known by the owner who holds the registration, and it
+    # is not the platform's to set. A waiter cannot reach it because the route they would
+    # reach it through names "admin".
+    #
+    # 5% is restaurant service without input tax credit. Defaulted rather than required
+    # so a hotel that never opens the settings screen still bills a lawful figure —
+    # which is more than the 10% these two replace ever did. See services/tax.py.
+    outlet_gst_rate: float = DEFAULT_OUTLET_GST_RATE
+    gst_inclusive: bool = DEFAULT_GST_INCLUSIVE
 
 
 class PropertyIn(PropertyFields):

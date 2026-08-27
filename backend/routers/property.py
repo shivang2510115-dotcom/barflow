@@ -19,6 +19,7 @@ from services.subscription import subscription_state
 from services.registration import (
     FSSAI_SHAPE, GSTIN_SHAPE, validate_fssai, validate_gstin,
 )
+from services.tax import TaxRateError, normalise_rate
 
 router = APIRouter()
 
@@ -91,6 +92,15 @@ async def update_property(payload: PropertyFields, user: dict = Depends(WRITE)):
     ):
         if not is_valid(getattr(payload, field)):
             raise HTTPException(400, f"{field} is not valid — expected {shape}")
+
+    # Checked here rather than by a Pydantic validator on the body, for the reason above:
+    # the settings form needs a 400 it can put beside the input that is wrong. A rate
+    # outside the schedule is a typo, and a typo here is added to every bill the outlet
+    # prints until somebody notices.
+    try:
+        normalise_rate(payload.outlet_gst_rate)
+    except TaxRateError as exc:
+        raise HTTPException(400, f"outlet_gst_rate is not valid — {exc}")
 
     record = await _own_property(user)
     # `PropertyFields` is the editable half of the record and holds none of `status`,

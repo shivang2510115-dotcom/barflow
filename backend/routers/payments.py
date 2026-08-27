@@ -21,7 +21,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from db import unscoped_db
-from routers.orders import compute_totals
+from routers.orders import compute_totals_for
 from scoped_db import db_for_order
 from emergentintegrations.payments.stripe.checkout import (
     StripeCheckout,
@@ -120,7 +120,7 @@ async def create_checkout_session(payload: CheckoutStartIn, request: Request):
         raise HTTPException(400, "Order is not open")
 
     # Recompute total server-side (do not trust client)
-    order = compute_totals(dict(order))
+    order = await compute_totals_for(db, dict(order))
     total = order["total"]
     if total <= 0:
         raise HTTPException(400, "Order total is zero")
@@ -190,7 +190,7 @@ async def checkout_status(session_id: str):
     if status_resp.payment_status == "paid" and tx.get("payment_status") != "paid":
         order = await db.orders.find_one({"id": tx["order_id"]}, {"_id": 0})
         if order and order["status"] == "open":
-            order = compute_totals(dict(order))
+            order = await compute_totals_for(db, dict(order))
             order["status"] = "settled"
             order["payment_method"] = "online"
             order["settled_at"] = datetime.now(timezone.utc).isoformat()
@@ -258,7 +258,7 @@ async def stripe_webhook(request: Request):
             )
             order = await db.orders.find_one({"id": tx["order_id"]}, {"_id": 0})
             if order and order["status"] == "open":
-                order = compute_totals(dict(order))
+                order = await compute_totals_for(db, dict(order))
                 order["status"] = "settled"
                 order["payment_method"] = "online"
                 order["settled_at"] = datetime.now(timezone.utc).isoformat()

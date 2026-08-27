@@ -30,6 +30,7 @@ from services.password import password_problem
 from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
 from migrations.backfill_property import backfill as backfill_property
+from migrations.backfill_outlet_gst import backfill as backfill_outlet_gst
 from migrations.backfill_property_type import backfill as backfill_property_type
 from migrations.backfill_tenancy import backfill as backfill_tenancy
 from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
@@ -455,6 +456,15 @@ async def on_startup():
     logger.info(
         "Property type backfill: %d propert(ies) stamped both, %d already current.",
         typed, typed_current)
+    # And the outlet's GST rate, in the same breath and for a blunter reason: until this
+    # has run, every property reads as "no rate set". `services.tax.outlet_gst_settings`
+    # answers 5% for one, so nothing bills wrongly in the meantime — but a settings
+    # screen that shows a rate the record does not hold is a screen whose first save
+    # changes something the owner did not mean to change.
+    gst_stamped, gst_current = await backfill_outlet_gst()
+    logger.info(
+        "Outlet GST backfill: %d propert(ies) stamped, %d already current.",
+        gst_stamped, gst_current)
     # Immediately after, never before: the records are stamped with the property that
     # migration has just made sure exists. Until this has run, every scoped read matches
     # nothing — the data is not lost, it is invisible, which is harder to diagnose.

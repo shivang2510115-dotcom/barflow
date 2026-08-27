@@ -13,6 +13,7 @@ from models.folio import FolioEntry
 from services.access import OUTLET
 from services.folio import direction_for, folio_balance
 from services.ratelimit import RateLimiter, client_ip
+from services.tax import outlet_gst_settings, outlet_totals
 
 router = APIRouter()
 
@@ -84,7 +85,15 @@ class Order(BaseModel):
     # total nobody has been shown yet.
     presented_at: Optional[str] = None
     subtotal: float = 0.0
+    # The figure the tax was worked out on, and the rate it was worked out at, both
+    # written onto the bill rather than looked up from the property when it is read
+    # back. A bill settled at 5% has to still say 5% after the hotel moves to 18%: the
+    # guest paid what the printed bill said, and a settled bill that re-prices itself
+    # from today's settings is a bill that cannot be reconciled against the till.
+    taxable_value: float = 0.0
     tax: float = 0.0
+    gst_rate: float = 0.0
+    gst_inclusive: bool = False
     discount: float = 0.0
     total: float = 0.0
     payment_method: Optional[str] = None
@@ -132,15 +141,57 @@ KOT = require_access(OUTLET, permission="outlet.kot")
 ORDER_READ = require_access(OUTLET, permission=("outlet.pos", "outlet.kot"))
 
 
-def compute_totals(order: dict) -> dict:
-    subtotal = sum(i["price"] * i["quantity"] for i in order.get("items", []))
-    tax = round(subtotal * 0.10, 2)
-    discount = order.get("discount", 0)
-    total = round(subtotal + tax - discount, 2)
-    order["subtotal"] = round(subtotal, 2)
-    order["tax"] = tax
-    order["total"] = total
+def compute_totals(order: dict, rate_percent: float, inclusive: bool) -> dict:
+    """Price this bill at the rate the hotel has set.
+
+    This used to read `tax = round(subtotal * 0.10, 2)`. Ten percent is not an Indian
+    GST rate — restaurant service is 5% without input tax credit — so every bill this
+    POS printed carried a tax figure that matched nothing a guest could lawfully be
+    charged. The arithmetic itself now lives in `services/tax.py`, where both branches
+    are tested without a server; this only decides which order fields it lands in.
+
+    **A settled bill is never recomputed.** It is returned exactly as it stands. The
+    guest paid what the printed bill said, and re-pricing it afterwards — because the
+    hotel has since moved from 5% to 18%, or turned inclusive pricing on — would change
+    a figure that has already been reconciled and put the books out. The refusal is
+    here, on the arithmetic itself, rather than only on the three routes that call it,
+    so a fourth caller written later inherits it.
+    """
+    if order.get("status") not in (None, "open"):
+        return order
+    items_total = sum(i["price"] * i["quantity"] for i in order.get("items", []))
+    figures = outlet_totals(items_total, rate_percent, inclusive,
+                            discount=order.get("discount", 0) or 0)
+    order["subtotal"] = figures["subtotal"]
+    # What the tax was actually worked out on. Equal to the subtotal when the rate is
+    # exclusive; the price with the tax taken back out of it when it is inclusive, which
+    # is the figure that belongs on a GST bill.
+    order["taxable_value"] = figures["taxable_value"]
+    order["tax"] = figures["tax"]
+    order["total"] = figures["total"]
+    # Written onto the bill, not just read from the property. The property's rate is what
+    # it is *today*; this is what this bill was charged at, and the two stop agreeing the
+    # moment the owner opens the settings screen.
+    order["gst_rate"] = figures["gst_rate"]
+    order["gst_inclusive"] = figures["gst_inclusive"]
     return order
+
+
+async def compute_totals_for(db, order: dict) -> dict:
+    """The same, with the rate read from the property this bill belongs to.
+
+    `properties` stands outside tenancy — it is the record every scope is resolved from
+    — so it is reached through `unscoped_db` and filtered by the id the scoped handle is
+    already bound to. There is no id here from a request that could name another hotel.
+
+    A property that predates the field, or one somebody hand-edited into nonsense, bills
+    at the statutory default rather than raising: see `services.tax.outlet_gst_settings`.
+    A till that will not open is worse than one that bills 5%.
+    """
+    record = await _db_module.unscoped_db.properties.find_one(
+        {"id": db.property_id}, {"_id": 0})
+    rate, inclusive = outlet_gst_settings(record)
+    return compute_totals(order, rate, inclusive)
 
 
 # ----------------- Orders -----------------
@@ -265,10 +316,11 @@ async def add_items(table_id: str, payload: AddItemsIn, request: Request = None)
         ).model_dump()
         new_items.append(oi)
     order["items"].extend(new_items)
-    order = compute_totals(order)
+    order = await compute_totals_for(db, order)
     await db.orders.update_one({"id": order["id"]}, {"$set": {
         "items": order["items"], "subtotal": order["subtotal"], "tax": order["tax"],
-        "total": order["total"],
+        "total": order["total"], "taxable_value": order["taxable_value"],
+        "gst_rate": order["gst_rate"], "gst_inclusive": order["gst_inclusive"],
         # The bill just changed, so whatever was presented is stale. Staff re-present at
         # the new total; a guest looking at a printed slip is never quietly overcharged.
         "presented_at": None,
@@ -364,7 +416,7 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(PO
     if order["status"] != "open":
         raise HTTPException(409, f"This order is already {order['status']} and cannot be settled again")
     order["discount"] = payload.discount
-    order = compute_totals(order)
+    order = await compute_totals_for(db, order)
 
     # --- validation, before anything is written ---
     folio = None
@@ -407,7 +459,14 @@ async def remove_item(order_id: str, item_id: str, user: dict = Depends(POS_SETT
     order = await db.orders.find_one({"id": order_id}, {"_id": 0})
     if not order:
         raise HTTPException(404, "Order not found")
+    # The one route that could re-price a bill after the guest had paid it. Settling
+    # refuses a second settlement and presenting refuses a closed bill; this had no
+    # check at all, so taking a line off a settled order rewrote its total at whatever
+    # rate the property holds today. Refused in the same words, for the same reason.
+    if order["status"] != "open":
+        raise HTTPException(
+            409, f"This order is already {order['status']} and cannot be changed")
     order["items"] = [i for i in order["items"] if i["id"] != item_id]
-    order = compute_totals(order)
+    order = await compute_totals_for(db, order)
     await db.orders.update_one({"id": order_id}, {"$set": order})
     return order
