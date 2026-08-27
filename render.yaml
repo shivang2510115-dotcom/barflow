@@ -124,6 +124,10 @@ services:
         source: /*
         destination: /index.html
 
-# Firebase Hosting + Cloud Run is the other supported deployment; see
-# docs/deploy-firebase-cloudrun.md. It puts the site and the API on one origin, so no
-# cross-origin request happens at all. This file stays valid for Render either way.
+# Firebase — Hosting for the site, a 2nd-gen Python function for the API — is the other
+# supported deployment; see docs/deploy-firebase.md. It puts the site and the API on one
+# origin, so no cross-origin request happens at all. This file stays valid for Render
+# either way, and this is the path that keeps the nightly brief as an in-process loop:
+# DAILY_BRIEF_ENABLED above is what turns it on, and nothing here sets FUNCTION_TARGET,
+# so backend/routers/reports.py::in_process_brief_enabled() stays true. On Firebase the
+# brief is a scheduled function instead. One sender either way, never two.

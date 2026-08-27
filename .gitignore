@@ -42,3 +42,7 @@ yarn-error.log*
 # it — backend/ is the only version under review and the next deploy overwrites this.
 functions/backend/
 functions/venv
+
+# local stand-ins for the Secret Manager values, read by the Functions emulator.
+# Same contents as the real secrets; never committed.
+functions/.secret.local
