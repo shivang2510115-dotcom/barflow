@@ -111,6 +111,19 @@ if [ ! -f "$SECRETS_FILE" ] || [ -n "$INCOMPLETE" ]; then
   PLATFORM_ADMIN_EMAIL="$(ask '  PLATFORM_ADMIN_EMAIL' PLATFORM_ADMIN_EMAIL)"
   PLATFORM_ADMIN_PASSWORD="$(asks '  PLATFORM_ADMIN_PASSWORD' PLATFORM_ADMIN_PASSWORD)"
 
+  # Email is the login key, and seeding creates the operator first: give both the same
+  # address and the hotel admin is silently never created, because the "does this email
+  # already exist" check finds the operator. The symptom is a 401 with a password you
+  # know is right, which is a miserable thing to debug — so refuse it here instead.
+  if [ "$ADMIN_EMAIL" = "$PLATFORM_ADMIN_EMAIL" ]; then
+    echo
+    echo "Those two are the same address. They must differ — the hotel admin and the"
+    echo "platform operator are different accounts and email is what tells them apart."
+    echo "Gmail treats a +suffix as the same inbox, so this works and still reaches you:"
+    echo "    ${ADMIN_EMAIL%%@*}+hotel@${ADMIN_EMAIL##*@}"
+    exit 1
+  fi
+
   # Generated once and never again. A new GUEST_ID_ENCRYPTION_KEY would orphan every
   # guest identity number already written under the old one — it is encryption, not
   # hashing, so there is no way back — and a new JWT_SECRET signs every existing session
