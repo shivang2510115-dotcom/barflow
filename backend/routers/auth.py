@@ -1,12 +1,13 @@
-"""Authentication: logging in and reading your own identity."""
+"""Authentication: logging in, reading your own identity, and changing your own password."""
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 
 from db import unscoped_db
 from security import (
-    create_access_token, get_current_user, require_access, resolve_property,
-    verify_password)
+    create_access_token, get_current_user, hash_password, require_access,
+    resolve_property, verify_password)
 from services.access import SCREENS, SHARED, SUSPENDED
+from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
 
 router = APIRouter()
@@ -139,6 +140,80 @@ async def me(user: dict = Depends(get_current_user)):
         "active": user.get("active", True),
         "permissions": [k for k in (user.get("permissions") or []) if k in SCREENS],
     }
+
+
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+# What a wrong current password is told. Deliberately about the password and not about
+# the account: the caller is already authenticated, so there is nothing here to keep from
+# them — what they need to know is which of the two fields to retype.
+WRONG_CURRENT_PASSWORD = "That is not your current password"
+
+# And what re-typing the one you already have is told. Not a refusal about strength: the
+# password may be a perfectly good one, it is simply not a change, and a form that
+# answered "changed" would have told somebody something untrue about their own account.
+SAME_AS_CURRENT = "That is the password you already have. Choose a different one."
+
+
+@router.post("/auth/password")
+async def change_own_password(payload: ChangePasswordIn,
+                              user: dict = Depends(get_current_user)):
+    """The caller changes their own password, having proved they know it.
+
+    `POST /api/staff/{id}/password` is the other password route and it is a different
+    thing: an admin resetting *somebody else's*, admin-only, scoped to their own hotel.
+    It is untouched. This one takes no id at all — the account changed is the account the
+    token names, so there is no request that can point at anybody else and therefore no
+    filter here to get wrong.
+
+    **`get_current_user`, not `require_access`, and that is the whole design decision.**
+    `require_access` resolves the caller's property and refuses anyone who has none, which
+    is the platform operator's permanent and deliberate state — so the obvious dependency
+    would lock the one account that approves hotels out of its own password, and would
+    also refuse a hotel user whose property is suspended or merely pending. None of those
+    are reasons to stop somebody securing their own login. `/auth/me` is here for exactly
+    this reason and made exactly this call. `get_current_user` still refuses a deactivated
+    account and an expired or forged token, so this is not a way around either.
+
+    **The current password is required.** Without it a session is a takeover: a laptop
+    left unlocked at the end of a shift, or a token copied out of local storage, becomes
+    permanent ownership of the account rather than access that expires in seven days. The
+    order of the checks matters too — the current password is verified *before* the new
+    one is judged, so that a 400 about strength cannot be used as an oracle telling a
+    guesser that their guess at the current one was right.
+
+    One thing this deliberately does not do: it does not sign other sessions out. Tokens
+    are signed statements about who you are and carry nothing derived from the password,
+    so an already-issued one keeps working until it expires. Revoking them needs a
+    per-user token version on the record and a check in `get_current_user`, which is a
+    change to every authenticated request and is worth doing on its own.
+    """
+    # `get_current_user` projects `password_hash` away — correctly, so that no handler
+    # can return it by accident. This is the one place that needs it, so it is read back
+    # here, by the caller's own id and nothing from the request.
+    row = await unscoped_db.users.find_one({"id": user["id"]})
+    if not row or not row.get("password_hash") \
+            or not verify_password(payload.current_password, row["password_hash"]):
+        # 401, not 403: what failed is the proof of identity, not the caller's role.
+        # Everyone who reaches this route may change their own password.
+        raise HTTPException(status_code=401, detail=WRONG_CURRENT_PASSWORD)
+
+    if verify_password(payload.new_password, row["password_hash"]):
+        raise HTTPException(status_code=400, detail=SAME_AS_CURRENT)
+
+    # The same rule as hiring somebody and as an admin reset — services/password.py, the
+    # one place it is written — checked against this account's own address, because this
+    # account is the one that will be typing it.
+    problem = password_problem(payload.new_password, row.get("email"))
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+
+    await unscoped_db.users.update_one(
+        {"id": user["id"]}, {"$set": {"password_hash": hash_password(payload.new_password)}})
+    return {"ok": True}
 
 
 # GET /auth/staff is gone. It returned the whole roster — every id, name, email, role,

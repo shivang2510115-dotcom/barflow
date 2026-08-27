@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Wine, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { homePathFor } from "@/lib/tenancy";
+import PasswordInput from "@/components/app/PasswordInput";
 
 const ACCOUNTS = [
   { label: "Admin", email: "admin@barflow.io", password: "admin123" },
@@ -114,13 +115,14 @@ export default function Login() {
           <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
             Password
           </label>
-          <input
+          <PasswordInput
             data-testid="login-password"
-            type="password"
             required
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 mb-8 text-base placeholder:text-stone-600"
+            autoComplete="current-password"
+            wrapperClassName="mb-8"
+            className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 text-base placeholder:text-stone-600"
             placeholder="••••••••"
           />
 

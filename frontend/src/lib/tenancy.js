@@ -53,6 +53,17 @@ export function homePathFor(user) {
 export const canOpenPlatform = (user) => isOperator(user);
 
 /**
+ * The `area` for a route that belongs to *both* consoles.
+ *
+ * There is one, and there is only one because the bar for it is high: the screen must
+ * call nothing that either console is refused. Your own password qualifies — `/auth/me`
+ * and `POST /api/auth/password` are the caller's own record, hang off `get_current_user`
+ * rather than `require_access`, and answer the operator exactly as they answer a waiter.
+ * Anything that reads a hotel is not this, and must keep sending the operator home.
+ */
+export const ANY_CONSOLE = "any";
+
+/**
  * What a guarded route should do: a path to redirect to, or null to render it.
  *
  * The whole of `<Protected>`'s decision, pulled out here so it can be checked without a
@@ -63,11 +74,15 @@ export const canOpenPlatform = (user) => isOperator(user);
  *
  * Returns the string "loading" for the first of those, because it is neither a redirect
  * nor a render and a caller that treats it as either is wrong.
+ *
+ * `area` is which console the route belongs to, and `ANY_CONSOLE` is the deliberate
+ * exception for the handful that belong to both. It skips the console check and nothing
+ * else — a guest is still sent to the login screen and a role list is still applied.
  */
 export function routeDecision(user, { area = "hotel", roles = null } = {}) {
   if (user === null) return "loading";
   if (!user) return "/login";
-  if (consoleFor(user) !== area) return homePathFor(user);
+  if (area !== ANY_CONSOLE && consoleFor(user) !== area) return homePathFor(user);
   if (roles && !roles.includes(user.role)) return homePathFor(user);
   return null;
 }

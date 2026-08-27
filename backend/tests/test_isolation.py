@@ -689,6 +689,11 @@ SCOPE_FREE = {
     ("GET", "/api/"): "the health check reads nothing",
     ("POST", "/api/auth/login"): "finds a login by email before its hotel is known",
     ("GET", "/api/auth/me"): "the caller's own user record",
+    # Same reasoning as /auth/me, and it writes rather than reads: the row is found by
+    # the id in the caller's own token, so there is no property to scope to and no id in
+    # the request that could name another tenant's user. It is also the one route the
+    # platform operator needs that touches `users`, and they belong to no property.
+    ("POST", "/api/auth/password"): "the caller's own user record, found by their token",
     ("GET", "/api/permissions"): "the screen catalogue is a constant in code",
     ("GET", "/api/property"): "the caller's own property, resolved from their token",
     ("PUT", "/api/property"): "the caller's own property, resolved from their token",

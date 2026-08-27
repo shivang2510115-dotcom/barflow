@@ -2,7 +2,7 @@ import { useState } from "react";
 import "@/App.css";
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { routeDecision } from "@/lib/tenancy";
+import { ANY_CONSOLE, routeDecision } from "@/lib/tenancy";
 
 // The offline demo is opened straight off disk, where the History API throws a
 // SecurityError because a file:// document has a null origin. Hash routing is the only
@@ -36,6 +36,7 @@ import Staff from "@/pages/admin/Staff";
 import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
 import Notifications from "@/pages/admin/Notifications";
+import Account from "@/pages/Account";
 import CustomerMenu from "@/pages/CustomerMenu";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
@@ -44,6 +45,10 @@ import Splash from "@/components/app/Splash";
 /**
  * `area` is which of the two consoles the route belongs to, and it defaults to the hotel
  * app because all but one route is in it.
+ *
+ * `ANY_CONSOLE` is the third answer, and `/account` is the only route that gives it: your
+ * own password is neither console's, both need it, and everything on that screen hangs
+ * off `get_current_user`, so neither one is refused it.
  *
  * The two do not overlap at all: the platform operator belongs to no hotel and is refused
  * every hotel endpoint, `/api/property` and `/auth/me` included, while a hotel user is
@@ -147,6 +152,16 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/t/:tableId" element={<TableRouteSwitch />} />
+            {/* Outside /app on purpose: the operator is sent home from every route in
+                that shell, and their own password is not the hotel's. */}
+            <Route
+              path="/account"
+              element={
+                <Protected area={ANY_CONSOLE}>
+                  <Account />
+                </Protected>
+              }
+            />
             <Route path="/app/*" element={<Protected><AppShell /></Protected>} />
             {/* The operator's only screen, and the only route with area="platform". A
                 hotel user who types this address is sent back to /app rather than shown a
