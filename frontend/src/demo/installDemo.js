@@ -25,20 +25,26 @@ const uid = () =>
 const DEMO_TODAY = "2026-08-07";
 const nowIso = () => new Date().toISOString();
 
+// The logins the demo accepts. Declared before resetDb so that resetting restores them
+// too: POST /auth/password below changes one, and a reset that put the tables back but
+// left the password changed would leave the demo unable to log in as itself.
+const SEED_PASSWORDS = Object.freeze({
+  "admin@barflow.io": "admin123",
+  "manager@barflow.io": "manager123",
+  "waiter@barflow.io": "waiter123",
+  "kitchen@barflow.io": "kitchen123",
+});
+
+let DEMO_PASSWORDS = { ...SEED_PASSWORDS };
+
 let db = null;
 function resetDb() {
   db = clone(seed);
   db.users = db.users || [];
   db.payment_transactions = [];
+  DEMO_PASSWORDS = { ...SEED_PASSWORDS };
 }
 resetDb();
-
-const DEMO_PASSWORDS = {
-  "admin@barflow.io": "admin123",
-  "manager@barflow.io": "manager123",
-  "waiter@barflow.io": "waiter123",
-  "kitchen@barflow.io": "kitchen123",
-};
 
 // `domains` and `active` are not decoration: the nav filters every domain-scoped item
 // against them (components/app/AppLayout.jsx) and the analytics screen offers only the
@@ -332,6 +338,35 @@ const ROUTES = [
   }],
   ["GET", /^\/auth\/me$/, () => publicUser(db.users[0])],
   ["GET", /^\/auth\/staff$/, () => db.users.map(publicUser)],
+
+  // The account screen's "change my own password". Without it the Password control in
+  // the sidebar is a button that answers "No demo route", which is worse than not
+  // offering it. The demo has no session — /auth/me answers as the first seeded user —
+  // so "the caller" is that same user here, which is the convention the rest of this
+  // file already follows.
+  //
+  // It refuses the wrong current password, because that refusal is the point of the
+  // screen and a demo that accepted anything would misrepresent it. The strength rule is
+  // the length check the demo applies everywhere else; the real denylist lives in
+  // backend/services/password.py and is not worth shipping to an offline file.
+  ["POST", /^\/auth\/password$/, (m, body) => {
+    const user = db.users[0];
+    const email = (user.email || "").toLowerCase();
+    if (DEMO_PASSWORDS[email] !== body.current_password) {
+      throw { status: 401, detail: "That is not your current password" };
+    }
+    if ((body.new_password || "").length < 8) {
+      throw { status: 400, detail: "Password must be at least 8 characters" };
+    }
+    if (body.new_password === body.current_password) {
+      throw {
+        status: 400,
+        detail: "That is the password you already have. Choose a different one.",
+      };
+    }
+    DEMO_PASSWORDS[email] = body.new_password;
+    return { ok: true };
+  }],
 
   // ---- staff (admin console)
   // The demo has no session — /auth/me always answers as the first seeded user — so the
