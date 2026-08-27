@@ -37,7 +37,15 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
-def create_access_token(user_id: str, email: str, role: str) -> str:
+def create_access_token(user_id: str, email: str | None, role: str) -> str:
+    """A signed statement of who the caller is.
+
+    `email` is now optional, because a phone-only staff account has none. The claim is
+    left as `None` rather than being filled in with the phone number: nothing reads it —
+    every authenticated route resolves the user from `sub` — and quietly putting a
+    different kind of value under a key called `email` is how a claim starts being
+    trusted for something it does not mean.
+    """
     payload = {
         "sub": user_id,
         "email": email,

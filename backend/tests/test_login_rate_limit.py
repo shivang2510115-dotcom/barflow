@@ -54,7 +54,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(security, "unscoped_db", handle)
     monkeypatch.setattr(auth, "unscoped_db", handle)
     run(auth.LOGIN_FAILURES_PER_ADDRESS.reset())
-    run(auth.LOGIN_FAILURES_PER_EMAIL.reset())
+    run(auth.LOGIN_FAILURES_PER_IDENTIFIER.reset())
 
     now = datetime.now(timezone.utc).isoformat()
     run(handle.properties.insert_one(
@@ -82,7 +82,7 @@ def guess(times, email=OWNER, ip="203.0.113.7"):
 
 # ------------------------------- the hole itself -------------------------------
 def test_guessing_at_one_account_stops(world):
-    limit = auth.LOGIN_FAILURES_PER_EMAIL.limit
+    limit = auth.LOGIN_FAILURES_PER_IDENTIFIER.limit
     assert set(guess(limit)) == {401}
     assert attempt() == 429
 
@@ -93,21 +93,21 @@ def test_the_right_password_is_refused_while_the_account_is_throttled(world):
     throttle that let the correct password through would not be one — the guesser would
     simply keep guessing and be told, by the one answer that was not 429, when they had
     found it."""
-    guess(auth.LOGIN_FAILURES_PER_EMAIL.limit)
+    guess(auth.LOGIN_FAILURES_PER_IDENTIFIER.limit)
     assert attempt(password=PASSWORD) == 429
 
 
 def test_the_window_lifts_by_itself(world):
     """Nothing is disabled and nobody has to unlock anything — which is the difference
     between a throttle and the account lockouts that generate support tickets."""
-    guess(auth.LOGIN_FAILURES_PER_EMAIL.limit)
+    guess(auth.LOGIN_FAILURES_PER_IDENTIFIER.limit)
     assert attempt(password=PASSWORD) == 429
 
     # The same failures, aged past the window rather than waiting fifteen minutes.
-    expired = time.time() - auth.LOGIN_FAILURES_PER_EMAIL.window_seconds - 1
-    run(auth.LOGIN_FAILURES_PER_EMAIL.reset())
-    for _ in range(auth.LOGIN_FAILURES_PER_EMAIL.limit * 2):
-        run(auth.LOGIN_FAILURES_PER_EMAIL.record(OWNER, expired))
+    expired = time.time() - auth.LOGIN_FAILURES_PER_IDENTIFIER.window_seconds - 1
+    run(auth.LOGIN_FAILURES_PER_IDENTIFIER.reset())
+    for _ in range(auth.LOGIN_FAILURES_PER_IDENTIFIER.limit * 2):
+        run(auth.LOGIN_FAILURES_PER_IDENTIFIER.record(OWNER, expired))
     assert attempt(password=PASSWORD) == 200
 
 
@@ -130,17 +130,17 @@ def test_another_address_is_unaffected(world):
 def test_a_successful_login_does_not_count(world):
     """A hotel's staff all sign in within a minute of each other at the start of service.
     Counting successes would throttle the thing the door is for."""
-    for _ in range(auth.LOGIN_FAILURES_PER_EMAIL.limit * 3):
+    for _ in range(auth.LOGIN_FAILURES_PER_IDENTIFIER.limit * 3):
         assert attempt(password=PASSWORD) == 200
 
 
 def test_signing_in_clears_that_account_and_not_the_address(world):
     """The typo-then-correct case, without handing an attacker a reset button: clearing
     the email needs the password to that email, which is what they are looking for."""
-    guess(auth.LOGIN_FAILURES_PER_EMAIL.limit - 1)
+    guess(auth.LOGIN_FAILURES_PER_IDENTIFIER.limit - 1)
     assert attempt(password=PASSWORD) == 200
-    assert guess(auth.LOGIN_FAILURES_PER_EMAIL.limit - 1) == [401] * (
-        auth.LOGIN_FAILURES_PER_EMAIL.limit - 1)
+    assert guess(auth.LOGIN_FAILURES_PER_IDENTIFIER.limit - 1) == [401] * (
+        auth.LOGIN_FAILURES_PER_IDENTIFIER.limit - 1)
     # The address, meanwhile, has been counting all along.
     assert run(auth.LOGIN_FAILURES_PER_ADDRESS.blocked("203.0.113.7")) is False
     for _ in range(auth.LOGIN_FAILURES_PER_ADDRESS.limit):
@@ -152,14 +152,14 @@ def test_a_deactivated_account_is_throttled_like_a_wrong_password(world):
     """It gets the same 401 so that the two cannot be told apart. An unthrottled path
     among them would tell them apart anyway, by which one starts answering 429."""
     run(world.users.update_one({"email": OWNER}, {"$set": {"active": False}}))
-    limit = auth.LOGIN_FAILURES_PER_EMAIL.limit
+    limit = auth.LOGIN_FAILURES_PER_IDENTIFIER.limit
     assert set(attempt(password=PASSWORD) for _ in range(limit)) == {401}
     assert attempt(password=PASSWORD) == 429
 
 
 def test_a_suspended_hotel_is_throttled_like_a_wrong_password(world):
     run(world.properties.update_one({"id": "p1"}, {"$set": {"status": "suspended"}}))
-    limit = auth.LOGIN_FAILURES_PER_EMAIL.limit
+    limit = auth.LOGIN_FAILURES_PER_IDENTIFIER.limit
     assert set(attempt(password=PASSWORD) for _ in range(limit)) == {401}
     assert attempt(password=PASSWORD) == 429
 
@@ -167,13 +167,13 @@ def test_a_suspended_hotel_is_throttled_like_a_wrong_password(world):
 def test_an_unknown_email_is_counted_too(world):
     """Otherwise enumeration is free: guess an address, and whether it counts against you
     tells you whether it exists."""
-    limit = auth.LOGIN_FAILURES_PER_EMAIL.limit
+    limit = auth.LOGIN_FAILURES_PER_IDENTIFIER.limit
     assert set(guess(limit, email="nobody@example.com")) == {401}
     assert attempt(email="nobody@example.com") == 429
 
 
 def test_the_refusal_does_not_say_which_limit_stopped_you(world):
-    guess(auth.LOGIN_FAILURES_PER_EMAIL.limit)
+    guess(auth.LOGIN_FAILURES_PER_IDENTIFIER.limit)
     with pytest.raises(HTTPException) as exc:
         run(auth.login(auth.LoginIn(email=OWNER, password=PASSWORD), FakeRequest()))
     assert exc.value.detail == auth.TOO_MANY_ATTEMPTS

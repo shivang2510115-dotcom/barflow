@@ -1,12 +1,13 @@
 """Authentication: logging in, reading your own identity, and changing your own password."""
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from db import unscoped_db
 from security import (
     create_access_token, get_current_user, hash_password, require_access,
     resolve_property, verify_password)
 from services.access import SCREENS, SHARED, SUSPENDED
+from services.identity import looks_like_email, normalise_identifier
 from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
 
@@ -23,8 +24,9 @@ router = APIRouter()
 #   tried once. It is the weaker of the two: `client_ip` prefers X-Forwarded-For, which
 #   the client sets, so an attacker who knows that can hand themselves a fresh
 #   allowance. See services/ratelimit.py for why reading the socket instead is worse.
-# * per email address is the half no header can move, and it is what actually bounds
-#   guessing at one known account — an owner's address is on the hotel's website.
+# * per identifier is the half no header can move, and it is what actually bounds
+#   guessing at one known account — an owner's address is on the hotel's website, and a
+#   waiter's number is on the rota pinned up by the pass.
 #
 # The cost of the second one is stated rather than hidden: an attacker who knows an
 # email can hold that one account out of its own system for as long as they keep failing
@@ -32,25 +34,83 @@ router = APIRouter()
 # against unlimited guessing at every account on the platform, and it is the trade every
 # password door makes. It is a throttle, not a lockout: nothing is disabled, and the
 # window lifts by itself.
+#
+# **The per-identifier bucket keys on the normalised value, never on the raw text.** That
+# is the whole reason the phone normaliser is applied before this limiter is consulted:
+# `9876543210`, `09876543210` and `+91 98765 43210` are one account, so they have to be
+# one allowance. Three raw keys would be thirty guesses where the limit says ten.
+#
+# The limiter's `name` changed with it, which orphans whatever counters a running
+# deployment is holding under `login_email`. That is a one-off amnesty of at most fifteen
+# minutes' accumulated failures at deploy time, and it is the honest trade for a name that
+# says what is now being counted.
 LOGIN_FAILURES_PER_ADDRESS = RateLimiter(limit=50, window_seconds=900, name="login_ip")
-LOGIN_FAILURES_PER_EMAIL = RateLimiter(limit=10, window_seconds=900, name="login_email")
+LOGIN_FAILURES_PER_IDENTIFIER = RateLimiter(
+    limit=10, window_seconds=900, name="login_identifier")
 
 # One message for both limits. Which of the two stopped you is not information a caller
-# is owed — per-email throttling that announced itself would confirm that an address is
-# a real account here.
+# is owed — per-identifier throttling that announced itself would confirm that an address
+# is a real account here.
 TOO_MANY_ATTEMPTS = "Too many sign-in attempts. Try again in a few minutes."
+
+# The one thing every refusal at this door says. It has to name both identifiers, because
+# a phone-only waiter reading "invalid email or password" is being told about a field
+# they have never had — but it must say nothing that separates the four ways in: unknown
+# identifier, wrong password, deactivated account, suspended property.
+INVALID_CREDENTIALS = "Invalid email, phone number or password"
+
+
+async def _find_by_identifier(identifier: str) -> dict | None:
+    """The account this identifier names, or None.
+
+    One field is searched, never both: `looks_like_email` decides which, so a phone
+    number can never be matched against somebody's email address or the other way round.
+    That matters less for correctness than it does for the shape of the query — an
+    `$or` across two fields is a filter that matches a document holding a *null* in
+    either of them the moment one side of the comparison is null itself.
+
+    Which is the other half of this function. A blank or unreadable identifier is
+    refused here rather than sent to the database: every phone-only account stores
+    `email: None`, so a filter built from an empty string is one small mock-database
+    difference away from matching all of them at once.
+    """
+    if not identifier:
+        return None
+    field = "email" if looks_like_email(identifier) else "phone"
+    return await unscoped_db.users.find_one({field: identifier})
 
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    """What the sign-in box sends.
+
+    **The field is named `identifier` and `email` is kept as an alias.** It carries a
+    phone number now, so a field called `email` would be a name that lies — and this is
+    the payload the frontend, `installDemo.js` and every integration test are written
+    against, so renaming it outright would break each of them for a cosmetic gain. An
+    alias is what makes both true at once: the canonical name says what the field is, and
+    every existing caller posting `{"email": ...}` keeps working with nothing changed.
+    Nothing is deprecated on a schedule here — the alias costs one line and the day a
+    hotel's saved bookmark stops working is not a day worth buying.
+
+    `EmailStr` is gone from it, necessarily: a phone number is not an email address. That
+    moves a malformed email from a 422 to the same 401 every other bad guess gets, which
+    is the better answer anyway — a door that answers differently for a well-formed
+    unknown address than for a malformed one is telling a guesser which attempts are
+    worth making.
+    """
+    model_config = ConfigDict(populate_by_name=True)
+
+    identifier: str = Field(validation_alias=AliasChoices("identifier", "email"))
     password: str
 
 
 @router.post("/auth/login")
 async def login(payload: LoginIn, request: Request = None):
-    email = payload.email.lower()
+    # Normalised before anything else, because both the account lookup and the throttle's
+    # bucket key have to be the same string — see services/identity.py.
+    identifier = normalise_identifier(payload.identifier)
     if (await LOGIN_FAILURES_PER_ADDRESS.blocked(client_ip(request))
-            or await LOGIN_FAILURES_PER_EMAIL.blocked(email)):
+            or await LOGIN_FAILURES_PER_IDENTIFIER.blocked(identifier)):
         # Before the password is checked, never after: a throttle that still verifies is
         # not a throttle, it only changes the status code the guesser reads.
         raise HTTPException(status_code=429, detail=TOO_MANY_ATTEMPTS)
@@ -64,10 +124,10 @@ async def login(payload: LoginIn, request: Request = None):
         by which one starts returning 429.
         """
         await LOGIN_FAILURES_PER_ADDRESS.record(client_ip(request))
-        await LOGIN_FAILURES_PER_EMAIL.record(email)
-        return HTTPException(status_code=401, detail="Invalid email or password")
+        await LOGIN_FAILURES_PER_IDENTIFIER.record(identifier)
+        return HTTPException(status_code=401, detail=INVALID_CREDENTIALS)
 
-    user = await unscoped_db.users.find_one({"email": email})
+    user = await _find_by_identifier(identifier)
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise await refuse()
     # Refused at the door rather than on the first request. The message is identical to
@@ -90,13 +150,18 @@ async def login(payload: LoginIn, request: Request = None):
     # clearing the *email* needs the password to that email, which is the thing they are
     # trying to find out. The person it helps is the front desk who mistyped twice
     # before getting it right.
-    await LOGIN_FAILURES_PER_EMAIL.forget(email)
-    token = create_access_token(user["id"], user["email"], user["role"])
+    await LOGIN_FAILURES_PER_IDENTIFIER.forget(identifier)
+    token = create_access_token(user["id"], user.get("email"), user["role"])
     return {
         "token": token,
         "user": {
             "id": user["id"],
-            "email": user["email"],
+            "email": user.get("email"),
+            # Returned beside the address rather than instead of it. The staff screen and
+            # the account screen both show whichever one the person actually has, and a
+            # client that had to infer "they must be phone-only" from a missing key would
+            # be guessing at something the record already knows.
+            "phone": user.get("phone"),
             "name": user["name"],
             "role": user["role"],
             "domains": user.get("domains", []),
@@ -133,7 +198,8 @@ async def me(user: dict = Depends(get_current_user)):
     """
     return {
         "id": user["id"],
-        "email": user["email"],
+        "email": user.get("email"),
+        "phone": user.get("phone"),
         "name": user["name"],
         "role": user["role"],
         "domains": user.get("domains", []),
