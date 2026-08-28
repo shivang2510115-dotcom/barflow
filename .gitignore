@@ -47,3 +47,4 @@ functions/venv
 # Same contents as the real secrets; never committed.
 functions/.secret.local
 table-qr-codes.pdf
+room-qr-codes.pdf
