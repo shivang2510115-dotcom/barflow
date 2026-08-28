@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 
 from db import unscoped_db
+from scoped_db import PropertyScopedDatabase
 from models.property import PropertyType
 from security import hash_password
 from services.access import (
@@ -22,6 +23,7 @@ from services.access import (
     default_permissions, domains_for_property_type)
 from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
+from services.reference_data import seed_reference_data
 from services.registration import GSTIN_SHAPE, validate_gstin
 
 router = APIRouter()
@@ -147,6 +149,11 @@ async def signup(payload: SignupIn, request: Request):
         # pending list forever with nobody able to explain it. Undo rather than orphan.
         await unscoped_db.properties.delete_one({"id": property_id})
         raise
+
+    # A property cannot quote a night without a GST band covering its tariff, nor take a
+    # booking without a meal plan to book on. Seeded here, at the moment the tenant comes
+    # into existence, so the owner never reaches a 500 after building rooms and rates.
+    await seed_reference_data(PropertyScopedDatabase(property_id))
 
     return {
         "property_id": property_id,
