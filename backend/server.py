@@ -242,6 +242,22 @@ async def seed_data():
         "payment_id", unique=True,
         partialFilterExpression={"kind": "invoice"})
 
+    # Customer messaging. The first is the query the occasions screen is: everybody in
+    # this property whose birthday or anniversary falls on today's month and day.
+    await unscoped_db.occasions.create_index([("property_id", 1), ("month_day", 1)])
+    await unscoped_db.occasions.create_index([("property_id", 1), ("guest_id", 1)])
+    await unscoped_db.message_log.create_index([("property_id", 1), ("sent_at", -1)])
+    await unscoped_db.message_log.create_index([("property_id", 1), ("guest_id", 1)])
+    # The one that makes a double press structurally impossible rather than merely
+    # unlikely: the claim on one greeting, to one person, about one thing, on one day.
+    # Against MongoDB this is what holds when two members of staff press send at the same
+    # moment on two terminals. Both the JSON mock and Firestore no-op create_index, so
+    # there the atomic upsert in routers/messaging.py::_claim is the whole guarantee —
+    # the same limitation every other unique index in this function already has, and the
+    # reason that claim is an upsert rather than a read followed by an insert.
+    await unscoped_db.message_claims.create_index(
+        [("property_id", 1), ("key", 1)], unique=True)
+
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()
     admin_pw = os.environ.get("ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD)
