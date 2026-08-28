@@ -77,6 +77,12 @@ SCOPED_COLLECTIONS = (
     "bookings", "rooms", "room_types", "rates", "rate_periods", "meal_plans",
     "tax_slabs", "folios", "folio_entries", "orders", "tables", "reservations",
     "menu", "inventory", "guests",
+    # Customer messaging. All four are as much a hotel's own as its guest list is — an
+    # occasion is a fact about somebody's family, the log names who was messaged and
+    # when, and the settings hold the template names that property obtained from Meta
+    # under its own business account. A leak across tenants here is a leak of exactly the
+    # kind this module exists to make impossible.
+    "occasions", "message_log", "message_claims", "messaging_settings",
 )
 
 

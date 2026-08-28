@@ -29,6 +29,13 @@ export default function POS() {
   const [custName, setCustName] = useState("");
   const [custPhone, setCustPhone] = useState("");
   const [celebrateAmount, setCelebrateAmount] = useState(null);
+  // An occasion the waiter is told about while the card goes through — "it's her birthday
+  // on Saturday". Two fields and two chips, shown only once a phone has been typed,
+  // because without a number there is nobody to record it against. Nothing is required:
+  // a bill settles exactly as it always did if these are left alone, which is the only
+  // way a field on this screen survives a Friday night.
+  const [occasionLabel, setOccasionLabel] = useState("");
+  const [occasionDate, setOccasionDate] = useState("");
   // The dish whose portion the waiter is being asked to pick, or null. Only ever set for
   // an item that is actually sold in more than one — see addItem. A modal in front of
   // every tap would slow down the one screen that is used at speed.
@@ -170,11 +177,31 @@ export default function POS() {
         folio_id: pay === "room" ? chosenFolio.folio.id : undefined,
       });
       toast.success(`Bill settled · ${pay.toUpperCase()}`);
+
+      // After the bill, never before it, and never in its way. Recording an occasion is
+      // a separate write against the guest record, so a failure here — a number that is
+      // not a mobile, a slow connection — must not make a settled bill look unsettled.
+      // The money is already taken and the table is already free; the worst case is that
+      // one birthday is not written down, and the waiter is told so quietly.
+      if (custPhone.trim() && occasionLabel.trim() && occasionDate) {
+        api
+          .post("/messaging/occasions", {
+            phone: custPhone.trim(),
+            name: custName.trim() || null,
+            label: occasionLabel.trim(),
+            date: occasionDate,
+          })
+          .then(() => toast.success(`${occasionLabel.trim()} saved for ${custName.trim() || "this customer"}`))
+          .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
+      }
+
       setCelebrateAmount(Math.max(0, finalTotal));
       setOrder(null);
       setDiscount(0);
       setCustName("");
       setCustPhone("");
+      setOccasionLabel("");
+      setOccasionDate("");
       setChosenFolio(null);
       setRoomQuery("");
       api.get("/tables").then((r) => setTables(r.data));
@@ -401,6 +428,57 @@ export default function POS() {
               className="bg-transparent border-b border-stone-700 py-1.5 text-sm focus-neon"
             />
           </div>
+
+          {/* An occasion, only once there is a number to attach it to. Two taps and a
+              date at most — a form in front of a guest waiting to pay is a form nobody
+              fills in, so the chips are the whole interaction for the two occasions that
+              are almost all of them, and the label stays typeable for the ones that are
+              not. Where the greeting goes from is Customers -> Messaging, on the day. */}
+          {custPhone.trim() && (
+            <div className="mt-4" data-testid="occasion-capture">
+              <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">
+                Occasion <span className="text-stone-600 normal-case tracking-normal">(optional)</span>
+              </div>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {["Birthday", "Anniversary"].map((label) => (
+                  <button
+                    key={label}
+                    type="button"
+                    data-testid={`occasion-${label.toLowerCase()}`}
+                    onClick={() => setOccasionLabel(occasionLabel === label ? "" : label)}
+                    className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest border ${
+                      occasionLabel === label
+                        ? "border-orange-500 text-orange-400 bg-stone-900"
+                        : "border-stone-800 text-stone-400 hover:border-stone-600"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  data-testid="occasion-label"
+                  value={occasionLabel}
+                  onChange={(e) => setOccasionLabel(e.target.value)}
+                  placeholder="Or type one…"
+                  className="bg-transparent border-b border-stone-700 py-1.5 text-sm focus-neon"
+                />
+                <input
+                  data-testid="occasion-date"
+                  type="date"
+                  value={occasionDate}
+                  onChange={(e) => setOccasionDate(e.target.value)}
+                  className="bg-transparent border-b border-stone-700 py-1.5 text-sm focus-neon"
+                />
+              </div>
+              {occasionLabel.trim() && !occasionDate && (
+                <div className="text-[10px] font-mono text-stone-500 mt-2">
+                  Add the date and it is saved when the bill is settled.
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mt-4">

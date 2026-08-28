@@ -1,11 +1,14 @@
-"""BarFlow on Firebase Functions (2nd gen): the same FastAPI app, and the nightly brief.
+"""BarFlow on Firebase Functions (2nd gen): the same FastAPI app, and the scheduled work.
 
-Two functions are defined here and nothing else:
+Three functions are defined here and nothing else:
 
 * `api` serves `backend/server.py::app` behind Firebase Hosting's `/api/**` rewrite, so
   the browser still sees one origin and CORS is still not load-bearing;
 * `daily_brief` is woken by Cloud Scheduler at OWNER_BRIEF_TIME and sends the owner
-  brief, which under Functions the in-process loop cannot — see `_brief_cron` below.
+  brief, which under Functions the in-process loop cannot — see `_brief_cron` below;
+* `customer_follow_ups` is woken at CUSTOMER_FOLLOW_UP_TIME and messages the customers a
+  property has not seen inside its own window. Same mechanism, deliberately: a second one
+  would be a second place for "did it run last night" to be answered differently.
 
 The app itself is not forked. `backend/` is the only copy of the routers there has ever
 been, and it is placed on `sys.path` here rather than reimplemented; `_backend_dir()`
@@ -72,7 +75,7 @@ from firebase_functions import core, https_fn, options, scheduler_fn  # noqa: E4
 
 import db  # noqa: E402  (backend/db.py)
 import server  # noqa: E402  (backend/server.py — importing it builds the FastAPI app)
-from routers import reports  # noqa: E402
+from routers import messaging, reports  # noqa: E402
 
 # ---------------------------------------------------------------- deployment shape
 # The region is in two files and they must agree: here, which is where the function is
@@ -339,3 +342,70 @@ def daily_brief(event: scheduler_fn.ScheduledEvent) -> None:
     count = _run(send())
     logger.info("[daily-brief] scheduled run sent %d brief(s) (job %s).",
                 count, getattr(event, "job_name", "?"))
+
+
+# ---------------------------------------------------------------- the visit follow-up
+def _follow_up_cron() -> str:
+    """CUSTOMER_FOLLOW_UP_TIME, as a daily cron expression. Same shape as `_brief_cron`.
+
+    Defaults to 11:00 rather than the brief's 23:00, and the hour is the point: this is a
+    message to a *customer*, not to the owner, and a restaurant telling somebody it misses
+    them at eleven at night is a different message from the one it meant to send.
+    """
+    raw = (os.environ.get("CUSTOMER_FOLLOW_UP_TIME") or "11:00").strip()
+    try:
+        hour, _, minute = raw.partition(":")
+        return f"{int(minute or 0)} {int(hour)} * * *"
+    except ValueError:
+        logger.warning("CUSTOMER_FOLLOW_UP_TIME=%r is not HH:MM; falling back to 11:00.",
+                       raw)
+        return "0 11 * * *"
+
+
+@scheduler_fn.on_schedule(
+    schedule=_follow_up_cron(),
+    # The property's own clock, like the brief: "eleven in the morning" means eleven where
+    # the restaurant is, and the ten-day window is counted in that property's days.
+    timezone=scheduler_fn.Timezone(os.environ.get("PROPERTY_TZ", "Asia/Kolkata")),
+    region=REGION,
+    memory=options.MemoryOption.MB_512,
+    timeout_sec=540,
+    # One instance and no retries, for the reason the brief gives and more so: these are
+    # messages to customers. A second instance would race the claim rather than duplicate
+    # a message — the claim holds — but a retry after a partial run would re-enter a job
+    # that has already written its log rows, and "sent late" beats every alternative to
+    # "sent twice".
+    max_instances=1,
+    retry_count=0,
+    secrets=_secrets(),
+)
+def customer_follow_ups(event: scheduler_fn.ScheduledEvent) -> None:
+    """One follow-up to each customer who has not been back inside the property's window.
+
+    A scheduled function rather than an in-process loop, for exactly the reason the daily
+    brief became one: a loop only makes progress while a process is alive, and both the
+    Functions runtime and Cloud Run with scale-to-zero shut an idle instance down within
+    minutes. A follow-up that goes out only on the days the hotel happened to be busy at
+    eleven in the morning is worse than none, because nobody would ever notice.
+
+    There is no in-process equivalent for the container deployment. That is a real gap and
+    not an oversight: the container is the development shape, the deployed shape is
+    Functions, and adding a second mechanism would give the two deployments different
+    behaviour for the one feature where "did it send" has to have a single answer.
+
+    Safe when it cannot send. `run_follow_ups` checks the switch, the template and the
+    WhatsApp credentials once per property before it reads a single guest, and a property
+    that is not ready is one log line rather than a failure row per customer per night.
+    """
+    async def send() -> list:
+        # Named error rather than a driver timeout in the middle of the property loop,
+        # exactly as the app's own startup and the brief both do it.
+        await db.check_connection()
+        # No date argument: the scheduler fires in PROPERTY_TZ, so the property-local
+        # today this resolves to is the day the window should be measured against.
+        return await messaging.send_follow_ups()
+
+    results = _run(send())
+    sent = sum(r.get("sent", 0) for r in results)
+    logger.info("[follow-ups] scheduled run: %d propert(ies), %d message(s) (job %s).",
+                len(results), sent, getattr(event, "job_name", "?"))

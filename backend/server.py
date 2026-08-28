@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices, messaging
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -109,7 +109,7 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices, messaging):
     api_router.include_router(module.router)
 
 
@@ -241,6 +241,22 @@ async def seed_data():
     await unscoped_db.platform_invoices.create_index(
         "payment_id", unique=True,
         partialFilterExpression={"kind": "invoice"})
+
+    # Customer messaging. The first is the query the occasions screen is: everybody in
+    # this property whose birthday or anniversary falls on today's month and day.
+    await unscoped_db.occasions.create_index([("property_id", 1), ("month_day", 1)])
+    await unscoped_db.occasions.create_index([("property_id", 1), ("guest_id", 1)])
+    await unscoped_db.message_log.create_index([("property_id", 1), ("sent_at", -1)])
+    await unscoped_db.message_log.create_index([("property_id", 1), ("guest_id", 1)])
+    # The one that makes a double press structurally impossible rather than merely
+    # unlikely: the claim on one greeting, to one person, about one thing, on one day.
+    # Against MongoDB this is what holds when two members of staff press send at the same
+    # moment on two terminals. Both the JSON mock and Firestore no-op create_index, so
+    # there the atomic upsert in routers/messaging.py::_claim is the whole guarantee —
+    # the same limitation every other unique index in this function already has, and the
+    # reason that claim is an upsert rather than a read followed by an insert.
+    await unscoped_db.message_claims.create_index(
+        [("property_id", 1), ("key", 1)], unique=True)
 
     # Seed admin + staff
     admin_email = os.environ.get("ADMIN_EMAIL", "admin@barflow.io").lower()

@@ -19,6 +19,7 @@ import {
   ClipboardList,
   Tags,
   Users,
+  Cake,
   ShieldCheck,
   LayoutDashboard,
   MessageSquare,
@@ -76,6 +77,12 @@ const NAV = [
   // guests.py declares SHARED: a bar regular and a hotel guest are the same person, and
   // splitting the records by domain would stop the desk seeing an arrival's bar history.
   { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"], screen: "hotel.guests" },
+  // Occasions and the message log. Filed under Property beside Guests and keyed on
+  // the same screen, because that is what it shows: guest names, guest numbers and
+  // what has been sent to them. The endpoints behind it also name `waiter`, whose
+  // own path into this feature is the POS — they record an occasion while settling
+  // a bill, and a waiter ticked for Guests gets this link too.
+  { to: "/app/messaging", label: "Messaging", icon: Cake, roles: ["admin", "manager", "front_desk"], screen: "hotel.guests" },
   // inventory.py declares SHARED too — one store room supplies the kitchen, the bar and
   // housekeeping.
   { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"], screen: "outlet.inventory" },

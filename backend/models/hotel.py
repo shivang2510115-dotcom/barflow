@@ -33,10 +33,66 @@ class GuestIn(BaseModel):
     id_proof_number: Optional[str] = None
     notes: Optional[str] = None
 
+    # "Do not message this person." Unsolicited commercial messaging is regulated in
+    # India and it is the property carrying that risk, so this is a field on the person
+    # rather than a preference buried in a settings screen.
+    #
+    # **`None` here means "not mentioned", not "consenting."** Alone among these fields it
+    # is optional on the *body* and defaulted only on the stored record below, exactly as
+    # `meal_plans_enabled` is on models/property.py and for a sharper version of the same
+    # reason: `PUT /api/guests/{id}` replaces the record wholesale, so a form written
+    # before this field existed — or any script that reads a guest, corrects a spelling
+    # and puts it back — would omit the key, Pydantic would fill in `False`, and somebody
+    # who had asked not to be messaged would be silently re-consented by a typo fix.
+    # The router drops it when it arrives as `None` and leaves whatever is stored. Saying
+    # "may be messaged" still works and still means it — it just has to be said.
+    no_messages: Optional[bool] = None
+
 
 class Guest(GuestIn):
     id: str = Field(default_factory=_uuid)
     created_at: str = Field(default_factory=_now)
+    # A stored guest always carries a real boolean — the `None` above is a fact about a
+    # request body and never a state a record is left in. A guest nobody has asked is
+    # messageable: every record written before this field existed was written by a
+    # property that had never asked, and reading absence as an opt-out would switch the
+    # feature off for the whole existing list.
+    no_messages: bool = False
+
+
+# ---------------------------- occasions ---------------------------
+class OccasionIn(BaseModel):
+    """A date in a customer's year that the property would like to mark.
+
+    **`label` is free text, not an enum.** A birthday and a wedding anniversary are the
+    two everybody thinks of, and then a hotel says "Ananya's first birthday" or "the
+    anniversary of the night they got engaged here". A Literal would need a deploy every
+    time a property had an idea, and the label is only ever shown back to the guest —
+    nothing branches on it except the lookup of which approved template carries it, which
+    is a dictionary the property fills in itself.
+
+    `date` is a full YYYY-MM-DD because that is what a date input gives and because a
+    hotel likes to know a regular is turning sixty. Only the month and day are ever
+    matched — see services/messaging.py::month_day — so the year can be wrong, or a
+    guess, without putting the greeting on the wrong day.
+    """
+    label: str
+    date: str
+
+
+class Occasion(OccasionIn):
+    id: str = Field(default_factory=_uuid)
+    # Whose occasion it is. Occasions live in their own collection rather than as a list
+    # on the guest, because the one query this feature is built around — "everybody whose
+    # occasion is today" — has to run across the whole guest list, and neither the JSON
+    # mock nor Firestore can match inside an array. A denormalised `month_day` makes it
+    # one indexed equality filter instead of reading every guest a property has.
+    guest_id: str
+    # The recurring part of `date`, stored rather than computed at query time for the
+    # reason above.
+    month_day: str
+    created_at: str = Field(default_factory=_now)
+    created_by: Optional[str] = None
 
 
 # --------------------------- room types ---------------------------
