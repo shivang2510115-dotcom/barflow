@@ -1,12 +1,19 @@
 import React, { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, currency } from "@/lib/api";
 import { Plus, Minus, Trash2, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import InventoryImport from "@/components/app/InventoryImport";
 
 export default function Inventory() {
   const { user } = useAuth();
   const canEdit = ["admin", "manager"].includes(user?.role);
+  // Not `canEdit`. Creating and repricing stock items is admin-only on the API
+  // (routers/inventory.py uses require_configuration), and an import creates and reprices
+  // two hundred of them at once. A manager reads this screen and adjusts stock on a
+  // shift; showing them an upload the server would refuse is offering a door that does
+  // not open.
+  const isAdmin = user?.role === "admin";
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({ name: "", unit: "bottle", stock: 0, threshold: 5, cost_per_unit: 0, category: "spirits" });
 
@@ -73,6 +80,8 @@ export default function Inventory() {
           </button>
         </form>
       )}
+
+      {isAdmin && <InventoryImport items={items} onApplied={load} />}
 
       <div className="mt-8 border border-stone-800 bg-stone-900/40 overflow-x-auto">
         <table className="w-full text-sm">
