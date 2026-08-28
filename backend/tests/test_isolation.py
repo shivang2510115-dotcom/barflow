@@ -621,6 +621,48 @@ def test_the_store_room_holds_none_of_bs_stock(world):
                                   db=a.db)} == {"a-inv"}
 
 
+def test_a_stock_upload_matches_against_its_own_hotels_shelves_only(world):
+    a, b = world
+    # Both hotels hold an item called "Gin 750ml" — the same product, two store rooms.
+    # A's upload of that name must read as *A's* Gin, and applying it must leave B's
+    # stock at the 1.0 it was seeded with. Were the match unscoped, one hotel's opening
+    # stock take would silently overwrite another's.
+    import io
+
+    from fastapi import UploadFile
+    csv = b"name,unit,stock\nGin 750ml,bottle,42\n"
+    report = call(inventory.preview_inventory_import,
+                  file=UploadFile(file=io.BytesIO(csv), filename="stock.csv",
+                                  size=len(csv)),
+                  user=a.admin, db=a.db)
+    assert report["rows"][0]["item_id"] == "a-inv"
+    assert report["rows"][0]["existing"]["stock"] == 1.0
+
+    call(inventory.apply_inventory_import,
+         payload=inventory.InventoryImportApplyIn(rows=[
+             inventory.InventoryImportRowIn(row=2, name="Gin 750ml", unit="bottle",
+                                            stock=42, action="update",
+                                            item_id="a-inv")]),
+         user=a.admin, db=a.db)
+    assert run(a.db.inventory.find_one({"id": "a-inv"}))["stock"] == 42.0
+    assert run(b.db.inventory.find_one({"id": "b-inv"}))["stock"] == 1.0
+
+
+def test_an_upload_cannot_update_the_other_hotels_stock_by_naming_its_id(world):
+    a, b = world
+    # The item id arrives from a browser, so it is client input. A row pointing at B's
+    # item is refused — the whole apply is — and nothing is written to either hotel.
+    refusal = refused(inventory.apply_inventory_import,
+                      payload=inventory.InventoryImportApplyIn(rows=[
+                          inventory.InventoryImportRowIn(
+                              row=2, name="Gin 750ml", unit="bottle", stock=99,
+                              action="update", item_id="b-inv")]),
+                      user=a.admin, db=a.db)
+    assert refusal.status_code == 400
+    assert run(b.db.inventory.find_one({"id": "b-inv"}))["stock"] == 1.0
+    assert run(a.db.inventory.find_one({"id": "a-inv"}))["stock"] == 1.0
+
+
 def test_adjusting_and_deleting_bs_stock_from_as_session_change_nothing(world):
     a, b = world
     assert refused(inventory.adjust_inventory, item_id="b-inv",
@@ -767,6 +809,12 @@ SCOPE_FREE = {
     ("GET", "/api/platform/properties/{property_id}/invoices"): "the platform's own series",
     ("GET", "/api/platform/invoices/{invoice_id}"): "the platform's own series",
     ("POST", "/api/platform/invoices/{invoice_id}/credit-note"): "the platform's own series",
+    # The blank stock spreadsheet an owner downloads to fill in. It is a constant in
+    # code — the same six column headings and one example row for every property — so
+    # there is no collection to read and nothing a tenant could scope. The two endpoints
+    # that *do* read stock, /inventory/import/preview and /inventory/import/apply, both
+    # take the bound handle and are not listed here.
+    ("GET", "/api/inventory/import/template"): "the blank template is a constant in code",
     ("GET", "/api/whatsapp/status"): "reads configuration, not data",
     ("POST", "/api/whatsapp/test"): "sends one message; touches no collection",
     # The operator works across tenants by definition. These read the properties

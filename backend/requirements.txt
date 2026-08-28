@@ -28,5 +28,13 @@ requests>=2.31.0
 pandas>=2.2.0
 numpy>=1.26.0
 python-multipart>=0.0.9
+# The Excel half of the stock import. Chosen because it is small — one pure-Python
+# package plus et-xmlfile — and this deploys as a Firebase Function, where every
+# megabyte in the image is cold-start latency paid by requests that are not uploading a
+# spreadsheet. pandas would read the same file and is already above for other reasons,
+# but pulling it into this path would have been the wrong trade for one sheet of stock.
+# Imported lazily inside services/inventory_import.py, so if it is ever absent the import
+# degrades to "export a CSV" rather than taking the inventory router down at startup.
+openpyxl>=3.1,<4
 jq>=1.6.0
 typer>=0.9.0
