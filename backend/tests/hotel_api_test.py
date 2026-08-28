@@ -2260,3 +2260,215 @@ def test_a_new_staff_member_belongs_to_the_hiring_admins_hotel(admin):
     # Reaching an operating endpoint at all means the property resolved and was usable.
     assert s.get(f"{API}/bookings").status_code == 200
     assert s.get(f"{API}/property").json()["id"] == admin.get(f"{API}/property").json()["id"]
+
+
+# ------------------- Pre-assigning a room, over the wire -------------------
+def _bookable(admin, rooms=2):
+    """A room type with `rooms` rooms, a rate and a guest — enough to take bookings."""
+    rt = _new_room_type(admin)
+    made = _add_rooms(admin, rt["id"], rooms)
+    _add_default_rate(admin, rt["id"])
+    return rt, made, _new_guest(admin)
+
+
+def _book(admin, rt, guest, ep_plan, ci, co):
+    r = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": ci, "check_out": co,
+        "adults": 2, "children": 0})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def test_one_room_cannot_be_held_by_two_overlapping_bookings(admin, ep_plan):
+    """The end-to-end proof, with real status codes.
+
+    Two rooms of the type, not one, only so that both bookings can be *taken* — the
+    inventory check on POST /bookings would refuse the second otherwise. The whole
+    point is about one specific door: room A is given to the first booking, and the
+    second cannot have it while their stays overlap.
+    """
+    rt, rooms, guest = _bookable(admin)
+    room_a = rooms[0]
+    first = _book(admin, rt, guest, ep_plan, "2030-02-10", "2030-02-14")
+    second = _book(admin, rt, guest, ep_plan, "2030-02-13", "2030-02-17")
+
+    given = admin.put(f"{API}/bookings/{first['id']}/room", json={"room_id": room_a["id"]})
+    assert given.status_code == 200, given.text
+    assert given.json()["assigned_room_id"] == room_a["id"]
+    assert given.json()["room"]["number"] == room_a["number"]
+
+    clash = admin.put(f"{API}/bookings/{second['id']}/room", json={"room_id": room_a["id"]})
+    assert clash.status_code == 409, clash.text
+    detail = clash.json()["detail"]
+    # Named, not merely refused: the desk can go and move BF-… out of the way.
+    assert detail["booking_id"] == first["id"]
+    assert detail["reference"] == first["reference"]
+    assert first["reference"] in detail["message"]
+    assert admin.get(f"{API}/bookings/{second['id']}").json()["assigned_room_id"] is None
+
+    # Move the first booking out of the way — the second may now have the room.
+    moved = admin.put(f"{API}/bookings/{first['id']}",
+                      json={"check_in": "2030-02-10", "check_out": "2030-02-13"})
+    assert moved.status_code == 200, moved.text
+
+    now_free = admin.put(f"{API}/bookings/{second['id']}/room",
+                         json={"room_id": room_a["id"]})
+    assert now_free.status_code == 200, now_free.text
+    assert now_free.json()["assigned_room_id"] == room_a["id"]
+    # And the first still holds it for its own, now adjacent, nights: 10th→13th and
+    # 13th→17th share a boundary day, not a night.
+    assert admin.get(f"{API}/bookings/{first['id']}").json()["assigned_room_id"] == room_a["id"]
+
+
+def test_a_room_of_the_wrong_type_is_refused_over_the_wire(admin, ep_plan):
+    rt, _rooms, guest = _bookable(admin, rooms=1)
+    other_rt, other_rooms, _g = _bookable(admin, rooms=1)
+    booking = _book(admin, rt, guest, ep_plan, "2030-03-10", "2030-03-12")
+
+    r = admin.put(f"{API}/bookings/{booking['id']}/room",
+                  json={"room_id": other_rooms[0]["id"]})
+    assert r.status_code == 409, r.text
+
+
+def test_a_room_out_of_order_during_the_stay_is_refused_over_the_wire(admin, ep_plan):
+    rt, rooms, guest = _bookable(admin, rooms=1)
+    booking = _book(admin, rt, guest, ep_plan, "2030-04-10", "2030-04-15")
+    blocked = admin.post(f"{API}/rooms/{rooms[0]['id']}/out-of-order",
+                         json={"from": "2030-04-12", "to": "2030-04-13",
+                               "reason": "Burst pipe"})
+    assert blocked.status_code == 200, blocked.text
+
+    r = admin.put(f"{API}/bookings/{booking['id']}/room", json={"room_id": rooms[0]["id"]})
+    assert r.status_code == 409, r.text
+    assert "Burst pipe" in r.json()["detail"]["message"]
+
+
+def test_clearing_the_room_frees_it_over_the_wire(admin, ep_plan):
+    rt, rooms, guest = _bookable(admin)
+    first = _book(admin, rt, guest, ep_plan, "2030-05-10", "2030-05-14")
+    second = _book(admin, rt, guest, ep_plan, "2030-05-12", "2030-05-16")
+
+    admin.put(f"{API}/bookings/{first['id']}/room", json={"room_id": rooms[0]["id"]})
+    assert admin.put(f"{API}/bookings/{second['id']}/room",
+                     json={"room_id": rooms[0]["id"]}).status_code == 409
+
+    cleared = admin.put(f"{API}/bookings/{first['id']}/room", json={"room_id": None})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["assigned_room_id"] is None
+
+    retry = admin.put(f"{API}/bookings/{second['id']}/room", json={"room_id": rooms[0]["id"]})
+    assert retry.status_code == 200, retry.text
+
+
+def test_the_bookings_list_says_which_bookings_still_need_a_room(admin, ep_plan):
+    rt, rooms, guest = _bookable(admin)
+    assigned = _book(admin, rt, guest, ep_plan, "2030-06-10", "2030-06-12")
+    waiting = _book(admin, rt, guest, ep_plan, "2030-06-12", "2030-06-14")
+    admin.put(f"{API}/bookings/{assigned['id']}/room", json={"room_id": rooms[0]["id"]})
+
+    rows = {b["id"]: b for b in admin.get(f"{API}/bookings").json()}
+    assert rows[assigned["id"]]["room"]["number"] == rooms[0]["number"]
+    assert rows[waiting["id"]]["room"] is None
+
+
+def test_check_in_refuses_a_room_held_for_a_later_arrival(admin, ep_plan):
+    """The regression the whole feature turns on. Before pre-assignment, check-in only
+    had to look at bookings that were already checked in; now a confirmed booking holds
+    a room too, and giving it away at the desk is the same double-booking from the
+    other end."""
+    rt, rooms, guest = _bookable(admin)
+    later = _book(admin, rt, guest, ep_plan, "2030-07-12", "2030-07-16")
+    admin.put(f"{API}/bookings/{later['id']}/room", json={"room_id": rooms[0]["id"]})
+
+    arriving = _book(admin, rt, guest, ep_plan, "2030-07-10", "2030-07-14")
+    r = admin.post(f"{API}/bookings/{arriving['id']}/check-in", json={
+        "room_id": rooms[0]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1234-5678-9012"})
+    assert r.status_code == 409, r.text
+    assert r.json()["detail"]["reference"] == later["reference"]
+
+    # The other room is free, so the guest is checked in there instead.
+    ok = admin.post(f"{API}/bookings/{arriving['id']}/check-in", json={
+        "room_id": rooms[1]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1234-5678-9012"})
+    assert ok.status_code == 200, ok.text
+
+
+def test_check_in_takes_the_room_the_booking_was_pre_assigned(admin, ep_plan):
+    rt, rooms, guest = _bookable(admin, rooms=1)
+    booking = _book(admin, rt, guest, ep_plan, "2030-08-10", "2030-08-12")
+    admin.put(f"{API}/bookings/{booking['id']}/room", json={"room_id": rooms[0]["id"]})
+
+    r = admin.post(f"{API}/bookings/{booking['id']}/check-in", json={
+        "room_id": rooms[0]["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": "1234-5678-9012"})
+    assert r.status_code == 200, r.text
+    assert r.json()["booking"]["assigned_room_id"] == rooms[0]["id"]
+
+
+def test_front_desk_may_assign_a_room_and_a_waiter_may_not(admin, front_desk, waiter,
+                                                           ep_plan):
+    """Assignment is operational, not configuration: the receptionist does it. A waiter
+    holds neither the hotel domain nor either screen this endpoint names."""
+    rt, rooms, guest = _bookable(admin, rooms=1)
+    booking = _book(admin, rt, guest, ep_plan, "2030-09-10", "2030-09-12")
+
+    assert waiter.put(f"{API}/bookings/{booking['id']}/room",
+                      json={"room_id": rooms[0]["id"]}).status_code == 403
+
+    r = front_desk.put(f"{API}/bookings/{booking['id']}/room",
+                       json={"room_id": rooms[0]["id"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["assigned_room_id"] == rooms[0]["id"]
+
+
+def test_a_cancelled_booking_cannot_be_given_a_room(admin, ep_plan):
+    rt, rooms, guest = _bookable(admin, rooms=1)
+    booking = _book(admin, rt, guest, ep_plan, "2030-10-10", "2030-10-12")
+    admin.post(f"{API}/bookings/{booking['id']}/cancel", json={"reason": "Plans changed"})
+
+    r = admin.put(f"{API}/bookings/{booking['id']}/room", json={"room_id": rooms[0]["id"]})
+    assert r.status_code == 409, r.text
+
+
+def test_the_bookings_screen_alone_can_read_the_room_list_to_assign_from(admin, ep_plan):
+    """A receptionist ticked only for bookings still has to see the rooms, or the assign
+    picker on the booking screen is empty and the feature does not exist for them."""
+    rt, rooms, guest = _bookable(admin, rooms=1)
+    booking = _book(admin, rt, guest, ep_plan, "2030-11-10", "2030-11-12")
+    s = _staff_session(admin, f"bookonly-{uuid.uuid4().hex[:6]}@barflow.io",
+                       "bookonly12345", "front_desk", ["hotel"],
+                       permissions=["hotel.bookings"])
+
+    listing = s.get(f"{API}/rooms")
+    assert listing.status_code == 200, listing.text
+    assert any(r["id"] == rooms[0]["id"] for r in listing.json())
+    # …and the front-desk board is still not theirs.
+    assert s.get(f"{API}/front-desk").status_code == 403
+
+    assigned = s.put(f"{API}/bookings/{booking['id']}/room",
+                     json={"room_id": rooms[0]["id"]})
+    assert assigned.status_code == 200, assigned.text
+
+
+def test_a_stay_cannot_be_stretched_over_a_room_someone_else_holds(admin, ep_plan):
+    """The other door into the same double-booking: never assign a clashing room, just
+    move the dates of a booking that already holds one until they overlap."""
+    rt, rooms, guest = _bookable(admin)
+    early = _book(admin, rt, guest, ep_plan, "2031-03-01", "2031-03-05")
+    late = _book(admin, rt, guest, ep_plan, "2031-03-05", "2031-03-09")
+    # Adjacent, so both may legitimately hold the same door.
+    assert admin.put(f"{API}/bookings/{early['id']}/room",
+                     json={"room_id": rooms[0]["id"]}).status_code == 200
+    assert admin.put(f"{API}/bookings/{late['id']}/room",
+                     json={"room_id": rooms[0]["id"]}).status_code == 200
+
+    stretched = admin.put(f"{API}/bookings/{early['id']}",
+                          json={"check_in": "2031-03-01", "check_out": "2031-03-07"})
+    assert stretched.status_code == 409, stretched.text
+    assert stretched.json()["detail"]["reference"] == late["reference"]
+    # Refused whole: neither the dates nor the room moved.
+    unchanged = admin.get(f"{API}/bookings/{early['id']}").json()
+    assert unchanged["check_out"] == "2031-03-05"
+    assert unchanged["assigned_room_id"] == rooms[0]["id"]

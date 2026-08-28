@@ -35,6 +35,15 @@ export default function BookingDetail() {
   const [forcing, setForcing] = useState(false);
   const [forceReason, setForceReason] = useState("");
 
+  // Which physical room this booking holds. Recorded here rather than only at the desk
+  // because hotels pre-assign routinely — the returning guest who asks for 204, the
+  // family who need adjacent doors — and the alternative is a note on paper.
+  const [rooms, setRooms] = useState([]);
+  const [picked, setPicked] = useState("");
+  const [assigning, setAssigning] = useState(false); // confirming an assignment
+  const [clearing, setClearing] = useState(false); // confirming a clear
+  const [savingRoom, setSavingRoom] = useState(false);
+
   const load = () =>
     api
       .get(`/bookings/${id}`)
@@ -45,6 +54,13 @@ export default function BookingDetail() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    api
+      .get("/rooms")
+      .then((r) => setRooms(r.data))
+      .catch(() => setRooms([]));
+  }, []);
 
   useEffect(() => {
     if (b?.status !== "checked_in" && b?.status !== "checked_out") return;
@@ -135,9 +151,39 @@ export default function BookingDetail() {
     }
   };
 
+  const startAssign = () => {
+    setPicked(b.assigned_room_id || "");
+    setAssigning(true);
+  };
+
+  const setRoom = async (roomId) => {
+    setSavingRoom(true);
+    try {
+      const { data } = await api.put(`/bookings/${id}/room`, { room_id: roomId });
+      toast.success(roomId ? `Room ${data.room.number} assigned` : "Room cleared");
+      setAssigning(false);
+      setClearing(false);
+      setPicked("");
+      load();
+    } catch (e) {
+      // The 409 names the booking already holding the room, so the receptionist can go
+      // and move that one — formatApiErrorDetail surfaces detail.message verbatim.
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setSavingRoom(false);
+    }
+  };
+
   if (!b) return <div className="p-6 md:p-10 text-stone-400">Loading booking…</div>;
 
   const expired = isExpiredHold(b);
+  // A cancelled, departed or no-show booking holds no room, and the server refuses to
+  // give one — so the panel is not offered rather than shown and left to fail.
+  const roomEditable = ["tentative", "confirmed", "checked_in"].includes(b.status);
+  const matchingRooms = rooms.filter(
+    (r) => r.room_type_id === b.room_type_id && r.active !== false,
+  );
+  const busyAnywhere = busy || checkingOut || savingRoom;
 
   return (
     <div className="p-6 md:p-10">
@@ -169,6 +215,7 @@ export default function BookingDetail() {
       <div className="grid gap-4 md:grid-cols-3 mb-8">
         {[
           ["Room type", b.room_type?.name],
+          ["Room", b.room ? b.room.number : null],
           ["Meal plan", b.meal_plan ? `${b.meal_plan.code} · ${b.meal_plan.name}` : null],
           ["Occupancy", `${b.adults} adult${b.adults === 1 ? "" : "s"}, ${b.children} child${b.children === 1 ? "" : "ren"}`],
           ["Check in", b.check_in],
@@ -181,6 +228,122 @@ export default function BookingDetail() {
           </div>
         ))}
       </div>
+
+      {roomEditable && !confirming && !forcing && (
+        <div className="border border-stone-800 bg-stone-900 rounded p-5 max-w-xl mb-8">
+          <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">Room</h2>
+          <p className="text-sm mb-4">
+            {b.room ? (
+              <>
+                Holding room <span className="text-orange-400 font-semibold">{b.room.number}</span>
+                {b.room.floor ? <span className="text-stone-500"> · floor {b.room.floor}</span> : null}
+                {b.status === "checked_in" && <span className="text-stone-500"> · guest in house</span>}
+              </>
+            ) : (
+              <span className="text-stone-400">
+                No room yet — this booking holds a {b.room_type?.name || "room type"}, not a door.
+              </span>
+            )}
+          </p>
+
+          {!assigning && !clearing && (
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={startAssign}
+                disabled={busyAnywhere}
+                className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              >
+                {b.room ? "Change room" : "Assign room"}
+              </button>
+              {/* The server refuses to leave an in-house guest with no room — moving
+                  them is a room change, not a clear — so the control is hidden rather
+                  than shown and left to 409. */}
+              {b.room && b.status !== "checked_in" && (
+                <button
+                  onClick={() => setClearing(true)}
+                  disabled={busyAnywhere}
+                  className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                >
+                  Clear room
+                </button>
+              )}
+            </div>
+          )}
+
+          {assigning && (
+            <div className="border border-orange-500/40 bg-orange-950/10 rounded p-4">
+              <p className="text-sm text-stone-300 mb-3">
+                A room is held for the whole stay, {b.check_in} → {b.check_out}. If another
+                booking already has it, this is refused and says which one.
+              </p>
+              <select
+                autoFocus
+                value={picked}
+                onChange={(e) => setPicked(e.target.value)}
+                className="block bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+              >
+                <option value="">Choose a room…</option>
+                {matchingRooms.length === 0 ? (
+                  <option value="" disabled>
+                    No active rooms of this type
+                  </option>
+                ) : (
+                  matchingRooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.number}
+                      {r.floor ? ` · floor ${r.floor}` : ""}
+                    </option>
+                  ))
+                )}
+              </select>
+              <div className="flex gap-3 mt-4">
+                <button
+                  onClick={() => setRoom(picked)}
+                  disabled={savingRoom || !picked}
+                  className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                >
+                  {savingRoom ? "Assigning…" : "Confirm room"}
+                </button>
+                <button
+                  onClick={() => {
+                    setAssigning(false);
+                    setPicked("");
+                  }}
+                  disabled={savingRoom}
+                  className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                >
+                  Never mind
+                </button>
+              </div>
+            </div>
+          )}
+
+          {clearing && (
+            <div className="border border-stone-700 bg-stone-950 rounded p-4">
+              <p className="text-sm text-stone-300 mb-3">
+                This releases room {b.room?.number} for these dates — anyone else may take
+                it, and this booking goes back to holding only a room type.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setRoom(null)}
+                  disabled={savingRoom}
+                  className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                >
+                  {savingRoom ? "Clearing…" : "Confirm clear"}
+                </button>
+                <button
+                  onClick={() => setClearing(false)}
+                  disabled={savingRoom}
+                  className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                >
+                  Never mind
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">Price breakdown</h2>
       <div className="overflow-x-auto mb-8">
@@ -213,17 +376,18 @@ export default function BookingDetail() {
         </table>
       </div>
 
-      {!["cancelled", "checked_out"].includes(b.status) && !confirming && !forcing && (
+      {!["cancelled", "checked_out"].includes(b.status) && !confirming && !forcing
+        && !assigning && !clearing && (
         <button
           onClick={startCancel}
-          disabled={busy || checkingOut}
+          disabled={busyAnywhere}
           className="border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase mb-4"
         >
           Cancel booking
         </button>
       )}
 
-      {b.status === "checked_in" && !confirming && !forcing && (
+      {b.status === "checked_in" && !confirming && !forcing && !assigning && !clearing && (
         <div className="flex gap-3 flex-wrap mb-4">
           {folioId && (
             <Link
