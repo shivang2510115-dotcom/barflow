@@ -1,13 +1,25 @@
 """The stock upload: reading a supplier's spreadsheet, and refusing to guess.
 
 The parser is a pure function over bytes — no server, no database, no request — so
-everything about *reading* a file is tested by calling it, and every one of these tests
-runs in milliseconds without anything being started.
+everything about *reading* a file is tested here by calling it. What the endpoints add on
+top (who may upload, whose stock it lands in, what is actually written) is exercised at
+the bottom of this file by calling the route coroutines directly, the way
+test_isolation.py does.
+
+The one thing this suite is really for: **nothing is written on upload**. A preview is a
+report. Every assertion about a number landing in the database is against `apply`, and
+`apply` is handed rows a human has already looked at.
 """
+import asyncio
 import io
 
 import pytest
+from fastapi import HTTPException
 
+import db as db_module
+import routers.inventory as inventory
+from mock_db import MockDatabase
+from scoped_db import PropertyScopedDatabase
 from services import inventory_import as imp
 
 
@@ -353,3 +365,139 @@ def test_an_admin_may_correct_a_match_by_hand():
 def test_applying_nothing_at_all_is_refused_rather_than_reported_as_success():
     ops, refusals = imp.plan_apply([reviewed(action="skip")], existing_stock())
     assert ops == [] and refusals == []
+
+
+# ------------------------------ the endpoints ------------------------------
+def run(coro):
+    return asyncio.run(coro)
+
+
+def upload(text, filename="stock.csv"):
+    from fastapi import UploadFile
+    data = text.encode("utf-8") if isinstance(text, str) else text
+    return UploadFile(file=io.BytesIO(data), filename=filename, size=len(data))
+
+
+@pytest.fixture
+def scoped(tmp_path, monkeypatch):
+    """One property with the two items above, reached through its own scoped handle."""
+    handle = MockDatabase(str(tmp_path / "db.json"))
+    monkeypatch.setattr(db_module, "unscoped_db", handle)
+    db = PropertyScopedDatabase("p1")
+    for item in existing_stock():
+        run(db.inventory.insert_one(dict(item)))
+    return db
+
+
+def stock_now(db):
+    rows = run(db.inventory.find({}, {"_id": 0}).to_list(100))
+    return {r["name"]: r["stock"] for r in rows}
+
+
+def test_the_preview_endpoint_writes_absolutely_nothing(scoped):
+    before = stock_now(scoped)
+    report = run(inventory.preview_inventory_import(
+        file=upload("name,unit,stock\nBourbon 750ml,bottle,12\ngin 750ml,bottle,99\n"),
+        user={"role": "admin"}, db=scoped))
+    assert report["summary"] == {"total": 2, "new": 1, "update": 1, "duplicate": 0,
+                                 "blocked": 0}
+    assert stock_now(scoped) == before  # the whole point
+
+
+def test_the_preview_matches_against_this_propertys_stock_only(scoped):
+    other = PropertyScopedDatabase("p2")
+    run(other.inventory.insert_one(
+        {"id": "other-rum", "name": "Rum 750ml", "unit": "bottle", "stock": 3.0,
+         "threshold": 1.0, "cost_per_unit": 100.0, "category": "spirits"}))
+    report = run(inventory.preview_inventory_import(
+        file=upload("name,unit,stock\nRum 750ml,bottle,12\n"),
+        user={"role": "admin"}, db=scoped))
+    # The other property's item must not be matched, or one hotel's upload would edit
+    # another hotel's stock.
+    assert report["rows"][0]["kind"] == "new"
+
+
+def test_an_oversized_upload_is_refused_by_the_endpoint_before_it_is_read(scoped):
+    body = b"Bourbon 750ml,bottle,12\n"
+    raw = b"name,unit,stock\n" + body * ((imp.MAX_UPLOAD_BYTES // len(body)) + 1)
+    with pytest.raises(HTTPException) as exc:
+        run(inventory.preview_inventory_import(
+            file=upload(raw), user={"role": "admin"}, db=scoped))
+    assert exc.value.status_code == 413
+
+
+def test_applying_creates_updates_and_skips_and_counts_each_honestly(scoped):
+    result = run(inventory.apply_inventory_import(
+        payload=inventory.InventoryImportApplyIn(rows=[
+            inventory.InventoryImportRowIn(
+                row=2, name="Bourbon 750ml", unit="bottle", stock=12, threshold=4,
+                cost_per_unit=3500, category="spirits", action="create"),
+            inventory.InventoryImportRowIn(
+                row=3, name="Gin 750ml", unit="bottle", stock=20, threshold=6,
+                cost_per_unit=2600, category="spirits", action="update",
+                item_id="inv-gin"),
+            inventory.InventoryImportRowIn(
+                row=4, name="Tonic Water", unit="bottle", stock=48, action="skip"),
+        ]), user={"role": "admin"}, db=scoped))
+
+    assert result["created"] == 1 and result["updated"] == 1 and result["skipped"] == 1
+    assert result["failed"] == [] and result["complete"] is True
+    assert stock_now(scoped) == {"Bourbon 750ml": 12.0, "Gin 750ml": 20.0,
+                                 "House Lager Keg": 4.0}
+    gin = run(scoped.inventory.find_one({"id": "inv-gin"}, {"_id": 0}))
+    assert gin["threshold"] == 6.0 and gin["cost_per_unit"] == 2600.0
+    assert gin["id"] == "inv-gin"  # updated, not replaced
+
+
+def test_a_refused_row_stops_the_whole_apply_and_writes_none_of_it(scoped):
+    before = stock_now(scoped)
+    with pytest.raises(HTTPException) as exc:
+        run(inventory.apply_inventory_import(
+            payload=inventory.InventoryImportApplyIn(rows=[
+                inventory.InventoryImportRowIn(
+                    row=2, name="Bourbon 750ml", unit="bottle", stock=12,
+                    action="create"),
+                inventory.InventoryImportRowIn(
+                    row=3, name="Gin 750ml", unit="bottle", stock=20, action="update",
+                    item_id="gone"),
+            ]), user={"role": "admin"}, db=scoped))
+    assert exc.value.status_code == 400
+    assert exc.value.detail["rows"][0]["row"] == 3
+    # Nothing landed — a partial write nobody asked for is worse than a refusal.
+    assert stock_now(scoped) == before
+
+
+def test_a_write_that_fails_halfway_names_what_landed_and_what_did_not(scoped, monkeypatch):
+    calls = {"n": 0}
+    real = scoped.inventory.insert_one
+
+    async def flaky(doc):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("database went away")
+        return await real(doc)
+
+    monkeypatch.setattr(type(scoped.inventory), "insert_one",
+                        lambda self, doc: flaky(doc))
+
+    result = run(inventory.apply_inventory_import(
+        payload=inventory.InventoryImportApplyIn(rows=[
+            inventory.InventoryImportRowIn(row=2, name="A", unit="bottle", stock=1,
+                                           action="create"),
+            inventory.InventoryImportRowIn(row=3, name="B", unit="bottle", stock=2,
+                                           action="create"),
+            inventory.InventoryImportRowIn(row=4, name="C", unit="bottle", stock=3,
+                                           action="create"),
+        ]), user={"role": "admin"}, db=scoped))
+
+    assert result["complete"] is False
+    assert result["created"] == 2
+    assert [f["row"] for f in result["failed"]] == [3]
+    assert "A" in stock_now(scoped) and "B" not in stock_now(scoped)
+
+
+def test_the_template_endpoint_hands_back_a_csv_file(scoped):
+    response = run(inventory.inventory_import_template(user={"role": "admin"}))
+    assert b"name,unit,stock" in response.body
+    assert "attachment" in response.headers["content-disposition"]
+    assert "csv" in response.headers["content-type"]
