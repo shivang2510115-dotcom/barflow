@@ -1,16 +1,26 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { API, currency } from "@/lib/api";
 import { gstLabel, gstSettings, outletTotals } from "@/lib/tax";
 import { priceLabel, variantsOf } from "@/lib/menu";
-import { Plus, Minus, ShoppingBag, X, Wine } from "lucide-react";
+import { Plus, Minus, Receipt, ShoppingBag, X, Wine } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import CocktailLoader from "@/components/app/CocktailLoader";
 import FlyToCart from "@/components/app/FlyToCart";
 
 const publicApi = axios.create({ baseURL: API });
+
+// The kitchen's word for where a line has got to, in the words of the person waiting for
+// it. "pending" is a queue state and means nothing to a guest; "Ordered" is what they
+// actually want to know — that it is on the list and not lost.
+const ITEM_STATUS = {
+  pending: "Ordered",
+  preparing: "Being made",
+  ready: "Ready",
+  served: "Served",
+};
 
 export default function CustomerMenu() {
   const { tableId } = useParams();
@@ -29,6 +39,10 @@ export default function CustomerMenu() {
   // The dish whose portion the guest is being asked to pick, or null. Only ever set for
   // a dish that is genuinely sold in more than one.
   const [portionFor, setPortionFor] = useState(null);
+  // The bill already open on this table, or null when nothing is. Everything the kitchen
+  // has, as opposed to `cart`, which is what this guest is still choosing.
+  const [running, setRunning] = useState(null);
+  const [openRunning, setOpenRunning] = useState(false);
   const cartPillRef = useRef(null);
 
   useEffect(() => {
@@ -46,8 +60,70 @@ export default function CustomerMenu() {
       setMenu(arr);
       if (arr.length && !cat) setCat(arr[0].category);
     });
-     
+
   }, [tableId]);
+
+  /**
+   * Everything already ordered to this table, read from the server every time.
+   *
+   * **Deliberately not cached on the phone.** The bill belongs to the *table*, not to
+   * this browser: the other guest at the table orders from their own phone, a waiter
+   * adds a round at the till, and the whole thing ceases to exist the second the bill is
+   * settled. A `localStorage` copy would be wrong at each of those moments, and a guest
+   * reading a stale total is worse off than a guest reading none — they would argue with
+   * the waiter about a figure no record anywhere agrees with. So the page holds no
+   * memory of the order at all; it asks.
+   *
+   * `GET /orders/table/{id}/current` needs no account — the scanned table id is the only
+   * thing that names the tenant — and answers `null` when the table has no bill open.
+   */
+  const loadRunning = useCallback(async () => {
+    try {
+      const { data } = await publicApi.get(`/orders/table/${tableId}/current`);
+      // Anything other than an open bill is nothing, as far as a phone is concerned.
+      // Settling clears the table's pointer at the same moment it closes the order, so
+      // a settled bill does not normally reach here at all — but "a guest must never see
+      // a bill that has been paid" is worth being true twice, and this is the cheaper of
+      // the two places to say it.
+      setRunning(data && data.status === "open" ? data : null);
+    } catch {
+      // A refresh that fails leaves what is on screen alone rather than blanking it.
+      // Hotel wifi drops constantly; the order did not go anywhere.
+    }
+  }, [tableId]);
+
+  useEffect(() => {
+    loadRunning();
+  }, [loadRunning]);
+
+  /**
+   * Refresh when the guest comes back to the page, and at no other time.
+   *
+   * A table locks their phone, talks for half an hour, and unlocks it — the tab is still
+   * open and every figure on it is half an hour old. `visibilitychange` fires at exactly
+   * the moment somebody starts looking again, which is the only moment the number needs
+   * to be right.
+   *
+   * There is no polling loop here on purpose. This runs on a phone on hotel wifi, in a
+   * basement, on a battery that has to last the evening; a timer asking every few seconds
+   * for an answer nobody is reading is a cost paid by the guest for nothing.
+   */
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") loadRunning();
+    };
+    // Back-navigation restores the old DOM out of the browser's cache without ever
+    // firing `visibilitychange` — coming back from the Stripe checkout page, say.
+    const onShow = (e) => {
+      if (e.persisted) loadRunning();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", onShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pageshow", onShow);
+    };
+  }, [loadRunning]);
 
   const cats = useMemo(() => Array.from(new Set(menu.map((m) => m.category))), [menu]);
   const shown = menu.filter((m) => m.category === cat);
@@ -89,6 +165,28 @@ export default function CustomerMenu() {
   );
   const { subtotal, taxableValue, tax, total } = cartTotals;
   const cartCount = cartItems.reduce((s, i) => s + i.qty, 0);
+
+  // --- the bill already open on the table ---
+  const runningItems = running?.items || [];
+  const runningCount = runningItems.reduce((s, i) => s + i.quantity, 0);
+  // The rate *this bill* was priced at, taken off the bill itself rather than off the
+  // property's settings today. That is the whole reason the server stamps `gst_rate` onto
+  // an order: a bill rung up at 5% has to keep saying 5% after the hotel moves to 18%, or
+  // the guest is reading a tax line that does not explain the total underneath it. The
+  // table's own setting is the fallback only for a record written before that field
+  // existed, which is what `gstSettings` is already careful about.
+  const runningGst = gstSettings(
+    running && running.gst_rate !== null && running.gst_rate !== undefined
+      ? { outlet_gst_rate: running.gst_rate, gst_inclusive: running.gst_inclusive }
+      : table || null,
+  );
+  // Never recomputed on the client. Every figure below is the one the server priced and
+  // the one the printed bill will carry; `outletTotals` above exists only for the cart,
+  // where no order exists yet and there is nothing to ask.
+  const showRunning = () => {
+    setOpenCart(false);
+    setOpenRunning(true);
+  };
   // How many of this dish are in the cart across every portion of it — what the counter
   // on the row shows for a dish sold by portion.
   const inCart = (m) =>
@@ -176,11 +274,18 @@ export default function CustomerMenu() {
       }
 
       setPlaced({ order: data, pay });
+      // The response *is* the table's bill with these lines on it, so the running order
+      // is current without a second round trip. `loadRunning` still owns the general
+      // case; this is only the one moment the page already holds the answer.
+      setRunning(data && data.status === "open" ? data : null);
       setCart({});
       setOpenCart(false);
       toast.success("Order placed · staff notified");
     } catch {
       toast.error("Could not place order");
+      // Something went wrong between this phone and the bill, and the page can no longer
+      // say which side of it the order landed on. Ask.
+      loadRunning();
     } finally {
       setPlacing(false);
     }
@@ -261,6 +366,34 @@ export default function CustomerMenu() {
           </div>
         </div>
       </header>
+
+      {/* What is already coming. Above the card and above the tabs, because "did my order
+          actually go through?" is the question a guest reopening this page came back to
+          answer, and it should not need scrolling for. Absent entirely when the table has
+          no bill open, so a first scan looks exactly as it always did. */}
+      {running && runningCount > 0 && (
+        <button
+          type="button"
+          data-testid="cmenu-running-banner"
+          onClick={showRunning}
+          className="w-full flex items-center justify-between gap-4 px-5 py-4 bg-stone-900 border-y border-orange-500/30 text-left active:bg-stone-800/70 transition"
+        >
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-orange-500 text-[10px] uppercase tracking-[0.3em] font-mono">
+              <Receipt size={13} /> Already ordered
+            </div>
+            <div className="mt-1.5 text-sm text-stone-300">
+              {runningCount} item{runningCount === 1 ? "" : "s"} on this table&rsquo;s bill
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            <div className="font-mono text-orange-400">{currency(running.total)}</div>
+            <div className="text-[9px] font-mono uppercase tracking-widest text-stone-500 mt-0.5">
+              View
+            </div>
+          </div>
+        </button>
+      )}
 
       {/* Category tabs */}
       <div className="sticky top-0 bg-stone-950/90 backdrop-blur-xl border-b border-stone-800 z-20">
@@ -409,6 +542,130 @@ export default function CustomerMenu() {
               className="mt-5 w-full border border-stone-800 py-2 text-[10px] font-mono uppercase tracking-widest text-stone-400"
             >
               Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Running-order pill · only while the cart is empty, so the thumb reaches exactly
+          one thing at the bottom of the screen. With items in the cart the cart pill has
+          that spot — finishing the order in hand is the live task — and the running order
+          stays one tap away from the banner above and from inside the cart sheet. */}
+      {running && runningCount > 0 && cartCount === 0 && !openRunning && (
+        <motion.button
+          data-testid="running-open"
+          onClick={showRunning}
+          initial={{ y: 40, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          transition={{ duration: 0.35 }}
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-stone-900 border border-orange-500/60 text-orange-300 px-6 py-3 font-mono uppercase tracking-widest text-xs flex items-center gap-3 shadow-[0_0_24px_rgba(0,0,0,0.6)] z-30"
+        >
+          <Receipt size={14} />
+          Your order · {currency(running.total)}
+        </motion.button>
+      )}
+
+      {/* Running-order sheet · what the kitchen already has. Never the cart: these are
+          lines that have been sent, cannot be edited from a phone, and are on a bill. */}
+      {openRunning && running && (
+        <div
+          className="fixed inset-0 z-40 bg-stone-950/70 backdrop-blur"
+          onClick={() => setOpenRunning(false)}
+        >
+          <div
+            data-testid="cmenu-running-sheet"
+            className="absolute bottom-0 inset-x-0 bg-stone-900 border-t border-stone-800 p-6 max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="font-display uppercase text-2xl leading-none">Already ordered</div>
+                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                  Table {table?.label || "…"} · sent to the kitchen
+                </div>
+              </div>
+              <button onClick={() => setOpenRunning(false)} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Said out loud, because it is the one thing about this screen that surprises
+                people: the bill is the table's, not the phone's. A guest who sees a dish
+                they did not order should read this and not call a waiter over. */}
+            <p className="mt-4 text-xs text-stone-500 leading-relaxed">
+              One bill for the table — anything ordered from another phone here, or added
+              by a waiter, is on it too.
+            </p>
+
+            <ul className="divide-y divide-stone-800 mt-4">
+              {runningItems.map((it) => (
+                <li key={it.id} className="py-3 flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm">{it.name}</span>
+                      {/* A line with no portion simply has no badge, which is every line
+                          on a card that does not sell dishes that way. */}
+                      {it.variant_label && (
+                        <span className="text-[9px] font-mono uppercase tracking-widest border border-orange-500/60 text-orange-400 px-1.5 py-0.5">
+                          {it.variant_label}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                      {it.quantity} × {currency(it.price)}
+                      <span className="text-stone-600"> · </span>
+                      {ITEM_STATUS[it.status] || it.status}
+                    </div>
+                  </div>
+                  <div className="font-mono text-sm shrink-0">
+                    {currency(it.price * it.quantity)}
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {/* The foot of the bill, in the bill's own figures — the server priced these
+                and the printed slip will carry them, so nothing here is recomputed. */}
+            <div className="mt-4 font-mono text-sm space-y-1 border-t border-stone-800 pt-4">
+              <div className="flex justify-between text-stone-400">
+                <span>{runningGst.inclusive ? "Taxable value" : "Subtotal"}</span>
+                <span>
+                  {currency(runningGst.inclusive ? running.taxable_value : running.subtotal)}
+                </span>
+              </div>
+              <div className="flex justify-between text-stone-400">
+                <span>{gstLabel(runningGst)}</span>
+                <span>{currency(running.tax)}</span>
+              </div>
+              {running.discount > 0 && (
+                <div className="flex justify-between text-stone-400">
+                  <span>Discount</span>
+                  <span>{currency(-running.discount)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-base pt-2">
+                <span>Running total</span>
+                <span className="text-orange-400" data-testid="cmenu-running-total">
+                  {currency(running.total)}
+                </span>
+              </div>
+            </div>
+
+            {/* The bill has been totalled and shown. The server refuses self-ordering from
+                here — see `_bill_locked` — so saying so beats letting the guest fill a
+                cart and be turned away at the last tap. */}
+            {running.presented_at && (
+              <p className="mt-4 border border-stone-700 px-4 py-3 text-xs text-stone-400 leading-relaxed">
+                Your bill has been totalled. Please ask a member of staff to add anything
+                else.
+              </p>
+            )}
+
+            <button
+              onClick={() => setOpenRunning(false)}
+              className="mt-5 w-full border border-stone-800 py-3 text-[10px] font-mono uppercase tracking-widest text-stone-400"
+            >
+              Back to the menu
             </button>
           </div>
         </div>
