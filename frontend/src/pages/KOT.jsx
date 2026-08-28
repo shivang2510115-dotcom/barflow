@@ -57,7 +57,7 @@ export default function KOT() {
           {[
             { k: "all", l: "All" },
             { k: "bar", l: "Bar", icon: Wine },
-            { k: "kitchen", l: "Kitchen", icon: Utensils },
+            { k: "kitchen", l: "Restaurant", icon: Utensils },
           ].map((f) => (
             <button
               key={f.k}

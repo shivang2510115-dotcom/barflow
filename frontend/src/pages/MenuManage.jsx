@@ -59,7 +59,9 @@ export default function MenuManage() {
           <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">Station</label>
           <select value={form.station} onChange={(e) => setForm({ ...form, station: e.target.value })} className="bg-stone-900 border border-stone-700 py-1 px-2 text-sm w-full">
             <option value="bar">Bar</option>
-            <option value="kitchen">Kitchen</option>
+            {/* Value stays "kitchen" — it is stored on every menu item and order line,
+                and the KOT board routes on it. Only the label is the hotel's word. */}
+            <option value="kitchen">Restaurant</option>
           </select>
         </div>
         <button data-testid="menu-add" className="rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 py-2 px-4 text-[10px] font-mono uppercase tracking-widest flex items-center justify-center gap-2">
