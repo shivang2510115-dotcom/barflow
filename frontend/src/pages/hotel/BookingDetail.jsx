@@ -17,6 +17,18 @@ function isExpiredHold(b) {
   return b.status === "tentative" && b.hold_expires_at && new Date(b.hold_expires_at) < new Date();
 }
 
+// A booking that is cancelled, departed or a no-show cannot be extended — the server
+// refuses all three — so the control is not offered rather than shown and left to fail.
+const EXTENDABLE = ["tentative", "confirmed", "checked_in"];
+
+// `YYYY-MM-DD` plus n days, done in UTC on purpose. A check-out is a calendar date, not
+// an instant: building it from a local `new Date(iso)` and reading it back would shift
+// the day for anyone west of UTC, and this arithmetic decides what the guest is charged.
+const addDays = (iso, n) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
+
 export default function BookingDetail() {
   const { id } = useParams();
   const nav = useNavigate();
@@ -43,6 +55,13 @@ export default function BookingDetail() {
   const [assigning, setAssigning] = useState(false); // confirming an assignment
   const [clearing, setClearing] = useState(false); // confirming a clear
   const [savingRoom, setSavingRoom] = useState(false);
+
+  // "Can I stay two more nights?" — check-out only, and priced for the added nights
+  // alone. There is deliberately no check-in field here: for a guest already in the room
+  // the arrival cannot move, and for a future booking moving it is an ordinary edit.
+  const [extending, setExtending] = useState(false);
+  const [newCheckOut, setNewCheckOut] = useState("");
+  const [savingExtend, setSavingExtend] = useState(false);
 
   const load = () =>
     api
@@ -151,6 +170,43 @@ export default function BookingDetail() {
     }
   };
 
+  const startExtend = () => {
+    // One more night, pre-filled — the commonest ask, and the only date that is always
+    // valid. The desk types over it for a longer stay.
+    setNewCheckOut(addDays(b.check_out, 1));
+    setExtending(true);
+  };
+
+  const abortExtend = () => {
+    setExtending(false);
+    setNewCheckOut("");
+  };
+
+  const confirmExtend = async () => {
+    setSavingExtend(true);
+    try {
+      const { data } = await api.post(`/bookings/${id}/extend`, {
+        check_out: newCheckOut,
+      });
+      const added = data.added?.nights?.length ?? 0;
+      toast.success(
+        `Extended to ${data.check_out} — ${added} more night${added === 1 ? "" : "s"}, ` +
+          `${currency(data.added?.total)}`,
+      );
+      setExtending(false);
+      setNewCheckOut("");
+      load();
+    } catch (e) {
+      // 409 names the booking or the out-of-order block holding the room over the extra
+      // nights, 422 the nights no rate covers. Both arrive as { message, … } and
+      // formatApiErrorDetail surfaces the message verbatim, so the desk is told what to
+      // go and move rather than only that it cannot be done.
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setSavingExtend(false);
+    }
+  };
+
   const startAssign = () => {
     setPicked(b.assigned_room_id || "");
     setAssigning(true);
@@ -183,7 +239,11 @@ export default function BookingDetail() {
   const matchingRooms = rooms.filter(
     (r) => r.room_type_id === b.room_type_id && r.active !== false,
   );
-  const busyAnywhere = busy || checkingOut || savingRoom;
+  const busyAnywhere = busy || checkingOut || savingRoom || savingExtend;
+  const extendable = EXTENDABLE.includes(b.status);
+  // Every inline confirm panel on this screen is exclusive: opening one hides the other
+  // controls, so the desk is never looking at two half-finished decisions at once.
+  const panelOpen = confirming || forcing || assigning || clearing || extending;
 
   return (
     <div className="p-6 md:p-10">
@@ -229,7 +289,7 @@ export default function BookingDetail() {
         ))}
       </div>
 
-      {roomEditable && !confirming && !forcing && (
+      {roomEditable && !confirming && !forcing && !extending && (
         <div className="border border-stone-800 bg-stone-900 rounded p-5 max-w-xl mb-8">
           <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">Room</h2>
           <p className="text-sm mb-4">
@@ -376,18 +436,85 @@ export default function BookingDetail() {
         </table>
       </div>
 
-      {!["cancelled", "checked_out"].includes(b.status) && !confirming && !forcing
-        && !assigning && !clearing && (
-        <button
-          onClick={startCancel}
-          disabled={busyAnywhere}
-          className="border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase mb-4"
-        >
-          Cancel booking
-        </button>
+      {!panelOpen && (
+        <div className="flex gap-3 flex-wrap mb-4">
+          {extendable && (
+            <button
+              onClick={startExtend}
+              disabled={busyAnywhere}
+              data-testid="extend-stay"
+              className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Extend stay
+            </button>
+          )}
+          {!["cancelled", "checked_out"].includes(b.status) && (
+            <button
+              onClick={startCancel}
+              disabled={busyAnywhere}
+              className="border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Cancel booking
+            </button>
+          )}
+        </div>
       )}
 
-      {b.status === "checked_in" && !confirming && !forcing && !assigning && !clearing && (
+      {extending && (
+        <div className="border border-orange-500/40 bg-stone-900 rounded p-5 max-w-xl mb-4">
+          <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">
+            Extend stay
+          </h2>
+          <p className="text-sm text-stone-400 mb-4">
+            Check-in stays at <span className="font-mono">{b.check_in}</span>. Only the
+            added nights are priced — the nights already quoted keep the price the guest
+            was given.
+          </p>
+          <label className="text-xs tracking-widest uppercase text-stone-500">
+            New check out
+            <input
+              type="date"
+              autoFocus
+              value={newCheckOut}
+              min={addDays(b.check_out, 1)}
+              onChange={(e) => setNewCheckOut(e.target.value)}
+              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+            />
+          </label>
+          <p className="text-xs text-stone-500 mt-3">
+            Currently leaving <span className="font-mono">{b.check_out}</span>
+            {newCheckOut > b.check_out && (
+              <>
+                {" · "}
+                {Math.round(
+                  (Date.parse(`${newCheckOut}T00:00:00Z`) -
+                    Date.parse(`${b.check_out}T00:00:00Z`)) /
+                    86400000,
+                )}{" "}
+                more night(s)
+              </>
+            )}
+          </p>
+          <div className="flex gap-3 mt-5">
+            <button
+              onClick={confirmExtend}
+              disabled={savingExtend || !newCheckOut || newCheckOut <= b.check_out}
+              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              {savingExtend ? "Extending…" : "Confirm extension"}
+            </button>
+            <button
+              onClick={abortExtend}
+              disabled={savingExtend}
+              className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Never mind
+            </button>
+          </div>
+        </div>
+      )}
+
+      {b.status === "checked_in" && !panelOpen && (
         <div className="flex gap-3 flex-wrap mb-4">
           {folioId && (
             <Link

@@ -31,6 +31,7 @@ from migrations.backfill_domains import backfill as backfill_domains
 from migrations.backfill_permissions import backfill as backfill_permissions
 from migrations.backfill_property import backfill as backfill_property
 from migrations.backfill_outlet_gst import backfill as backfill_outlet_gst
+from migrations.backfill_meal_plans import backfill as backfill_meal_plans
 from migrations.backfill_property_type import backfill as backfill_property_type
 from migrations.backfill_tenancy import backfill as backfill_tenancy
 from migrations.backfill_reference_data import backfill as backfill_reference_data
@@ -530,6 +531,17 @@ async def on_startup():
     logger.info(
         "Outlet GST backfill: %d propert(ies) stamped, %d already current.",
         gst_stamped, gst_current)
+    # And whether the property quotes per meal plan. Beside the GST stamp because it is
+    # the same kind of thing — a pricing setting the owner holds — and stamped `True`
+    # rather than the field's `False` default, because a property that predates the field
+    # has been quoting EP, CP and MAP all along and the alternative silently drops the
+    # breakfast supplement out of every quote the morning this deploys. A hotel that
+    # wants the single all-inclusive rate switches it off from its settings screen, and
+    # the migration then leaves that decision alone. See the module docstring.
+    plans_stamped, plans_current = await backfill_meal_plans()
+    logger.info(
+        "Meal plan setting: %d propert(ies) stamped, %d already current.",
+        plans_stamped, plans_current)
     # Immediately after, never before: the records are stamped with the property that
     # migration has just made sure exists. Until this has run, every scoped read matches
     # nothing — the data is not lost, it is invisible, which is harder to diagnose.

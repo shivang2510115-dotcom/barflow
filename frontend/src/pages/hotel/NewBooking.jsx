@@ -16,6 +16,16 @@ const toLocalISODate = (d) => {
 const today = () => toLocalISODate(new Date());
 const tomorrow = () => toLocalISODate(new Date(Date.now() + 86400000));
 
+// A quote's identity, for the key and for "which card is selected".
+//
+// `/availability` answers with one quote per meal plan when the property sells them, and
+// a single quote with `meal_plan: null` when it does not — the all-inclusive rate. Both
+// arrive in the same `quotes` array, so the screen needs one way to tell quotes apart
+// that does not assume a plan exists. Reading `q.meal_plan.id` directly is what breaks
+// the moment the plan is null.
+const ALL_INCLUSIVE = "all-inclusive";
+const quoteKey = (q) => q.meal_plan?.id ?? ALL_INCLUSIVE;
+
 export default function NewBooking() {
   const nav = useNavigate();
   const [form, setForm] = useState({
@@ -84,7 +94,11 @@ export default function NewBooking() {
       const { data } = await api.post("/bookings", {
         guest_id: guestId,
         room_type_id: choice.room_type.id,
-        meal_plan_id: choice.quote.meal_plan.id,
+        // Null when this property sells one all-inclusive rate. The API takes the
+        // booking without a plan in that case, and refuses one *without* a plan when the
+        // property does quote per plan — so the desk cannot book against a model the
+        // hotel does not run, whichever way the setting is set.
+        meal_plan_id: choice.quote.meal_plan?.id ?? null,
         check_in: form.check_in,
         check_out: form.check_out,
         adults: Number(form.adults),
@@ -173,17 +187,19 @@ export default function NewBooking() {
               <div className="grid gap-2 mt-4 md:grid-cols-3">
                 {row.quotes.map((q) => (
                   <button
-                    key={q.meal_plan.id}
+                    key={quoteKey(q)}
                     onClick={() => setChoice({ room_type: row.room_type, quote: q })}
                     className={`text-left border rounded p-3 transition-colors ${
-                      choice?.quote?.meal_plan?.id === q.meal_plan.id &&
-                      choice?.room_type?.id === row.room_type.id
+                      choice && quoteKey(choice.quote) === quoteKey(q) &&
+                      choice.room_type?.id === row.room_type.id
                         ? "border-orange-500 bg-stone-800"
                         : "border-stone-800 hover:border-stone-600"
                     }`}
                   >
                     <div className="text-xs tracking-widest uppercase text-stone-500">
-                      {q.meal_plan.code} · {q.meal_plan.name}
+                      {q.meal_plan
+                        ? `${q.meal_plan.code} · ${q.meal_plan.name}`
+                        : "All inclusive"}
                     </div>
                     <div className="text-xl font-semibold mt-1">{currency(q.total)}</div>
                     <div className="text-xs text-stone-500 mt-1">
@@ -201,7 +217,8 @@ export default function NewBooking() {
       {choice && (
         <div className="mt-10 border border-stone-800 bg-stone-900 rounded p-5 max-w-xl">
           <h3 className="text-lg font-semibold mb-1">
-            {choice.room_type.name} · {choice.quote.meal_plan.code}
+            {choice.room_type.name}
+            {choice.quote.meal_plan ? ` · ${choice.quote.meal_plan.code}` : ""}
           </h3>
           <p className="text-sm text-stone-400 mb-4">
             {form.check_in} → {form.check_out} · {currency(choice.quote.total)}

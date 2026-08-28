@@ -6,6 +6,19 @@ YYYY-MM-DD strings and every range is half-open [from, to).
 from datetime import date, timedelta
 from typing import Optional
 
+# Whether this property splits its price into meal plans (EP / CP / MAP) or sells one
+# all-inclusive room rate and bills anything extra to the folio as it is consumed.
+#
+# False is the default because it is the simpler model and what most small Indian hotels
+# actually run: one price for the room, a misc charge for the breakfast somebody took.
+# A resort selling a breakfast-inclusive package switches it on and gets exactly the
+# behaviour this app has always had. Neither is a global rule — several hotels share one
+# deployment, so this is a per-property setting rather than a decision made here.
+#
+# The startup migration deliberately does NOT stamp this default onto records that
+# predate the field; see migrations/backfill_meal_plans.py for why.
+DEFAULT_MEAL_PLANS_ENABLED = False
+
 
 class MissingRateError(Exception):
     """No rate covers one or more nights. Never price these as zero."""
@@ -13,6 +26,19 @@ class MissingRateError(Exception):
     def __init__(self, dates: list[str]):
         self.dates = dates
         super().__init__(f"No rate defined for: {', '.join(dates)}")
+
+
+def meal_plans_enabled(property_record: Optional[dict]) -> bool:
+    """Does this property quote per meal plan?
+
+    An absent key reads as the default rather than raising: a record the migration has
+    not reached yet, or a caller with no property at all, must still get an answer, and
+    the answer that changes nothing about the money is the room-only one.
+    """
+    if not property_record:
+        return DEFAULT_MEAL_PLANS_ENABLED
+    value = property_record.get("meal_plans_enabled")
+    return DEFAULT_MEAL_PLANS_ENABLED if value is None else bool(value)
 
 
 def _parse(d: str) -> date:
@@ -81,12 +107,21 @@ def quote_stay(
     adults: int,
     children: int,
     base_occupancy: int,
-    meal_plan: dict,
+    meal_plan: Optional[dict],
     rates: list[dict],
     periods: list[dict],
     slabs: list[dict],
 ) -> dict:
-    """Priced breakdown for a stay. Raises MissingRateError listing every uncovered night."""
+    """Priced breakdown for a stay. Raises MissingRateError listing every uncovered night.
+
+    `meal_plan` is `None` for a property selling one all-inclusive rate. That adds
+    nothing per head — the room rate already contains it, and anything extra is billed to
+    the folio as it is consumed — but it does **not** make the stay free: the room rate
+    still has to exist, and a night no rate covers raises `MissingRateError` here exactly
+    as it does on the plan path. Plan-less and unpriceable are different answers and only
+    one of them is a booking.
+    """
+    plan = meal_plan or {}
     nights = daterange(check_in, check_out)
 
     uncovered = []
@@ -107,8 +142,8 @@ def quote_stay(
             float(rate["base_rate"])
             + float(rate.get("extra_adult_rate", 0)) * extra_adults
             + float(rate.get("extra_child_rate", 0)) * children
-            + float(meal_plan.get("price_per_adult_per_night", 0)) * adults
-            + float(meal_plan.get("price_per_child_per_night", 0)) * children
+            + float(plan.get("price_per_adult_per_night", 0)) * adults
+            + float(plan.get("price_per_child_per_night", 0)) * children
         )
         tariff = round(tariff, 2)
         percent = gst_for(tariff, slabs)

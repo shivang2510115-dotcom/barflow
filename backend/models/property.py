@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from services.access import (
     DEFAULT_PROPERTY_TYPE, LIVE, PENDING, PROPERTY_TYPES, SUSPENDED)
+from services.pricing import DEFAULT_MEAL_PLANS_ENABLED
 from services.registration import (
     FSSAI_SHAPE, GSTIN_SHAPE, validate_fssai, validate_gstin,
 )
@@ -109,6 +110,32 @@ class PropertyFields(BaseModel):
     outlet_gst_rate: float = DEFAULT_OUTLET_GST_RATE
     gst_inclusive: bool = DEFAULT_GST_INCLUSIVE
 
+    # Whether a room is sold split three ways — EP, CP, MAP — or at one all-inclusive
+    # rate with anything extra billed to the folio as it is consumed.
+    #
+    # Here on `PropertyFields`, beside the two GST settings above and for the same
+    # reason: this is how the owner has decided to sell their own rooms, it is edited
+    # from the property settings screen, and the route it arrives on names "admin". It
+    # is emphatically not a platform decision — one deployment serves several hotels and
+    # a resort selling breakfast-inclusive packages needs plans as much as a ten-room
+    # guest house does not.
+    #
+    # **`None` here means "not mentioned", not "off".** Alone among these fields, this one
+    # is optional on the *body* and defaulted only on the stored record below.
+    #
+    # `PUT /api/property` replaces the editable half wholesale, which is fine for a field
+    # every client has always sent and quietly catastrophic for one added afterwards: a
+    # settings form built before this existed — or any script that reads the record,
+    # changes the address and puts it back — would omit the key, Pydantic would fill in
+    # `False`, and a hotel that sells breakfast-inclusive packages would find its meal
+    # plans switched off by somebody correcting a postcode. `outlet_gst_rate` has exactly
+    # this shape of hazard today and gets away with it because nothing reads it back;
+    # this one decides what every new booking is quoted.
+    #
+    # So the router drops it when it arrives as `None` and leaves whatever is stored.
+    # Saying "off" still works and still means off — it just has to be said.
+    meal_plans_enabled: Optional[bool] = None
+
 
 class PropertyIn(PropertyFields):
     """The same fields with the statutory identifiers format-checked.
@@ -142,6 +169,11 @@ class Property(PropertyIn):
     guest seeing another hotel's booking.
     """
     id: str = Field(default_factory=_uuid)
+    # A stored property always carries a real boolean — the `None` on `PropertyFields`
+    # means "the request did not mention it", which is a fact about a request body and
+    # never a state a record is left in. A hotel signing up today gets the single
+    # all-inclusive rate; see services/pricing.py.
+    meal_plans_enabled: bool = DEFAULT_MEAL_PLANS_ENABLED
     # Pending is the safe default: a hotel nobody has approved must not be one that can
     # take a booking. The startup migration is the one place that creates a `live`
     # property, because there the hotel has been operating for months already.

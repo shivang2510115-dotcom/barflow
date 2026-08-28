@@ -1,8 +1,15 @@
 import { useEffect, useState } from "react";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
+import { useProperty } from "@/contexts/PropertyContext";
 import { toast } from "sonner";
 
 export default function Rates() {
+  // A property selling one all-inclusive rate has no per-plan pricing to show, so the
+  // Rates screen does not ask for any. The plans are still fetched and still stored —
+  // switching the setting back on has to bring back exactly what the hotel had — they
+  // are simply not part of this screen while the hotel is not selling on them.
+  const property = useProperty();
+  const mealPlansEnabled = property?.meal_plans_enabled ?? false;
   const [types, setTypes] = useState([]);
   const [periods, setPeriods] = useState([]);
   const [rates, setRates] = useState([]);
@@ -237,18 +244,31 @@ export default function Rates() {
         </div>
       )}
 
-      <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">Meal plans</h2>
-      <div className="grid gap-3 md:grid-cols-3 max-w-3xl">
-        {plans.map((p) => (
-          <div key={p.id} className="border border-stone-800 bg-stone-900 rounded p-4">
-            <div className="font-mono text-xs text-orange-400">{p.code}</div>
-            <div className="mt-1">{p.name}</div>
-            <div className="text-xs text-stone-500 mt-2">
-              {currency(p.price_per_adult_per_night)} per adult / night
-            </div>
+      {mealPlansEnabled ? (
+        <>
+          <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">
+            Meal plans
+          </h2>
+          <div className="grid gap-3 md:grid-cols-3 max-w-3xl">
+            {plans.map((p) => (
+              <div key={p.id} className="border border-stone-800 bg-stone-900 rounded p-4">
+                <div className="font-mono text-xs text-orange-400">{p.code}</div>
+                <div className="mt-1">{p.name}</div>
+                <div className="text-xs text-stone-500 mt-2">
+                  {currency(p.price_per_adult_per_night)} per adult / night
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      ) : (
+        <p className="text-xs text-stone-500 max-w-2xl">
+          Rooms are sold at one all-inclusive rate, so there is no per-plan pricing to
+          set. Anything a guest takes on top goes on their folio as it happens. To quote
+          EP, CP and MAP separately instead, turn on meal plans under Admin → Property
+          settings.
+        </p>
+      )}
     </div>
   );
 }

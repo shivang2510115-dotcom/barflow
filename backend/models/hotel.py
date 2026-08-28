@@ -132,7 +132,14 @@ class TaxSlab(BaseModel):
 class BookingIn(BaseModel):
     guest_id: str
     room_type_id: str
-    meal_plan_id: str
+    # Optional at the model, required at the router when the property sells meal plans.
+    #
+    # The check moved rather than being dropped. A property with `meal_plans_enabled`
+    # off has no plan to name — its rate is all-inclusive — and a required field would
+    # force the desk to pick a fiction. A property with plans on is refused a booking
+    # without one exactly as before, by `create_booking`, which is the only place that
+    # knows which kind of property this is. Refusing it here would refuse both.
+    meal_plan_id: Optional[str] = None
     check_in: str
     check_out: str
     adults: int = 2
@@ -157,6 +164,18 @@ class BookingUpdateIn(BaseModel):
 
 class CancelIn(BaseModel):
     reason: Optional[str] = None
+
+
+class ExtendStayIn(BaseModel):
+    """"The guest would like two more nights."
+
+    One field, and deliberately only one. An extension moves check-**out** and nothing
+    else: the guest is already in the room, or is arriving on a date they have been
+    told, so `check_in` has nothing to move to. Moving a future booking's arrival is an
+    ordinary edit and `BookingUpdateIn` above already does it — this payload exists so
+    that the extension cannot accidentally be one.
+    """
+    check_out: str
 
 
 class RoomAssignmentIn(BaseModel):
