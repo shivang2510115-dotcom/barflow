@@ -69,6 +69,22 @@
       ]
     },
     {
+      "collectionGroup": "expenses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "property_id", "order": "ASCENDING" },
+        { "fieldPath": "spent_on", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "expenses",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "property_id", "order": "ASCENDING" },
+        { "fieldPath": "category_id", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "housekeeping_events",
       "queryScope": "COLLECTION",
       "fields": [
