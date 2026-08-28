@@ -32,6 +32,7 @@ import FrontDesk from "@/pages/hotel/FrontDesk";
 import Calendar from "@/pages/hotel/Calendar";
 import Rates from "@/pages/hotel/Rates";
 import Guests from "@/pages/hotel/Guests";
+import Messaging from "@/pages/Messaging";
 import Staff from "@/pages/admin/Staff";
 import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
@@ -98,6 +99,9 @@ function AppShell() {
         <Route path="/hotel/calendar" element={<Protected roles={["admin", "manager", "front_desk"]}><Calendar /></Protected>} />
         <Route path="/hotel/rates" element={<Protected roles={["admin", "manager"]}><Rates /></Protected>} />
         <Route path="/hotel/guests" element={<Protected roles={["admin", "manager", "front_desk"]}><Guests /></Protected>} />
+        {/* Sending a greeting is operational work — the front desk and the waiter
+            know the guest. The endpoints behind this name the same four roles. */}
+        <Route path="/messaging" element={<Protected roles={["admin", "manager", "front_desk", "waiter"]}><Messaging /></Protected>} />
         <Route path="/admin" element={<Protected roles={["admin"]}><Console /></Protected>} />
         <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />
         <Route path="/admin/analytics" element={<Protected roles={["admin", "manager"]}><Analytics /></Protected>} />
