@@ -26,31 +26,37 @@ import { countStates, groupRoomsByFloor, typeOf } from "@/lib/roomGrid";
 const LOOK = {
   active: {
     icon: Check,
+    label: "Active",
     tile: "border-stone-600 bg-stone-900 text-stone-100",
     chip: "text-stone-400",
   },
   free: {
     icon: Check,
+    label: "Free",
     tile: "border-emerald-500/60 bg-emerald-500/5 text-stone-100",
     chip: "text-emerald-300",
   },
   vacant: {
     icon: DoorOpen,
+    label: "Vacant",
     tile: "border-stone-700 bg-stone-900 text-stone-300",
     chip: "text-stone-500",
   },
   taken: {
     icon: User,
+    label: "Taken",
     tile: "border-orange-500/60 bg-orange-500/10 text-stone-100",
     chip: "text-orange-300",
   },
   occupied: {
     icon: User,
+    label: "Occupied",
     tile: "border-orange-500/60 bg-orange-500/10 text-stone-100",
     chip: "text-orange-300",
   },
   blocked: {
     icon: Wrench,
+    label: "Out of order",
     // The hatch is the point: an out-of-order room reads as struck through even in a
     // photocopy, and it is the one state where acting on the wrong answer means walking
     // a guest to a room with no water.
@@ -59,17 +65,24 @@ const LOOK = {
   },
   inactive: {
     icon: PowerOff,
+    label: "Inactive",
     tile: "border-dashed border-stone-700 bg-stone-950 text-stone-500",
     chip: "text-stone-500",
   },
   full: {
     icon: Ban,
+    label: "Not bookable",
     tile: "border-stone-700 bg-stone-950 text-stone-400",
     chip: "text-stone-500",
   },
 };
 
-const FALLBACK = { icon: DoorOpen, tile: "border-stone-700 bg-stone-900", chip: "text-stone-500" };
+const FALLBACK = {
+  icon: DoorOpen,
+  label: "Unknown",
+  tile: "border-stone-700 bg-stone-900",
+  chip: "text-stone-500",
+};
 const look = (state) => LOOK[state] || FALLBACK;
 
 /** One door. */
@@ -142,8 +155,11 @@ function Legend({ entries, order }) {
   return (
     <div className="flex flex-wrap gap-x-5 gap-y-2 mb-5" data-testid="room-grid-legend">
       {counts.map(({ state, count }) => {
-        const { icon: Icon, chip } = look(state);
-        const label = entries.find((e) => e.state === state)?.label || state;
+        const { icon: Icon, chip, label: fallbackLabel } = look(state);
+        // A state with a count of zero has no tile to borrow a label from — the legend
+        // still has to say the word, or "no rooms are out of order" reads as the legend
+        // being broken.
+        const label = entries.find((e) => e.state === state)?.label || fallbackLabel;
         return (
           <span
             key={state}
