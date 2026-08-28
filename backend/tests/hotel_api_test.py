@@ -498,7 +498,12 @@ def test_availability_returns_priced_quote(admin, ep_plan):
     assert r.status_code == 200, r.text
     row = next(x for x in r.json() if x["room_type"]["id"] == rt["id"])
     assert row["available"] == 2
-    quote = next(q for q in row["quotes"] if q["meal_plan"]["code"] == "EP")
+    # Whether meal plans are on is the property's own setting, and a fresh property
+    # defaults to off — one all-inclusive rate. Either way the room itself is priced the
+    # same, which is what this test is about: with plans on, EP is the room-only plan and
+    # carries no supplement; with them off there is a single quote and no plan at all.
+    quote = next(q for q in row["quotes"]
+                 if (q["meal_plan"] or {}).get("code", "EP") == "EP")
     assert quote["room_subtotal"] == 10000.0
     assert quote["tax_total"] == 1200.0
     assert quote["total"] == 11200.0
