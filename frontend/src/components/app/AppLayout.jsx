@@ -24,6 +24,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   Percent,
+  Sparkles,
   TrendingUp,
 } from "lucide-react";
 
@@ -32,6 +33,7 @@ import { SectionProvider } from "@/contexts/SectionContext";
 import { PropertyProvider, useOwnProperty } from "@/contexts/PropertyContext";
 import PendingBanner from "@/components/app/PendingBanner";
 import OverdueBanner from "@/components/app/OverdueBanner";
+import HousekeepingAlert from "@/components/app/HousekeepingAlert";
 import {
   availableSections,
   firstPathIn,
@@ -57,7 +59,10 @@ const NAV = [
   { to: "/app/kot", label: "KOT Board", icon: ChefHat, roles: ["admin", "manager", "kitchen", "waiter"], domains: OUTLET, screen: "outlet.kot" },
   { to: "/app/menu", label: "Menu", icon: BookOpen, roles: ["admin", "manager"], domains: OUTLET, screen: "outlet.menu" },
   { to: "/app/reports", label: "Reports", icon: LineChart, roles: ["admin", "manager"], domains: OUTLET, screen: "outlet.reports" },
-  { section: "Hotel", roles: ["admin", "manager", "front_desk"] },
+  // `housekeeping` is on the heading as well as on its one link below. Without it an
+  // attendant's sidebar would render that link with no heading over it, because the
+  // heading is filtered by role exactly as the links are.
+  { section: "Hotel", roles: ["admin", "manager", "front_desk", "housekeeping"] },
   { to: "/app/hotel/front-desk", label: "Front desk", icon: UserCheck, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.front_desk" },
   { to: "/app/hotel/rooms", label: "Rooms", icon: BedDouble, roles: ["admin", "manager"], domains: ["hotel"], screen: "hotel.rooms" },
   { to: "/app/hotel/bookings/new", label: "New booking", icon: CalendarPlus, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.bookings" },
@@ -65,6 +70,12 @@ const NAV = [
   // /app/hotel/bookings) — exclude that sibling so the two links don't both light up.
   { to: "/app/hotel/bookings", label: "Bookings", icon: ClipboardList, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.bookings", exclude: ["/app/hotel/bookings/new"] },
   { to: "/app/hotel/calendar", label: "Occupancy", icon: CalendarRange, roles: ["admin", "manager", "front_desk"], domains: ["hotel"], screen: "hotel.calendar" },
+  // The attendant's screen, and the one link a `housekeeping` account has anywhere in the
+  // app — `ROLE_SCREENS` gives that role exactly this key. `front_desk` is in the role
+  // list because the endpoints behind it are, but they do not hold the key by default, so
+  // the desk sees this only once an owner ticks it: the nav must not offer a link the API
+  // would refuse, and `holdsScreen` is what decides that.
+  { to: "/app/hotel/housekeeping", label: "Housekeeping", icon: Sparkles, roles: ["admin", "manager", "front_desk", "housekeeping"], domains: ["hotel"], screen: "hotel.housekeeping" },
   { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"], domains: ["hotel"], screen: "hotel.rates" },
   // Endpoints the server declares SHARED, so they carry no `domains` here either — the
   // nav must not hide a route that answers the caller 200. They keep a heading of their
@@ -406,6 +417,11 @@ export default function AppLayout({ children }) {
               though the other were absent. */}
           <OverdueBanner />
           {children}
+          {/* Over every screen of the hotel console rather than on the housekeeping one:
+              the request a guest raises has to reach whoever is signed in, wherever they
+              happen to be standing. It renders nothing at all for a browser that does not
+              hold the hotel domain, and makes no request either. */}
+          <HousekeepingAlert />
         </main>
       </div>
     </SectionProvider>

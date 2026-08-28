@@ -29,6 +29,7 @@ import Bookings from "@/pages/hotel/Bookings";
 import BookingDetail from "@/pages/hotel/BookingDetail";
 import Folio from "@/pages/hotel/Folio";
 import FrontDesk from "@/pages/hotel/FrontDesk";
+import Housekeeping from "@/pages/hotel/Housekeeping";
 import Calendar from "@/pages/hotel/Calendar";
 import Rates from "@/pages/hotel/Rates";
 import Guests from "@/pages/hotel/Guests";
@@ -40,6 +41,7 @@ import Notifications from "@/pages/admin/Notifications";
 import Account from "@/pages/Account";
 import Settings from "@/pages/admin/Settings";
 import CustomerMenu from "@/pages/CustomerMenu";
+import GuestRoomRequest from "@/pages/GuestRoomRequest";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
 import Splash from "@/components/app/Splash";
@@ -98,6 +100,12 @@ function AppShell() {
         <Route path="/hotel/folios/:id" element={<Protected roles={["admin", "manager", "front_desk"]}><Folio /></Protected>} />
         <Route path="/hotel/calendar" element={<Protected roles={["admin", "manager", "front_desk"]}><Calendar /></Protected>} />
         <Route path="/hotel/rates" element={<Protected roles={["admin", "manager"]}><Rates /></Protected>} />
+        {/* The one screen a `housekeeping` account reaches, which is why that role is in
+            the list here and nowhere else in this file. The endpoints behind it name the
+            same four roles and additionally require the `hotel.housekeeping` key, so a
+            receptionist without the tick is refused by the API rather than by this line —
+            the route is the coarse check and `require_access` is the real one. */}
+        <Route path="/hotel/housekeeping" element={<Protected roles={["admin", "manager", "front_desk", "housekeeping"]}><Housekeeping /></Protected>} />
         <Route path="/hotel/guests" element={<Protected roles={["admin", "manager", "front_desk"]}><Guests /></Protected>} />
         {/* Sending a greeting is operational work — the front desk and the waiter
             know the guest. The endpoints behind this name the same four roles. */}
@@ -161,6 +169,10 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/t/:tableId" element={<TableRouteSwitch />} />
+            {/* The in-room QR, the same shape as the table one above it: no login, and the
+                id in the printed URL is the only thing that names the hotel. Outside
+                /app on purpose — a guest has no console to be inside. */}
+            <Route path="/room/:roomId" element={<GuestRoomRequest />} />
             {/* Outside /app on purpose: the operator is sent home from every route in
                 that shell, and their own password is not the hotel's. */}
             <Route
