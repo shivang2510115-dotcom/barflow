@@ -314,6 +314,39 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
   );
 }
 
+// What the panel says, per action. Kept together so the three read as one voice and
+// the destructive ones cannot drift into being milder than what they do.
+const CONFIRM_COPY = {
+  "delete-type": (c) => ({
+    danger: true,
+    title: `Delete ${c.type?.name}?`,
+    body: c.rooms?.length
+      ? `This type still has ${c.rooms.length} room${c.rooms.length === 1 ? "" : "s"} in it (${c.rooms
+          .map((r) => r.number)
+          .join(", ")}). The API refuses to delete a type while rooms point at it, so this will come back as a refusal naming them — delete or move the rooms first.`
+      : "The type goes for good. Rates set against it stop applying, and any past booking that used it keeps the price it was quoted but loses the name.",
+    go: "Delete the type",
+  }),
+  "delete-room": (c) => ({
+    danger: true,
+    title: `Delete room ${c.room?.number}?`,
+    body: "The room goes for good and stops counting towards availability. A room with a live booking assigned to it is refused — move that booking to another room first. If it is only out of service for a while, deactivate it instead.",
+    go: "Delete the room",
+  }),
+  "toggle-room": (c) => ({
+    danger: c.room?.active !== false,
+    title:
+      c.room?.active === false
+        ? `Put room ${c.room?.number} back in service?`
+        : `Deactivate room ${c.room?.number}?`,
+    body:
+      c.room?.active === false
+        ? "It counts towards availability again from now on."
+        : "It stops counting towards availability, so the type sells one fewer room a night. Nothing already booked into it is touched — this is not a way to empty a room that has a guest in it.",
+    go: c.room?.active === false ? "Put it back" : "Deactivate it",
+  }),
+};
+
 export default function Rooms() {
   // Configuration is admin-only on the server: `rooms.py` guards every write with
   // require_configuration("hotel"), so a manager or a receptionist pressing any of the
@@ -335,6 +368,11 @@ export default function Rooms() {
   // toast: a toast that says "7 of 10" and then disappears leaves the owner with three
   // rooms missing and no record of which three.
   const [bulkResult, setBulkResult] = useState(null);
+  // The one thing waiting to be confirmed, and which of the three it is. Inline and
+  // two-step, the way cancelling a booking and deactivating a staff member already are —
+  // never window.confirm, which cannot say what is about to happen in more than a
+  // sentence and cannot be styled to look as final as it is.
+  const [confirming, setConfirming] = useState(null);
 
   const load = useCallback(
     () =>
@@ -493,6 +531,50 @@ export default function Rooms() {
     }
   };
 
+  /**
+   * The confirmed half of a destructive action.
+   *
+   * The two refusals this can meet are the point of the whole panel, and neither is a
+   * generic failure: DELETE /room-types/{id} answers 409 "Room type still has rooms" with
+   * the numbers, and DELETE /rooms/{id} answers 409 "Room has live bookings assigned to
+   * it" with the references. `run` puts the server's own sentence in the toast, and
+   * `formatApiErrorDetail` now keeps the list attached to it, so what comes back names
+   * exactly what is in the way.
+   *
+   * The panel stays open on a refusal — closing it would take the reason off the screen
+   * along with the question — and closes only when something actually happened.
+   */
+  const confirmAction = () =>
+    run(async () => {
+      if (confirming.kind === "delete-type") {
+        await api.delete(`/room-types/${confirming.type.id}`);
+        // Both panels are addressed to a record that no longer exists. Closed here rather
+        // than left to render against a stale copy — an "add rooms" form still open on a
+        // deleted type would POST an unknown room_type_id and be answered with a 400.
+        if (addingTo === confirming.type.id) setAddingTo(null);
+        if (editingType?.id === confirming.type.id) setEditingType(null);
+        toast.success(`${confirming.type.name} deleted`);
+      } else if (confirming.kind === "delete-room") {
+        await api.delete(`/rooms/${confirming.room.id}`);
+        toast.success(`Room ${confirming.room.number} deleted`);
+      } else {
+        // PUT /rooms/{id} takes a whole RoomIn and $sets it, so the record is spread back
+        // for the same reason the room type is: this flips `active` and must not quietly
+        // clear the floor and block somebody typed. `out_of_order` is dropped rather than
+        // sent — it is not part of RoomIn, and maintenance blocks belong to the front
+        // desk's own endpoint.
+        const { id, out_of_order: _blocks, ...rest } = confirming.room;
+        await api.put(`/rooms/${id}`, { ...rest, active: confirming.room.active === false });
+        toast.success(
+          confirming.room.active === false
+            ? `Room ${confirming.room.number} is back in service`
+            : `Room ${confirming.room.number} deactivated`,
+        );
+      }
+      setConfirming(null);
+    });
+
+
   if (loading) return <div className="p-6 md:p-10 text-stone-400">Loading rooms…</div>;
 
   const empty = types.length === 0;
@@ -614,29 +696,64 @@ export default function Rooms() {
                     is at least one.
                   </p>
                 ) : (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {mine.map((r) => (
-                      <span
-                        key={r.id}
-                        data-testid={`room-${r.id}`}
-                        title={[
-                          r.floor ? `Floor ${r.floor}` : "",
-                          r.block ? `Block ${r.block}` : "",
-                          (r.out_of_order || []).length
-                            ? `${r.out_of_order.length} maintenance block(s)`
-                            : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                        className={`font-mono text-xs border rounded px-2 py-1 ${
-                          r.active === false
-                            ? "border-stone-800 text-stone-600 line-through"
-                            : "border-stone-700 text-stone-300"
-                        }`}
-                      >
-                        {r.number}
-                      </span>
-                    ))}
+                  <div className="overflow-x-auto mt-3">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="text-[10px] tracking-[0.2em] uppercase text-stone-500">
+                          <th className="text-left py-1 pr-3 border-b border-stone-800">Room</th>
+                          <th className="text-left py-1 pr-3 border-b border-stone-800">Floor</th>
+                          <th className="text-left py-1 pr-3 border-b border-stone-800">Block</th>
+                          <th className="text-left py-1 pr-3 border-b border-stone-800">Status</th>
+                          {isAdmin && <th className="border-b border-stone-800" />}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mine.map((r) => {
+                          const blocks = (r.out_of_order || []).length;
+                          return (
+                            <tr
+                              key={r.id}
+                              data-testid={`room-${r.id}`}
+                              className={r.active === false ? "opacity-50" : ""}
+                            >
+                              <td className="py-1 pr-3 border-b border-stone-800 font-mono">
+                                {r.number}
+                              </td>
+                              <td className="py-1 pr-3 border-b border-stone-800 text-stone-400">
+                                {r.floor || "—"}
+                              </td>
+                              <td className="py-1 pr-3 border-b border-stone-800 text-stone-400">
+                                {r.block || "—"}
+                              </td>
+                              <td className="py-1 pr-3 border-b border-stone-800 text-[10px] tracking-widest uppercase text-stone-500">
+                                {r.active === false ? "inactive" : "active"}
+                                {blocks > 0 && ` · ${blocks} block${blocks === 1 ? "" : "s"}`}
+                              </td>
+                              {isAdmin && (
+                                <td className="py-1 border-b border-stone-800 text-right whitespace-nowrap">
+                                  <button
+                                    onClick={() => setConfirming({ kind: "toggle-room", room: r })}
+                                    disabled={busy}
+                                    data-testid={`room-toggle-${r.id}`}
+                                    className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30 mr-3"
+                                  >
+                                    {r.active === false ? "Reactivate" : "Deactivate"}
+                                  </button>
+                                  <button
+                                    onClick={() => setConfirming({ kind: "delete-room", room: r })}
+                                    disabled={busy}
+                                    data-testid={`room-delete-${r.id}`}
+                                    className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-30"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 )}
                 <p className="text-sm text-orange-400 mt-3 font-mono">
@@ -660,6 +777,16 @@ export default function Rooms() {
                       className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30"
                     >
                       Edit
+                    </button>
+                    <button
+                      onClick={() =>
+                        setConfirming({ kind: "delete-type", type: t, rooms: mine })
+                      }
+                      disabled={busy}
+                      data-testid={`room-type-delete-${t.id}`}
+                      className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-30"
+                    >
+                      Delete
                     </button>
                   </div>
                 )}
@@ -748,6 +875,44 @@ export default function Rooms() {
           </p>
         </div>
       )}
+
+      {confirming && (() => {
+        const copy = CONFIRM_COPY[confirming.kind](confirming);
+        return (
+          <div
+            data-testid="rooms-confirm"
+            className={`mt-8 rounded p-5 max-w-2xl border ${
+              copy.danger ? "border-red-500/40 bg-red-950/20" : "border-stone-800 bg-stone-900"
+            }`}
+          >
+            <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+              {copy.title}
+            </h3>
+            <p className={`text-sm mb-4 ${copy.danger ? "text-red-300" : "text-stone-400"}`}>
+              {copy.body}
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={confirmAction}
+                disabled={busy}
+                data-testid="rooms-confirm-go"
+                className={`rounded-full px-6 py-2 text-sm tracking-widest uppercase disabled:opacity-50 text-white ${
+                  copy.danger ? "bg-red-600 hover:bg-red-500" : "bg-orange-600 hover:bg-orange-500"
+                }`}
+              >
+                {busy ? "Working…" : copy.go}
+              </button>
+              <button
+                onClick={() => setConfirming(null)}
+                disabled={busy}
+                className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              >
+                Never mind
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
