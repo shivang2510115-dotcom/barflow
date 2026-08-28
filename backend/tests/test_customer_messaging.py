@@ -291,8 +291,17 @@ def test_a_send_we_cannot_account_for_keeps_the_claim(world, monkeypatch):
     assert call(messaging.send_occasion, occasion_id=occasion["id"],
                 user=world.waiter, db=world.db)["sent"] is False
     assert run(world.db.message_claims.count_documents({})) == 1
-    assert refused(messaging.send_occasion, occasion_id=occasion["id"],
-                   user=world.waiter, db=world.db).status_code == 409
+
+    # The row says it is not sendable, and does *not* claim it was sent.
+    row = call(messaging.occasions_today, user=world.waiter, db=world.db)["occasions"][0]
+    assert (row["already_sent"], row["claimed"], row["sendable"]) == (False, True, False)
+
+    # And the refusal is worded for what actually happened, not for a send.
+    detail = refused(messaging.send_occasion, occasion_id=occasion["id"],
+                     user=world.waiter, db=world.db)
+    assert detail.status_code == 409
+    assert "could not be confirmed" in detail.detail
+    assert "may have reached them" in detail.detail
 
 
 # --------------------------------------------------------------------------

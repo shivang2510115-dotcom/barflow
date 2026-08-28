@@ -226,6 +226,10 @@ async def occasions_today(user: dict = Depends(OPERATIONAL),
             "name": guest.get("name"),
             "phone": guest.get("phone"),
             "already_sent": occasion["id"] in sent,
+            # Claimed but not sent is a real and separate state: an attempt whose outcome
+            # we could not read. The screen has to be able to say "we are not sending this
+            # again and here is why" rather than showing a button that does nothing.
+            "claimed": key in claimed,
             "sendable": not problem and key not in claimed,
             "problem": problem,
             "template": template_for(settings, OCCASION, occasion.get("label")),
@@ -278,8 +282,20 @@ async def send_occasion(occasion_id: str, user: dict = Depends(OPERATIONAL),
         # 409 rather than a 200 saying "already sent". A second press is a conflict with
         # what is already true, and the screen has to be able to tell it apart from a
         # send that failed — the first needs no action and the second does.
-        raise HTTPException(409, "That greeting has already gone out to this customer "
-                                 "for this occasion. It is not sent twice.")
+        #
+        # Two wordings, because the claim covers two situations and only one of them is
+        # "it went". An attempt whose outcome we could not read holds its claim precisely
+        # because the message may have arrived, and telling staff it definitely did would
+        # be the same dishonesty this whole feature is built to avoid.
+        confirmed = await db.message_log.find_one(
+            {"kind": OCCASION, "subject": occasion_id, "subject_day": subject_day,
+             "status": SENT}, {"_id": 0})
+        raise HTTPException(409, (
+            "That greeting has already gone out to this customer for this occasion. "
+            "It is not sent twice."
+            if confirmed else
+            "An earlier attempt at this greeting could not be confirmed — it may have "
+            "reached them. It is not sent again; the message log says what happened."))
     return result
 
 
