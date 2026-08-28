@@ -282,6 +282,17 @@ async def update_booking(booking_id: str, payload: BookingUpdateIn,
             db, room_type, merged["check_in"], merged["check_out"],
             merged["adults"], merged["children"], meal_plan)
 
+        # The other door into the double-booking this feature exists to prevent. The
+        # clash check guards the assignment, but the stay window is half of what it
+        # compares — so a booking already holding room 204 could be stretched across
+        # the nights somebody else holds 204 for, and arrive at two guests behind one
+        # door without an assignment ever being made. Re-asked here, against the new
+        # window, and the whole edit is refused rather than the room being silently
+        # dropped: losing the room a guest was promised is not a quieter failure than
+        # refusing the date change, it is the same failure discovered later.
+        if merged.get("assigned_room_id"):
+            await room_for_booking_or_409(db, merged, merged["assigned_room_id"])
+
     await db.bookings.update_one({"id": booking_id}, {"$set": changes})
     return await db.bookings.find_one({"id": booking_id}, {"_id": 0})
 

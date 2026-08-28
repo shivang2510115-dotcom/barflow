@@ -2450,3 +2450,25 @@ def test_the_bookings_screen_alone_can_read_the_room_list_to_assign_from(admin, 
     assigned = s.put(f"{API}/bookings/{booking['id']}/room",
                      json={"room_id": rooms[0]["id"]})
     assert assigned.status_code == 200, assigned.text
+
+
+def test_a_stay_cannot_be_stretched_over_a_room_someone_else_holds(admin, ep_plan):
+    """The other door into the same double-booking: never assign a clashing room, just
+    move the dates of a booking that already holds one until they overlap."""
+    rt, rooms, guest = _bookable(admin)
+    early = _book(admin, rt, guest, ep_plan, "2031-03-01", "2031-03-05")
+    late = _book(admin, rt, guest, ep_plan, "2031-03-05", "2031-03-09")
+    # Adjacent, so both may legitimately hold the same door.
+    assert admin.put(f"{API}/bookings/{early['id']}/room",
+                     json={"room_id": rooms[0]["id"]}).status_code == 200
+    assert admin.put(f"{API}/bookings/{late['id']}/room",
+                     json={"room_id": rooms[0]["id"]}).status_code == 200
+
+    stretched = admin.put(f"{API}/bookings/{early['id']}",
+                          json={"check_in": "2031-03-01", "check_out": "2031-03-07"})
+    assert stretched.status_code == 409, stretched.text
+    assert stretched.json()["detail"]["reference"] == late["reference"]
+    # Refused whole: neither the dates nor the room moved.
+    unchanged = admin.get(f"{API}/bookings/{early['id']}").json()
+    assert unchanged["check_out"] == "2031-03-05"
+    assert unchanged["assigned_room_id"] == rooms[0]["id"]

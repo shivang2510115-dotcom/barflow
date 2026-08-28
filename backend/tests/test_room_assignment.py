@@ -91,6 +91,15 @@ def hotel(tmp_path, monkeypatch):
     run(db.guests.insert_one({
         "id": "g1", "name": "Guest", "phone": "9990000001",
         "created_at": "2029-01-01T00:00:00+00:00"}))
+    # A flat rate and one tax band for each type, so that editing a booking's dates can
+    # reprice and reach the checks these tests are about rather than 422 on the way.
+    for rt_id in ("rt-dlx", "rt-suite"):
+        run(db.rates.insert_one({
+            "id": f"rate-{rt_id}", "room_type_id": rt_id, "period_id": None,
+            "base_rate": 1000.0, "extra_adult_rate": 0.0, "extra_child_rate": 0.0}))
+    run(db.tax_slabs.insert_one({
+        "id": "slab", "min_tariff": 0.0, "max_tariff": None, "rate_percent": 12.0,
+        "active": True}))
     return admin, db
 
 
@@ -368,3 +377,69 @@ def test_check_in_refuses_a_room_that_is_out_of_order_for_the_stay(hotel):
                       payload=CheckInIn(room_id="room-101", **_proof()),
                       user=admin, db=db)
     assert refusal.status_code == 409
+
+
+# --------------------- moving the dates cannot smuggle a clash ---------------------
+# The clash check guards the assignment, but the stay window is half of what it checks
+# against — so editing the dates of a booking that already holds a room is the other
+# door into the same bug, and it has to be shut from this side too.
+def test_extending_a_stay_over_a_room_someone_else_holds_is_refused(hotel):
+    admin, db = hotel
+    from models.hotel import BookingUpdateIn
+
+    make_booking(db, "early", EARLY_IN, EARLY_OUT)
+    make_booking(db, "late", LATE_IN, LATE_OUT)
+    assign(admin, db, "early", "room-101")
+    assign(admin, db, "late", "room-101")  # adjacent, so both may hold it
+
+    # Now stretch the early stay across the late one's nights.
+    refusal = refused(bookings.update_booking, booking_id="early",
+                      payload=BookingUpdateIn(check_out=LATE_OUT), user=admin, db=db)
+    assert refusal.status_code == 409
+    assert refusal.detail["reference"] == "BF-2909-late"
+    # Nothing moved: the dates and the room are as they were.
+    assert stored(db, "early")["check_out"] == EARLY_OUT
+    assert stored(db, "early")["assigned_room_id"] == "room-101"
+
+
+def test_a_booking_holding_no_room_may_still_move_freely(hotel):
+    admin, db = hotel
+    from models.hotel import BookingUpdateIn
+
+    make_booking(db, "late", LATE_IN, LATE_OUT)
+    assign(admin, db, "late", "room-101")
+    # room-102 is free, so the type has inventory; this booking holds no door at all.
+    make_booking(db, "early", EARLY_IN, EARLY_OUT)
+
+    call(bookings.update_booking, booking_id="early",
+         payload=BookingUpdateIn(check_out=LATE_OUT), user=admin, db=db)
+    assert stored(db, "early")["check_out"] == LATE_OUT
+
+
+def test_a_stay_may_still_be_shortened_while_holding_a_room(hotel):
+    admin, db = hotel
+    from models.hotel import BookingUpdateIn
+
+    make_booking(db, "stay", STAY_IN, STAY_OUT)
+    assign(admin, db, "stay", "room-101")
+    call(bookings.update_booking, booking_id="stay",
+         payload=BookingUpdateIn(check_out="2029-09-06"), user=admin, db=db)
+    assert stored(db, "stay")["check_out"] == "2029-09-06"
+    assert stored(db, "stay")["assigned_room_id"] == "room-101"
+
+
+def test_moving_a_stay_onto_an_out_of_order_block_is_refused(hotel):
+    admin, db = hotel
+    from models.hotel import BookingUpdateIn
+
+    make_booking(db, "stay", STAY_IN, STAY_OUT)
+    assign(admin, db, "stay", "room-101")
+    run(db.rooms.update_one({"id": "room-101"}, {"$set": {"out_of_order": [
+        {"from": "2029-09-09", "to": "2029-09-12", "reason": "Repaint"}]}}))
+
+    refusal = refused(bookings.update_booking, booking_id="stay",
+                      payload=BookingUpdateIn(check_in="2029-09-09",
+                                              check_out="2029-09-11"),
+                      user=admin, db=db)
+    assert refusal.status_code == 409
+    assert stored(db, "stay")["check_in"] == STAY_IN
