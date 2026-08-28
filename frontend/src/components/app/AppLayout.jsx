@@ -26,6 +26,7 @@ import {
   Percent,
   Sparkles,
   TrendingUp,
+  Wallet,
 } from "lucide-react";
 
 import { OUTLET } from "@/lib/domains";
@@ -97,19 +98,36 @@ const NAV = [
   // inventory.py declares SHARED too — one store room supplies the kitchen, the bar and
   // housekeeping.
   { to: "/app/inventory", label: "Inventory", icon: Boxes, roles: ["admin", "manager", "kitchen"], screen: "outlet.inventory" },
-  // Analytics is open to managers as well as admins, so the heading over it has to be
-  // too — otherwise a manager's Analytics link renders with the Staff heading dropped and
-  // appears to belong to the Hotel group above it.
-  { section: "Admin", roles: ["admin", "manager"] },
+  // No role list at all on this heading, and it is the only one without one.
+  //
+  // It used to name admin and manager, because Analytics is open to both and a heading
+  // narrower than the links under it renders those links with no heading over them —
+  // which reads as though they belong to the group above. Expenses widens that further:
+  // its read endpoints name no role, so an accountant or a front-desk supervisor the
+  // owner has ticked reaches it, and any role list here would drop the heading for
+  // exactly the person the tick was for.
+  //
+  // Leaving it off costs nothing, because `dropEmptySections` in lib/sections.js already
+  // removes a heading that no link follows: a waiter holding none of these screens sees
+  // no Admin heading, and one who has been ticked for Expenses sees the heading and that
+  // one link. The role filtering that matters is on the links themselves.
+  { section: "Admin" },
   // "Console" is a path-prefix of both admin children, so exclude them: the same reason
   // "Bookings" excludes "New booking" above. It is the one link with no screen key —
   // there is none for it in the catalogue — so it is admin-only twice over, by its role
   // list and by the fail-closed rule in holdsScreen.
-  { to: "/app/admin", label: "Console", icon: LayoutDashboard, roles: ["admin"], exclude: ["/app/admin/staff", "/app/admin/analytics", "/app/admin/notifications", "/app/admin/settings"] },
+  { to: "/app/admin", label: "Console", icon: LayoutDashboard, roles: ["admin"], exclude: ["/app/admin/staff", "/app/admin/analytics", "/app/admin/expenses", "/app/admin/notifications", "/app/admin/settings"] },
   { to: "/app/admin/staff", label: "Staff", icon: ShieldCheck, roles: ["admin"], screen: "admin.staff" },
   // No `domains`: analytics spans them, and the server answers whichever ones the caller
   // holds. A manager with any single domain still has a report to read.
   { to: "/app/admin/analytics", label: "Analytics", icon: TrendingUp, roles: ["admin", "manager"], screen: "admin.analytics" },
+  // No `roles` and no `domains`: reading the property's spending is whoever the owner has
+  // ticked, which is what they asked for, and expenditure spans the business the way
+  // analytics does. The screen key is the whole gate — `holdsScreen` fails closed for a
+  // link without one, so this is not a route that quietly became public. Recording is
+  // narrower than reading and the API is where that is enforced; the screen simply does
+  // not draw the form for anyone else.
+  { to: "/app/admin/expenses", label: "Expenses", icon: Wallet, screen: "admin.expenses" },
   // No `screen`: it is admin-only by role, and adding a catalogue key would mean a
   // migration to grant it to every existing admin before the link appeared for anyone.
   { to: "/app/admin/notifications", label: "Notifications", icon: MessageSquare, roles: ["admin"] },
