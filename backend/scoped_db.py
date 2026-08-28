@@ -83,6 +83,13 @@ SCOPED_COLLECTIONS = (
     # under its own business account. A leak across tenants here is a leak of exactly the
     # kind this module exists to make impossible.
     "occasions", "message_log", "message_claims", "messaging_settings",
+    # Housekeeping. The event log is a record of which of this hotel's staff touched
+    # which of its rooms, and a job carries a guest's own words about the room they are
+    # sleeping in — both as much the property's own as its guest list is. The job
+    # collection is also the one a guest writes to without a token, through the in-room
+    # QR, which makes the bound handle the only thing standing between two hotels'
+    # requests: the scope comes from the room, and the room names exactly one property.
+    "housekeeping_events", "housekeeping_jobs",
 )
 
 

@@ -63,6 +63,19 @@ def is_ready(status: str | None) -> bool:
     return status in READY_STATUSES
 
 
+def status_of(room: dict | None) -> str:
+    """The status of a stored room, with the seed standing in for a record the migration
+    has not reached yet.
+
+    `clean` for such a room, and not because absence is comforting: it is what
+    `migrations/backfill_housekeeping.py` is about to write, so the rule has to give the
+    same answer whether or not the migration has run. Every caller inside this
+    application resolves a room through here, which is why `is_ready` can afford to be
+    stricter about a bare `None` handed to it from somewhere else.
+    """
+    return (room or {}).get("housekeeping_status") or DEFAULT_STATUS
+
+
 def note_required(to_status: str | None) -> bool:
     """Whether setting this status has to say why.
 

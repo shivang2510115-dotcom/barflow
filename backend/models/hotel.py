@@ -13,6 +13,12 @@ BookingStatus = Literal[
     "tentative", "confirmed", "checked_in", "checked_out", "cancelled", "no_show"
 ]
 
+# Spelled out rather than built from `services.housekeeping.STATUSES`, because a Literal
+# needs its members at type-check time and a tuple unpacked into one is unreadable to
+# every tool that reads this file. tests/test_housekeeping_api.py asserts the two lists
+# are the same set, so they cannot drift in silence.
+HousekeepingStatus = Literal["clean", "dirty", "inspected", "out_of_order"]
+
 
 def _uuid() -> str:
     return str(uuid.uuid4())
@@ -133,6 +139,56 @@ class RoomIn(BaseModel):
 class Room(RoomIn):
     id: str = Field(default_factory=_uuid)
     out_of_order: List[dict] = []
+
+    # ---- housekeeping ----
+    # Four fields the owner never types. They live on `Room` and not on `RoomIn` for the
+    # same reason `out_of_order` does, and it is load-bearing: `PUT /api/rooms/{id}` sets
+    # `payload.model_dump()` wholesale, so a field on the input model would be reset to
+    # its default every time somebody corrected a room's floor — an attendant's morning
+    # of work undone by an edit on the Rooms screen.
+    #
+    # **`housekeeping_status = "out_of_order"` is not the `out_of_order` list above.**
+    # That list is date ranges and controls what the booking engine will *sell*; this
+    # says the room is not usable *right now* and stops the desk assigning it. Two axes,
+    # two owners, deliberately never merged — see services/housekeeping.py.
+    housekeeping_status: HousekeepingStatus = "clean"
+    # Free text, and required by the API when the status is `out_of_order`. It describes
+    # the state the room is in *now*; the history of what it used to say is in
+    # `housekeeping_events`, which is never updated.
+    housekeeping_note: Optional[str] = None
+    housekeeping_updated_at: Optional[str] = None
+    housekeeping_updated_by: Optional[str] = None
+
+
+# --------------------------- housekeeping --------------------------
+class HousekeepingStatusIn(BaseModel):
+    """What an attendant taps on a room card.
+
+    An unknown status is a 422 from here rather than a hand-written 400, which is what
+    the design asks for and is also the honest code: the request is malformed, not
+    refused. `services.housekeeping.STATUSES` is the same list, and a test asserts they
+    have not drifted.
+    """
+    status: HousekeepingStatus
+    note: Optional[str] = None
+
+
+class HousekeepingEvent(BaseModel):
+    """One line of the append-only log. Never updated, never deleted.
+
+    This is what individual logins are for. When a guest says their room was filthy, the
+    question is who marked it clean and when, and a status field on the room can only
+    ever answer the last half of it.
+    """
+    id: str = Field(default_factory=_uuid)
+    room_id: str
+    from_status: str
+    to_status: str
+    note: Optional[str] = None
+    # A user id. `None` is not used: even the automatic transition at check-out records
+    # the person who checked the guest out, because somebody did press that button.
+    changed_by: Optional[str] = None
+    changed_at: str = Field(default_factory=_now)
 
 
 # --------------------------- meal plans ---------------------------
