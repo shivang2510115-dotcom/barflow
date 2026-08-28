@@ -114,9 +114,20 @@ export default function KOT() {
                     <Check size={12} />
                   </button>
                   <div className="flex-1">
-                    <div className="text-sm flex items-center gap-2">
+                    <div className="text-sm flex items-center gap-2 flex-wrap">
                       <span className="font-mono text-orange-400 mr-1">{it.quantity}×</span>
                       {it.name}
+                      {/* "Butter Chicken" alone tells the kitchen nothing when the dish
+                          is cooked half or full. A ticket from before portions existed
+                          carries no label and prints exactly as it always did. */}
+                      {it.variant_label && (
+                        <span
+                          data-testid={`kot-portion-${it.id}`}
+                          className="text-[10px] font-mono uppercase tracking-widest border border-orange-500 text-orange-400 px-1.5 py-0.5"
+                        >
+                          {it.variant_label}
+                        </span>
+                      )}
                       {it.status === "preparing" && (
                         <motion.span
                           animate={{ scale: [1, 1.15, 1], opacity: [0.7, 1, 0.7] }}
