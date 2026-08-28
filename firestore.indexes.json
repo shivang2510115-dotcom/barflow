@@ -69,6 +69,22 @@
       ]
     },
     {
+      "collectionGroup": "calendar_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "property_id", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "calendar_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "property_id", "order": "ASCENDING" },
+        { "fieldPath": "repeat", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "housekeeping_events",
       "queryScope": "COLLECTION",
       "fields": [
