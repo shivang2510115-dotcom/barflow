@@ -124,13 +124,24 @@ export function visibleFor(item, user) {
  * Whether the user holds the screen key this nav item leads to.
  *
  * An admin reaches every screen regardless, exactly as they are never domain-checked.
- * A link with no `screen` fails closed for everyone else: the only one is the admin
- * console, which is already role-gated, and "no key" must never read as "no check" — that
- * is how a screen added later without a key would quietly become public.
+ * A link with no `screen` fails closed for everyone else: "no key" must never read as
+ * "no check", because that is how a screen added later without a key would quietly
+ * become public.
+ *
+ * `open: true` is the one way past that, and it is a claim about the *endpoints*, not a
+ * convenience: it says the routes behind this link declare no screen key at all, so
+ * everybody who reaches this far in the filtering already reaches the API. The planner is
+ * the case it exists for — `routers/planner.py::READ` declares the domain alone, because
+ * a fire drill on Thursday is posted for everybody who works here and `ROLE_SCREENS` is
+ * frozen, so a key would hide it from every waiter for good. It is spelt out per item and
+ * greppable for exactly the reason the fail-closed default is: `grep -n "open: true"`
+ * over the nav is the whole audit, and an item that carries it without the API agreeing
+ * is a link that 403s.
  */
 export function holdsScreen(item, user) {
   if (!item.to) return true;
   if (user?.role === "admin") return true;
+  if (item.open) return true;
   if (!item.screen) return false;
   return (user?.permissions || []).includes(item.screen);
 }
