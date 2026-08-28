@@ -35,6 +35,7 @@ from migrations.backfill_meal_plans import backfill as backfill_meal_plans
 from migrations.backfill_property_type import backfill as backfill_property_type
 from migrations.backfill_tenancy import backfill as backfill_tenancy
 from migrations.backfill_reference_data import backfill as backfill_reference_data
+from migrations.backfill_housekeeping import backfill as backfill_housekeeping
 from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
 from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
 
@@ -290,6 +291,10 @@ async def seed_data():
             {"email": "waiter@barflow.io", "name": "Riley Cole", "role": "waiter", "password": "waiter123"},
             {"email": "kitchen@barflow.io", "name": "Sam Ash", "role": "kitchen", "password": "kitchen123"},
             {"email": "frontdesk@barflow.io", "name": "Nina Patel", "role": "front_desk", "password": "desk123"},
+            # An attendant, so that a fresh clone can see what the housekeeping role
+            # actually reaches — one screen — without anybody having to create the
+            # account first and then wonder whether the sidebar is broken.
+            {"email": "housekeeping@barflow.io", "name": "Meera Das", "role": "housekeeping", "password": "clean123"},
         ]
 
     # The platform operator: belongs to no hotel, approves the ones that sign up. Seeded
@@ -573,6 +578,19 @@ async def on_startup():
     logger.info(
         "Reference data: %d propert(ies) given GST bands and meal plans, %d already current.",
         seeded_props, current_props)
+    # Housekeeping, and after the screen backfill above rather than beside it: that one
+    # fills in a *missing* permissions field and never touches one that is present, which
+    # is what stops a narrowed account being widened on every restart — and also means a
+    # screen key invented after a deployment started running reaches nobody. This grants
+    # the new key to the roles that run the property, and stamps every existing room
+    # `clean` so that `is_ready` does not answer "no" for the whole floor on the morning
+    # this deploys. Both halves are idempotent; see the module docstring for who is left
+    # for the owner to tick.
+    hk_granted, hk_held, rooms_stamped, rooms_current = await backfill_housekeeping()
+    logger.info(
+        "Housekeeping: screen granted to %d user(s), %d already held it; %d room(s) "
+        "stamped clean, %d already current.",
+        hk_granted, hk_held, rooms_stamped, rooms_current)
     # Last of the migrations, and the only one that is allowed to do nothing: an unset
     # key means this deployment stores identity documents in plain text, which is what
     # it did yesterday and is not a reason to refuse a hotel its check-in screen. It is
