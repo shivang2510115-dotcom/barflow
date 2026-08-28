@@ -693,9 +693,18 @@ export default function CustomerMenu() {
       {openCart && (
         <div className="fixed inset-0 z-40 bg-stone-950/70 backdrop-blur" onClick={() => setOpenCart(false)}>
           <div className="absolute bottom-0 inset-x-0 bg-stone-900 border-t border-stone-800 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <div className="font-display uppercase text-2xl">Your Order</div>
-              <button onClick={() => setOpenCart(false)}><X size={18} /></button>
+            {/* "Your Order" until this sheet had a sibling. Two screens both called that
+                is how a guest ends up believing they have been charged twice, or that the
+                round they sent twenty minutes ago is still sitting in a cart. This one is
+                what has not been sent; the other is what the kitchen has. */}
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <div className="font-display uppercase text-2xl leading-none">Adding now</div>
+                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                  Not sent to the kitchen yet
+                </div>
+              </div>
+              <button onClick={() => setOpenCart(false)} aria-label="Close"><X size={18} /></button>
             </div>
             <ul className="divide-y divide-stone-800">
               {cartItems.map((it) => (
@@ -720,8 +729,38 @@ export default function CustomerMenu() {
             <div className="mt-4 font-mono text-sm space-y-1 border-t border-stone-800 pt-4">
               <div className="flex justify-between text-stone-400"><span>{gst.inclusive ? "Taxable value" : "Subtotal"}</span><span>{currency(gst.inclusive ? taxableValue : subtotal)}</span></div>
               <div className="flex justify-between text-stone-400"><span>{gstLabel(gst)}</span><span>{currency(tax)}</span></div>
-              <div className="flex justify-between text-base pt-2"><span>Total</span><span className="text-orange-400">{currency(total)}</span></div>
+              {/* "Total for these items", not "Total": with a bill already open on the
+                  table this figure is not what the guest owes, and a screen that says
+                  "Total" beside a number smaller than the bill is a screen that lies. */}
+              <div className="flex justify-between text-base pt-2"><span>{running && runningCount > 0 ? "Total for these items" : "Total"}</span><span className="text-orange-400">{currency(total)}</span></div>
             </div>
+
+            {/* And what that total is *not* counting, one tap from reading it in full.
+                A guest looking at ₹430 needs to know whether the ₹1,120 already on the
+                table is inside it. It is not. */}
+            {running && runningCount > 0 && (
+              <button
+                type="button"
+                data-testid="cmenu-cart-running-link"
+                onClick={showRunning}
+                className="mt-4 w-full flex items-center justify-between gap-3 border border-stone-800 px-4 py-3 text-left active:bg-stone-800/60 transition"
+              >
+                <div className="min-w-0">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                    Not counted above
+                  </div>
+                  <div className="mt-1 text-xs text-stone-300">
+                    Already ordered · {runningCount} item{runningCount === 1 ? "" : "s"}
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="font-mono text-sm text-stone-300">{currency(running.total)}</div>
+                  <div className="text-[9px] font-mono uppercase tracking-widest text-stone-500 mt-0.5">
+                    View
+                  </div>
+                </div>
+              </button>
+            )}
 
             <div className="mt-4">
               <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">Payment preference</div>
@@ -766,10 +805,26 @@ export default function CustomerMenu() {
               Order <span className="font-mono text-orange-400">#{placed.order.id.slice(0, 6)}</span> sent to the bar.
               {placed.pay === "counter" ? " Pay at the counter when you're done." : ""}
             </div>
-            <div className="mt-6 font-mono text-2xl text-orange-400">{currency(placed.order.total)}</div>
-            <button onClick={() => setPlaced(null)} className="mt-8 rounded-full border border-stone-700 hover:border-orange-500 px-6 py-2 text-[10px] font-mono uppercase tracking-widest">
-              Keep browsing
-            </button>
+            {/* This figure is the whole table's bill, not the round just sent — the
+                response is the order with these lines added to it. It has always been
+                that number and never said so, which reads as a wrong price for the round
+                whenever anything was ordered before it. */}
+            <div className="mt-6 text-[10px] uppercase tracking-[0.3em] font-mono text-stone-500">
+              Bill so far
+            </div>
+            <div className="mt-1 font-mono text-2xl text-orange-400">{currency(placed.order.total)}</div>
+            <div className="mt-8 flex items-center justify-center gap-3">
+              <button
+                data-testid="cmenu-placed-view"
+                onClick={() => { setPlaced(null); showRunning(); }}
+                className="rounded-full border border-orange-500 text-orange-400 px-6 py-2 text-[10px] font-mono uppercase tracking-widest"
+              >
+                See the bill
+              </button>
+              <button onClick={() => setPlaced(null)} className="rounded-full border border-stone-700 hover:border-orange-500 px-6 py-2 text-[10px] font-mono uppercase tracking-widest">
+                Keep browsing
+              </button>
+            </div>
           </div>
         </div>
       )}
