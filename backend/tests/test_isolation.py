@@ -24,6 +24,7 @@ import security
 import routers.analytics as analytics
 import routers.auth as auth_router
 import routers.bookings as bookings
+import routers.expenses as expenses
 import routers.folios as folios
 import routers.frontdesk as frontdesk
 import routers.guests as guests
@@ -179,6 +180,19 @@ def stock_hotel(hotel: Hotel, money: float) -> None:
         "id": f"{t}-res", "guest_name": "Diner", "phone": "9990000002", "party_size": 2,
         "date": local_today(), "time": "19:00", "table_id": f"{t}-table",
         "table_label": "T01", "status": "booked", "created_at": now}))
+    # Both hotels name a category "Supplies" and spend against it on the same day. The
+    # names collide on purpose: two properties genuinely do call the same thing the same
+    # thing, and a test that gave them different ones would pass on a global unique index
+    # that must not exist.
+    run(db.expense_categories.insert_one({
+        "id": f"{t}-cat", "name": "Supplies", "active": True, "created_at": now}))
+    run(db.expenses.insert_one({
+        "id": f"{t}-expense", "amount": money, "category_id": f"{t}-cat",
+        "spent_on": day, "description": "Vegetables", "payment_method": "cash",
+        "payee": "Anand Traders", "reference": "", "recorded_by": f"{t}-admin",
+        "recorded_by_name": f"Admin {t}", "recorded_at": now,
+        "voided_at": None, "voided_by": None, "voided_by_name": None,
+        "void_reason": None}))
 
 
 @pytest.fixture
@@ -813,6 +827,63 @@ def test_recent_orders_hold_none_of_bs_bills(world):
     a, _b = world
     rows = call(reports.recent_orders, user=a.admin, db=a.db)
     assert {o["id"] for o in rows} == {"a-order"}
+
+
+def test_the_expense_report_holds_none_of_bs_spending(world):
+    a, _b = world
+    day = local_today()
+    report = call(expenses.expenses_report, start=day, end=day, user=a.admin, db=a.db)
+    # A spent 50 and B spent 999. Any of B's rupees present would move a total that
+    # cannot otherwise reach that number — and this report also carries revenue, so the
+    # same tell covers both halves of the profit figure.
+    assert report["expenses"]["total"] == 50.0
+    assert report["expenses"]["by_category"][0]["name"] == "Supplies"
+    assert report["totals"] == {"earned": 100.0, "spent": 50.0, "net": 50.0}
+    assert "999" not in str(report)
+
+
+def test_the_transaction_list_and_category_list_hold_none_of_bs(world):
+    a, _b = world
+    rows = call(expenses.list_expenses, start=None, end=None, category_id=None,
+                payment_method=None, q=None, include_voided=True, sort="date",
+                direction=-1, user=a.admin, db=a.db)
+    assert {r["id"] for r in rows} == {"a-expense"}
+    assert {c["id"] for c in call(expenses.list_expense_categories,
+                                  include_inactive=True, user=a.admin,
+                                  db=a.db)} == {"a-cat"}
+
+
+def test_recording_against_bs_category_and_reversing_bs_expense_are_404(world):
+    a, b = world
+    assert refused(expenses.record_expense,
+                   payload=expenses.ExpenseIn(amount=10.0, category_id="b-cat"),
+                   user=a.admin, db=a.db).status_code == 404
+    assert refused(expenses.void_expense, expense_id="b-expense",
+                   payload=expenses.VoidIn(reason="mine now"), user=a.admin,
+                   db=a.db).status_code == 404
+    assert run(b.db.expenses.find_one({"id": "b-expense"}))["voided_at"] is None
+
+
+def test_deleting_and_renaming_bs_category_from_as_session_change_nothing(world):
+    a, b = world
+    assert refused(expenses.delete_expense_category, category_id="b-cat",
+                   user=a.admin, db=a.db).status_code == 404
+    assert refused(expenses.update_expense_category, category_id="b-cat",
+                   payload=expenses.CategoryIn(name="Hijacked"), user=a.admin,
+                   db=a.db).status_code == 404
+    assert run(b.db.expense_categories.find_one({"id": "b-cat"}))["name"] == "Supplies"
+
+
+def test_both_hotels_can_name_a_category_the_same_thing(world):
+    a, _b = world
+    # The duplicate check is scoped, so B's "Utilities" must not stop A entering its own.
+    made = call(expenses.create_expense_category,
+                payload=expenses.CategoryIn(name="Utilities"), user=a.admin, db=a.db)
+    assert made["property_id"] == "a-property"
+    # ...and A's own duplicate is still refused: scoping narrows the check, not drops it.
+    assert refused(expenses.create_expense_category,
+                   payload=expenses.CategoryIn(name="utilities"), user=a.admin,
+                   db=a.db).status_code == 409
 
 
 def test_the_daily_brief_is_one_hotels_day(world):

@@ -21,6 +21,7 @@ from security import hash_password
 from services.access import (
     DEFAULT_PROPERTY_TYPE, PENDING, PROPERTY_BOTH, PROPERTY_HOTEL, PROPERTY_OUTLET,
     default_permissions, domains_for_property_type)
+from services.expenses import seed_expense_categories
 from services.password import password_problem
 from services.ratelimit import RateLimiter, client_ip
 from services.reference_data import seed_reference_data
@@ -198,6 +199,11 @@ async def signup(payload: SignupIn, request: Request):
     # booking without a meal plan to book on. Seeded here, at the moment the tenant comes
     # into existence, so the owner never reaches a 500 after building rooms and rates.
     await seed_reference_data(PropertyScopedDatabase(property_id))
+    # And the expense categories, in the same breath and for the same shape of reason: a
+    # property with none has nothing to record its first bill against, and the eight
+    # Indian-hospitality defaults are a starting point it renames and adds to from its own
+    # screen rather than a list it is stuck with.
+    await seed_expense_categories(PropertyScopedDatabase(property_id))
 
     return {
         "property_id": property_id,

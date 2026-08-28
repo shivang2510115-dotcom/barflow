@@ -90,6 +90,11 @@ SCOPED_COLLECTIONS = (
     # QR, which makes the bound handle the only thing standing between two hotels'
     # requests: the scope comes from the room, and the room names exactly one property.
     "housekeeping_events", "housekeeping_jobs",
+    # What the property spends and the names it files that under. As much a hotel's own
+    # as its takings are — payroll totals, supplier names and bill numbers — and the
+    # categories are the property's own vocabulary, not a shared table: two properties
+    # renaming "Supplies" differently is the normal case, not a conflict.
+    "expenses", "expense_categories",
 )
 
 

@@ -37,6 +37,7 @@ import Messaging from "@/pages/Messaging";
 import Staff from "@/pages/admin/Staff";
 import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
+import Expenses from "@/pages/admin/Expenses";
 import Notifications from "@/pages/admin/Notifications";
 import Account from "@/pages/Account";
 import Settings from "@/pages/admin/Settings";
@@ -113,6 +114,15 @@ function AppShell() {
         <Route path="/admin" element={<Protected roles={["admin"]}><Console /></Protected>} />
         <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />
         <Route path="/admin/analytics" element={<Protected roles={["admin", "manager"]}><Analytics /></Protected>} />
+        {/* No role list, deliberately, and the only route in this file without one apart
+            from the section chooser. The owner's brief for this screen was "everyone who
+            has access", so the read endpoints behind it name no role either: the tick on
+            the staff screen is the whole decision, and `require_access` is what enforces
+            it. A route naming roles here would be a second, coarser rule that quietly
+            refused an accountant the owner had deliberately ticked. Recording an expense
+            is still admin and manager only — the API says so, and the screen hides the
+            form rather than offering a button that 403s. */}
+        <Route path="/admin/expenses" element={<Expenses />} />
         <Route path="/admin/notifications" element={<Protected roles={["admin"]}><Notifications /></Protected>} />
         {/* Admin only, twice: this route names the role, and `PUT /api/property` behind
             it names "admin" as well. A waiter who types the address gets the screen's

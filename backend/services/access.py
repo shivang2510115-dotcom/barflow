@@ -155,6 +155,17 @@ SCREENS: dict[str, dict] = {
     # screen without being made an admin.
     "admin.staff":        {"label": "Staff",        "section": "Admin",      "domains": (SHARED,)},
     "admin.analytics":    {"label": "Analytics",    "section": "Admin",      "domains": DOMAINS},
+    # What the property spends, and the profit that falls out of it. `DOMAINS` for the
+    # same reason analytics has it: expenditure spans the business — salaries belong to
+    # the place, not to the restaurant or the hotel — and holding any one domain is
+    # enough, so an outlet property's staff reach it exactly as a hotel's do.
+    #
+    # Grantable rather than implied by the role, again like analytics: an owner who wants
+    # the accountant or the front-desk supervisor entering bills ticks this, without
+    # having to make them an admin. Note that holding it reveals revenue as well as
+    # spending — there is no honest way to show what is left without showing what came
+    # in — which is why the migration hands it to the audience analytics already had.
+    "admin.expenses":     {"label": "Expenses",     "section": "Admin",      "domains": DOMAINS},
 }
 
 SCREEN_KEYS = tuple(SCREENS)

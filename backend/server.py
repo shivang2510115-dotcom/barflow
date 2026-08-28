@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices, messaging, housekeeping
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices, messaging, housekeeping, expenses
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -36,6 +36,7 @@ from migrations.backfill_property_type import backfill as backfill_property_type
 from migrations.backfill_tenancy import backfill as backfill_tenancy
 from migrations.backfill_reference_data import backfill as backfill_reference_data
 from migrations.backfill_housekeeping import backfill as backfill_housekeeping
+from migrations.backfill_expenses import backfill as backfill_expenses
 from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
 from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
 
@@ -110,7 +111,7 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices, messaging, housekeeping):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices, messaging, housekeeping, expenses):
     api_router.include_router(module.router)
 
 
@@ -591,6 +592,20 @@ async def on_startup():
         "Housekeeping: screen granted to %d user(s), %d already held it; %d room(s) "
         "stamped clean, %d already current.",
         hk_granted, hk_held, rooms_stamped, rooms_current)
+    # Expenses, and after the screen backfill above for exactly the reason housekeeping
+    # is: that one fills in a *missing* permissions field and never touches one that is
+    # present, so a screen key invented after a deployment started running reaches
+    # nobody. This grants the new key to the roles that already read the property's
+    # money, and gives every property that predates the feature the default expense
+    # categories — a property with no categories has nothing to record an expense
+    # against, which is the same "the product does not work yet" wall
+    # backfill_reference_data was written to remove. Both halves are idempotent; see the
+    # module docstring for who is left for the owner to tick.
+    exp_granted, exp_held, exp_seeded, exp_current = await backfill_expenses()
+    logger.info(
+        "Expenses: screen granted to %d user(s), %d already held it; %d propert(ies) "
+        "seeded with categories, %d already current.",
+        exp_granted, exp_held, exp_seeded, exp_current)
     # Last of the migrations, and the only one that is allowed to do nothing: an unset
     # key means this deployment stores identity documents in plain text, which is what
     # it did yesterday and is not a reason to refuse a hotel its check-in screen. It is

@@ -1890,7 +1890,7 @@ def test_the_screen_catalogue_is_readable_by_any_signed_in_user(admin):
         "hotel.rates", "hotel.guests", "hotel.housekeeping",
         "outlet.tables", "outlet.pos", "outlet.kot",
         "outlet.reservations", "outlet.menu", "outlet.inventory", "outlet.reports",
-        "admin.staff", "admin.analytics"}
+        "admin.staff", "admin.analytics", "admin.expenses"}
     for row in catalogue:
         assert row["label"] and row["section"] and row["domains"]
     assert {row["section"] for row in catalogue} == {"Hotel", "Restaurant", "Admin"}
@@ -1981,8 +1981,13 @@ def test_an_admin_needs_no_ticks_and_is_stored_holding_every_screen(admin):
         "name": "New Admin", "email": email, "password": "admin12345678",
         "role": "admin", "domains": [], "permissions": []})
     assert r.status_code == 200, r.text
-    # Every key in the catalogue, which the housekeeping screen has just joined.
-    assert len(r.json()["permissions"]) == 16
+    # Every key in the catalogue, read from the catalogue rather than counted against a
+    # number written here. A literal has to be edited by every feature that adds a
+    # screen, which is a merge conflict between two unrelated pieces of work and a test
+    # that fails for a reason that is not the reason it exists; asking the API what it
+    # serves also asserts more — that the two agree on the *keys*, not just how many.
+    catalogue = {row["key"] for row in admin.get(f"{API}/permissions").json()}
+    assert set(r.json()["permissions"]) == catalogue
 
 
 def test_a_staff_member_created_without_ticks_gets_what_their_role_implied(admin):
