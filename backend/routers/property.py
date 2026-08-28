@@ -106,7 +106,15 @@ async def update_property(payload: PropertyFields, user: dict = Depends(WRITE)):
     # `PropertyFields` is the editable half of the record and holds none of `status`,
     # `approved_by` or the lifecycle stamps — which is why the body cannot carry them.
     # An admin who could PUT their own status would approve their own property.
-    await unscoped_db.properties.update_one({"id": record["id"]}, {"$set": payload.model_dump()})
+    patch = payload.model_dump()
+    # The one field where silence means "leave it alone" rather than "set it to the
+    # default". It was added after the settings form and every integration already
+    # existed, and this endpoint replaces the editable half wholesale — so a body written
+    # before it existed would switch a hotel's whole pricing model off as a side effect
+    # of correcting its address. See models/property.py.
+    if patch.get("meal_plans_enabled") is None:
+        patch.pop("meal_plans_enabled", None)
+    await unscoped_db.properties.update_one({"id": record["id"]}, {"$set": patch})
     # The same shape GET answers in, so a settings form that saves and re-renders from
     # the response cannot lose the subscription block and show a business as unpriced.
     return _visible(await unscoped_db.properties.find_one({"id": record["id"]}, {"_id": 0}))

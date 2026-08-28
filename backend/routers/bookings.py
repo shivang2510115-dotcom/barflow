@@ -7,12 +7,18 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
+# The property record is unscoped by definition — it is the thing everything else is
+# scoped *to*. Imported as a module and read through the attribute, never bound at
+# import, so a test that swaps the handle swaps this too. Same arrangement as
+# routers/orders.py, which reads the outlet's GST rate off the same record.
+import db as _db_module
 from models.hotel import Booking, BookingIn, BookingUpdateIn, CancelIn, RoomAssignmentIn
 from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.availability import (
     CONSUMING_STATUSES, blocking_out_of_order, booking_holding_room, count_available)
-from services.pricing import MissingRateError, daterange, quote_stay
+from services.pricing import (
+    MissingRateError, daterange, meal_plans_enabled, quote_stay)
 
 router = APIRouter()
 
@@ -35,6 +41,40 @@ CALENDAR = require_access("hotel", "admin", "manager", "front_desk", permission=
 ASSIGN = require_access("hotel", "admin", "manager", "front_desk",
                         permission=("hotel.bookings", "hotel.front_desk"))
 LIVE = list(CONSUMING_STATUSES)
+
+
+async def _property_record(user: dict) -> dict | None:
+    """The caller's own hotel, for the settings that change how a booking is priced.
+
+    Read through the unscoped handle because that is where properties live; the caller
+    can only ever name their own, because the id comes from their token and never from
+    the request.
+    """
+    property_id = user.get("property_id")
+    if not property_id:
+        return None
+    return await _db_module.unscoped_db.properties.find_one(
+        {"id": property_id}, {"_id": 0})
+
+
+async def _plans_on(user: dict) -> bool:
+    return meal_plans_enabled(await _property_record(user))
+
+
+async def _plan_for_booking(db, booking: dict) -> dict | None:
+    """The meal plan that prices this booking, now and for the rest of its life.
+
+    **The plan on the booking wins, not the setting on the property.** A booking taken on
+    half board keeps being priced on half board even after the hotel switches meal plans
+    off, because the guest was quoted a number that included it; and a booking taken at
+    the all-inclusive rate stays plan-less even after the hotel switches them on. The
+    property setting decides what a *new* booking may be taken on and what the screens
+    ask for — it is not a retrospective repricing of everything already sold.
+    """
+    plan_id = booking.get("meal_plan_id")
+    if not plan_id:
+        return None
+    return await db.meal_plans.find_one({"id": plan_id}, {"_id": 0})
 
 
 async def _load_pricing_context(db) -> tuple[list, list, list]:
@@ -70,7 +110,7 @@ def _validate_occupancy(room_type: dict, adults: int, children: int, extra_beds:
 
 
 async def _quote_or_422(db, room_type: dict, check_in: str, check_out: str,
-                        adults: int, children: int, meal_plan: dict) -> dict:
+                        adults: int, children: int, meal_plan: dict | None) -> dict:
     rates, periods, slabs = await _load_pricing_context(db)
     try:
         return quote_stay(
@@ -92,13 +132,23 @@ def _next_day(day: str) -> str:
 async def availability(check_in: str, check_out: str, adults: int = 2, children: int = 0,
                        user: dict = Depends(BOOK),
                        db: PropertyScopedDatabase = Depends(tenant_db)):
-    """Free rooms and a priced quote per room type per meal plan."""
+    """Free rooms and a priced quote per room type.
+
+    One quote per meal plan when the property sells them, and a single all-inclusive
+    quote — `meal_plan: None` — when it does not. The shape of the response is the same
+    either way, a list of quotes, so the new-booking screen renders one price per room
+    type without a second code path.
+    """
     _validate_window(check_in, check_out)
 
     room_types = await db.room_types.find({"active": True}, {"_id": 0}).to_list(5000)
     rooms = await db.rooms.find({}, {"_id": 0}).to_list(20000)
     bookings = await db.bookings.find({"status": {"$in": LIVE}}, {"_id": 0}).to_list(5000)
-    meal_plans = await db.meal_plans.find({"active": True}, {"_id": 0}).to_list(50)
+    # `[None]` rather than an empty list: a property with plans off still gets exactly one
+    # quote per room type. An empty list here would produce a room type with no price at
+    # all, which the screen cannot tell apart from a room type nobody has set a rate for.
+    plans = (await db.meal_plans.find({"active": True}, {"_id": 0}).to_list(50)
+             if await _plans_on(user) else [None])
     rates, periods, slabs = await _load_pricing_context(db)
 
     results = []
@@ -106,7 +156,7 @@ async def availability(check_in: str, check_out: str, adults: int = 2, children:
         free = count_available(rt["id"], check_in, check_out, rooms, bookings)
 
         quotes, unpriced = [], None
-        for plan in meal_plans:
+        for plan in plans:
             try:
                 q = quote_stay(check_in, check_out, rt["id"], adults, children,
                                rt.get("base_occupancy", 2), plan, rates, periods, slabs)
@@ -193,9 +243,25 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK),
         raise HTTPException(400, "Unknown room_type_id")
     if not await db.guests.find_one({"id": payload.guest_id}):
         raise HTTPException(400, "Unknown guest_id")
-    meal_plan = await db.meal_plans.find_one({"id": payload.meal_plan_id}, {"_id": 0})
-    if not meal_plan:
-        raise HTTPException(400, "Unknown meal_plan_id")
+
+    # Which pricing model this hotel sells on. With plans on, nothing below has changed:
+    # a plan is required and must exist, and a booking without one is still refused — as
+    # a 400 naming the field now that the model no longer refuses it as a 422, which is a
+    # message the booking screen can put beside the input.
+    #
+    # With plans off the room rate is all-inclusive, so there is no plan to name. A plan
+    # id sent anyway is dropped rather than honoured: this property does not sell one,
+    # and charging a guest a breakfast supplement it does not price separately because a
+    # stale client sent an id is worse than ignoring the id.
+    if await _plans_on(user):
+        if not payload.meal_plan_id:
+            raise HTTPException(400, "meal_plan_id is required — this property quotes "
+                                     "per meal plan")
+        meal_plan = await db.meal_plans.find_one({"id": payload.meal_plan_id}, {"_id": 0})
+        if not meal_plan:
+            raise HTTPException(400, "Unknown meal_plan_id")
+    else:
+        meal_plan = None
 
     _validate_occupancy(room_type, payload.adults, payload.children, payload.extra_beds)
     quote = await _quote_or_422(db, room_type, payload.check_in, payload.check_out,
@@ -214,7 +280,8 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK),
         })
 
     booking = Booking(
-        **payload.model_dump(),
+        **{**payload.model_dump(),
+           "meal_plan_id": meal_plan["id"] if meal_plan else None},
         reference=await _reference(db),
         quote=quote,
         created_by=user.get("id"),
@@ -233,8 +300,9 @@ async def get_booking(booking_id: str, user: dict = Depends(BOOK),
     booking["guest"] = await db.guests.find_one({"id": booking["guest_id"]}, {"_id": 0})
     booking["room_type"] = await db.room_types.find_one(
         {"id": booking["room_type_id"]}, {"_id": 0})
-    booking["meal_plan"] = await db.meal_plans.find_one(
-        {"id": booking["meal_plan_id"]}, {"_id": 0})
+    # None for a booking taken at an all-inclusive rate. The screen shows no plan row
+    # rather than an empty one — see BookingDetail.jsx, which already skips a null fact.
+    booking["meal_plan"] = await _plan_for_booking(db, booking)
     booking["room"] = await db.rooms.find_one(
         {"id": booking.get("assigned_room_id")}, {"_id": 0}
     ) if booking.get("assigned_room_id") else None
@@ -259,7 +327,10 @@ async def update_booking(booking_id: str, payload: BookingUpdateIn,
     _validate_window(merged["check_in"], merged["check_out"])
 
     room_type = await db.room_types.find_one({"id": merged["room_type_id"]}, {"_id": 0})
-    meal_plan = await db.meal_plans.find_one({"id": merged["meal_plan_id"]}, {"_id": 0})
+    # The booking's own plan, which may be None on a property that sells one rate. Never
+    # the property setting: an edit to a plan-carrying booking reprices it on its plan
+    # even if meal plans have since been switched off.
+    meal_plan = await _plan_for_booking(db, merged)
     _validate_occupancy(room_type, merged["adults"], merged["children"], merged["extra_beds"])
 
     repricing = any(k in changes for k in
@@ -416,3 +487,4 @@ async def set_booking_room(booking_id: str, payload: RoomAssignmentIn,
     await db.bookings.update_one({"id": booking_id},
                                  {"$set": {"assigned_room_id": room["id"]}})
     return {**await db.bookings.find_one({"id": booking_id}, {"_id": 0}), "room": room}
+

@@ -46,6 +46,7 @@ export default function Settings() {
   const [property, setProperty] = useState(null);
   const [rate, setRate] = useState("");
   const [inclusive, setInclusive] = useState(false);
+  const [mealPlans, setMealPlans] = useState(false);
   const [saving, setSaving] = useState(false);
   const [failed, setFailed] = useState(false);
 
@@ -58,6 +59,10 @@ export default function Settings() {
           const gst = gstSettings(r.data);
           setRate(String(gst.rate));
           setInclusive(gst.inclusive);
+          // `?? false` and not `|| false`: the API answers with a real boolean, and a
+          // record the startup migration has not reached yet answers with nothing at
+          // all. Both have to land on a defined value or the checkbox goes uncontrolled.
+          setMealPlans(r.data.meal_plans_enabled ?? false);
         })
         .catch((e) => {
           setFailed(true);
@@ -86,10 +91,11 @@ export default function Settings() {
         email, gstin, fssai_licence, check_in_time, check_out_time, logo,
         outlet_gst_rate: Number(rate),
         gst_inclusive: inclusive,
+        meal_plans_enabled: mealPlans,
       })
       .then((r) => {
         setProperty(r.data);
-        toast.success("Tax settings saved");
+        toast.success("Settings saved");
       })
       .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
       .finally(() => setSaving(false));
@@ -104,12 +110,12 @@ export default function Settings() {
     <div className="p-6 md:p-10">
       <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
-        Tax settings
+        Property settings
       </h1>
       <p className="text-stone-400 mb-10 max-w-2xl">
-        What this outlet charges on a restaurant bill. Room nights are not this — those are
-        the statutory hotel slabs, worked out per night from the tariff, and they are not
-        editable here or anywhere.
+        What this outlet charges on a restaurant bill, and how you sell a room. Room night
+        GST is neither — those are the statutory hotel slabs, worked out per night from the
+        tariff, and they are not editable here or anywhere.
       </p>
 
       {failed && (
@@ -211,7 +217,45 @@ export default function Settings() {
           </dl>
         </div>
 
-        <div className="flex gap-3 mt-8">
+        <p className="text-xs text-stone-500 mt-6 max-w-2xl">
+          Changing this affects bills opened from now on. A bill that has already been
+          settled keeps the rate it was settled at — the guest paid what the printed bill
+          said, and re-pricing it afterwards would put your books out.
+        </p>
+
+        {/* Room pricing. Same record, same Save, one PUT — so it lives in the same card
+            rather than growing a second form that could be saved on its own and stale. */}
+        <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mt-12 mb-6 pt-8 border-t border-stone-800">
+          Room pricing
+        </h2>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            data-testid="meal-plans-enabled"
+            checked={mealPlans}
+            disabled={!property}
+            onChange={(e) => setMealPlans(e.target.checked)}
+            className="mt-1 accent-orange-500 w-4 h-4"
+          />
+          <span>
+            <span className="text-sm text-stone-200">Quote rooms per meal plan</span>
+            <span className="block text-xs text-stone-500 mt-1 max-w-xl">
+              Tick this if you sell EP, CP and MAP — room only, with breakfast, half
+              board — and want a separate price for each. Leave it clear and a room has
+              one all-inclusive rate: the desk quotes a single price per room type, and
+              anything a guest takes on top is a charge on their folio as it happens.
+            </span>
+          </span>
+        </label>
+
+        <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+          This changes what new bookings are quoted on. A booking already taken keeps the
+          plan it was taken on and the price the guest was given — turning plans off does
+          not re-price it, and turning them back on does not add one to it.
+        </p>
+
+        <div className="flex gap-3 mt-8 pt-8 border-t border-stone-800">
           <button
             data-testid="gst-save"
             onClick={save}
@@ -221,12 +265,6 @@ export default function Settings() {
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
-
-        <p className="text-xs text-stone-500 mt-6 max-w-2xl">
-          Changing this affects bills opened from now on. A bill that has already been
-          settled keeps the rate it was settled at — the guest paid what the printed bill
-          said, and re-pricing it afterwards would put your books out.
-        </p>
       </div>
     </div>
   );
