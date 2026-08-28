@@ -605,6 +605,24 @@ def test_a_request_list_holds_none_of_bs_requests(world):
     assert run(b.db.housekeeping_jobs.find_one({"id": made["id"]}))["status"] == "open"
 
 
+def test_the_alert_holds_none_of_bs_requests(world):
+    a, b = world
+    # Both hotels have a room "101" and an outstanding request against it. A poll that
+    # was not scoped would put the other hotel's guest's words on this hotel's screen —
+    # four times a minute, on every screen anybody has open.
+    call(housekeeping.guest_request, room_id="a-room",
+         payload=GuestRequestIn(reason="A wants towels"))
+    call(housekeeping.guest_request, room_id="b-room",
+         payload=GuestRequestIn(reason="B wants towels"))
+
+    seen = call(housekeeping.housekeeping_alerts, user=a.admin, db=a.db)
+    assert seen["count"] == 1
+    assert seen["jobs"][0]["reason"] == "A wants towels"
+    assert "B wants towels" not in str(seen)
+    assert call(housekeeping.housekeeping_alerts, user=b.admin,
+                db=b.db)["jobs"][0]["reason"] == "B wants towels"
+
+
 def test_a_request_cannot_be_raised_against_the_other_hotels_room(world):
     a, _b = world
     assert refused(housekeeping.raise_job, payload=housekeeping.HousekeepingJobIn(

@@ -611,6 +611,134 @@ def test_completing_a_request_does_not_by_itself_clean_the_room(hotel):
     assert room(db)["housekeeping_status"] == "dirty"
 
 
+# --------------------------------- the alert ---------------------------------
+def alerts(db, actor):
+    return call(housekeeping.housekeeping_alerts, user=actor, db=db)
+
+
+def test_an_open_request_appears_in_the_alert(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Spill on the carpet",
+                    priority="high")
+    out = alerts(db, people["manager"])
+    assert out["count"] == 1
+    assert out["jobs"][0] == {
+        "id": job["id"], "room_id": "r101", "room_number": "101", "priority": "high",
+        "reason": "Spill on the carpet", "source": "staff",
+        "created_at": job["created_at"]}
+
+
+def test_the_alert_names_the_room_without_reading_the_rooms_collection(hotel):
+    people, db, _ = hotel
+    raise_job(db, people["front_desk"], reason="Towels")
+    # The number is stored on the job precisely so the poll is one query. Deleting the
+    # room does not make the alert stop naming it — which is also the honest record of
+    # what somebody asked for.
+    run(db.rooms.delete_one({"id": "r101"}))
+    assert alerts(db, people["manager"])["jobs"][0]["room_number"] == "101"
+
+
+def test_a_request_raised_by_a_guest_reaches_the_alert(hotel):
+    people, db, _ = hotel
+    guest_asks(reason="The kettle is broken")
+    out = alerts(db, people["front_desk"])
+    assert out["count"] == 1
+    assert out["jobs"][0]["source"] == "guest"
+    assert out["jobs"][0]["reason"] == "The kettle is broken"
+
+
+def test_acknowledging_removes_it_from_the_alert_but_leaves_it_in_the_log(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    call(housekeeping.acknowledge_job, job_id=job["id"], user=people["housekeeping"],
+         db=db)
+    assert alerts(db, people["manager"])["count"] == 0
+    # Still there, still whole: acknowledging is not a delete.
+    stored = run(db.housekeeping_jobs.find_one({"id": job["id"]}, {"_id": 0}))
+    assert stored["status"] == "in_progress"
+    assert stored["reason"] == "Towels"
+    assert [h["action"] for h in stored["history"]] == ["raised", "acknowledged"]
+    assert {j["id"] for j in jobs(db, people["housekeeping"], "live")} == {job["id"]}
+
+
+def test_a_done_or_cancelled_request_is_not_in_the_alert(hotel):
+    people, db, _ = hotel
+    done = raise_job(db, people["front_desk"], reason="Towels")
+    off = raise_job(db, people["front_desk"], reason="Bulb")
+    call(housekeeping.complete_job, job_id=done["id"], user=people["housekeeping"], db=db)
+    call(housekeeping.cancel_job, job_id=off["id"], payload=HousekeepingCancelIn(),
+         user=people["manager"], db=db)
+    assert alerts(db, people["manager"])["count"] == 0
+
+
+def test_the_alert_discloses_nothing_about_who_is_dealing_with_what(hotel):
+    people, db, _ = hotel
+    raise_job(db, people["front_desk"], reason="Towels")
+    blob = str(alerts(db, people["manager"]))
+    # No staff ids, no history, no acknowledgement fields: this route declares no screen,
+    # so every field left in it is one that any hotel-domain user may read.
+    for field in ("raised_by", "u-front_desk", "history", "acknowledged", "completed"):
+        assert field not in blob
+
+
+def test_the_alert_is_oldest_first(hotel):
+    people, db, _ = hotel
+    first = raise_job(db, people["front_desk"], reason="One")
+    second = raise_job(db, people["front_desk"], reason="Two", room_id="r102")
+    assert [j["id"] for j in alerts(db, people["manager"])["jobs"]] == [
+        first["id"], second["id"]]
+
+
+def test_the_alert_costs_one_query(hotel):
+    people, db, _ = hotel
+    raise_job(db, people["front_desk"], reason="Towels")
+
+    reads = []
+    original = db.__class__._collection
+
+    def counting(self, name):
+        reads.append(name)
+        return original(self, name)
+
+    db.__class__._collection = counting
+    try:
+        alerts(db, people["manager"])
+    finally:
+        db.__class__._collection = original
+    # One collection touched, once. No join against rooms, no second call for a count —
+    # this is fetched four times a minute by every signed-in hotel user.
+    assert reads == ["housekeeping_jobs"]
+
+
+def test_every_hotel_user_gets_the_alert_and_no_outlet_user_does(hotel):
+    people, _db, handle = hotel
+    for role in ("admin", "manager", "front_desk", "housekeeping"):
+        assert person_may(housekeeping.ALERT, people[role]) is True
+    # An outlet-only waiter holds `bar`, so the domain refuses them before anything else.
+    assert person_may(housekeeping.ALERT, people["waiter"]) is False
+
+
+def test_the_alert_reaches_a_hotel_user_who_holds_no_screens_at_all(hotel):
+    people, _db, handle = hotel
+    # Deliberate: the alert appears on every screen of every signed-in hotel user, so a
+    # screen key on this route would silence it for people it is meant to reach.
+    run(handle.users.update_one({"id": "u-front_desk"}, {"$set": {"permissions": []}}))
+    stripped = run(handle.users.find_one({"id": "u-front_desk"}, {"_id": 0}))
+    assert person_may(housekeeping.ALERT, stripped) is True
+    assert person_may(housekeeping.ATTENDANT, stripped) is False
+
+
+def test_acknowledging_from_the_alert_needs_no_screen(hotel):
+    people, db, handle = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    run(handle.users.update_one({"id": "u-front_desk"}, {"$set": {"permissions": []}}))
+    stripped = run(handle.users.find_one({"id": "u-front_desk"}, {"_id": 0}))
+    assert person_may(housekeeping.ACKNOWLEDGE, stripped) is True
+    # A button on a page that 403s the person who presses it is worse than no button.
+    assert call(housekeeping.acknowledge_job, job_id=job["id"], user=stripped,
+                db=db)["status"] == "in_progress"
+
+
 # ------------------------------ the card in the room ------------------------------
 # The limiter's counters live in the database rather than in this process — see
 # services/ratelimit.py — so the `hotel` fixture's throwaway file gives each test its own

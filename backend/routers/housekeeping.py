@@ -57,6 +57,16 @@ JOBS = require_access("hotel", "admin", "manager", "front_desk", "housekeeping",
 # this is the hotel's own staff and nobody else.
 ACKNOWLEDGE = require_access("hotel", "admin", "manager", "front_desk", "housekeeping")
 
+# The poll. No screen key and no role list at all: the design puts this alert on every
+# screen of every signed-in user who holds the hotel domain, and either restriction would
+# silence it for someone it is meant to reach. What it hands back is projected down to the
+# room, the priority and the reason — see `_alert` — so widening the audience discloses
+# nothing a receptionist could not already see on the front desk board.
+#
+# An empty role list means no role check: `can_access` skips it when `roles` is falsy, so
+# the admin bypass is not needed here and the domain is doing the work.
+ALERT = require_access("hotel")
+
 # ----------------- What a guest with the in-room card may do -----------------
 # The two routes at the bottom of this file take no token: a guest scans the QR beside
 # the kettle and asks for towels without an account, exactly as the table QR already
@@ -357,6 +367,68 @@ async def list_jobs(status: str = "", user: dict = Depends(JOBS),
     jobs = await db.housekeeping_jobs.find(query, {"_id": 0}).to_list(20000)
     jobs.sort(key=lambda j: j.get("created_at") or "", reverse=True)
     return jobs
+
+
+@router.get("/housekeeping/alerts")
+async def housekeeping_alerts(user: dict = Depends(ALERT),
+                              db: PropertyScopedDatabase = Depends(tenant_db)):
+    """The requests nobody has picked up yet. Polled, roughly every fifteen seconds.
+
+    **Polling, and not a live connection.** The alternative — the browser subscribing to
+    Firestore directly — would put tenant isolation into Firestore security rules, a
+    second authorization system running beside `services/access.py`. Two systems that
+    have to agree about who sees what is how one hotel's data reaches another's screen.
+    One place decides access and it stays the backend.
+
+    **What one call costs, because it is made every fifteen seconds by every signed-in
+    hotel user.** Exactly one query — `status == open` on this property's jobs, which is
+    the composite index `(property_id, status)` in firestore.indexes.json — returning the
+    handful of rows that are genuinely outstanding, usually none. There is no join: the
+    room's number is stored on the job precisely so that this route never has to read the
+    rooms collection, which is the difference between one read and three hundred. On top
+    of that sit the two reads every authenticated request in this application already
+    makes, the caller's user record and their property. So three document reads per poll,
+    of which two are not this endpoint's doing.
+
+    At four polls a minute, ten signed-in people and a twelve-hour day, that is about
+    86,000 document reads a day for a property — a few cents a month, and it does not
+    grow with the number of rooms, the number of bookings or the size of the log. It is
+    also bounded above by design: the client stops polling when the tab is hidden, which
+    a front desk leaving this open all day makes the common case.
+
+    `open` only. Acknowledging is what makes an alert stop appearing, which is the whole
+    reason acknowledgement exists — a list that kept showing what somebody had already
+    picked up would become a wall a receptionist dismisses one at a time.
+
+    Declared with no screen key and no role list beyond the hotel's own staff: the alert
+    is meant to appear on *every* screen of *every* signed-in user holding the hotel
+    domain, and a screen key here would silence it for exactly the people the design puts
+    it in front of.
+    """
+    jobs = await db.housekeeping_jobs.find({"status": OPEN}, {"_id": 0}).to_list(500)
+    jobs.sort(key=lambda j: j.get("created_at") or "")
+    return {"jobs": [_alert(j) for j in jobs], "count": len(jobs)}
+
+
+def _alert(job: dict) -> dict:
+    """One request, projected down to what an alert says: which room, how urgent, what was
+    asked for, and the id to acknowledge it by.
+
+    Projected rather than sent whole for the same reason `_pos_guest` is. This route
+    declares no screen, so anybody holding the `hotel` domain reaches it, and every field
+    left here is a field all of them can read. Who raised it, who acknowledged what and
+    when, and the history of a job somebody else is dealing with are none of that, and a
+    smaller row is also the right shape for something fetched four times a minute.
+    """
+    return {
+        "id": job["id"],
+        "room_id": job.get("room_id"),
+        "room_number": job.get("room_number"),
+        "priority": job.get("priority"),
+        "reason": job.get("reason") or "",
+        "source": job.get("source"),
+        "created_at": job.get("created_at"),
+    }
 
 
 @router.post("/housekeeping/jobs")

@@ -50,6 +50,31 @@
         { "fieldPath": "key", "order": "ASCENDING" },
         { "fieldPath": "at", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "housekeeping_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "property_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "housekeeping_jobs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "property_id", "order": "ASCENDING" },
+        { "fieldPath": "room_id", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "housekeeping_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "property_id", "order": "ASCENDING" },
+        { "fieldPath": "room_id", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
