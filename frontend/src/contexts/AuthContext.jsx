@@ -24,10 +24,14 @@ export function AuthProvider({ children }) {
       });
   }, []);
 
-  const login = async (email, password) => {
+  // `identifier`, not `email`: it carries a phone number now, and the API's field was
+  // renamed to say so. The server still accepts `email` as an alias for every client that
+  // predates this, but there is no reason for the one client in this repository to be one
+  // of them.
+  const login = async (identifier, password) => {
     setError("");
     try {
-      const { data } = await api.post("/auth/login", { email, password });
+      const { data } = await api.post("/auth/login", { identifier, password });
       localStorage.setItem(TOKEN_KEY, data.token);
       // The login response is a summary of the account; /auth/me is the payload the rest
       // of the app is written against — it carries the screen permissions the navigation

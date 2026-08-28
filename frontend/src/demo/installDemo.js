@@ -52,7 +52,10 @@ resetDb();
 // Analytics and nothing else. Mirrors the real /auth/login and /auth/me payloads.
 const publicUser = (u) => ({
   id: u.id,
-  email: u.email,
+  email: u.email ?? null,
+  // Either identifier gets somebody in, so both are returned. The account screen reads
+  // this to say who is signed in and would otherwise show a blank for a phone-only user.
+  phone: u.phone ?? null,
   name: u.name,
   role: u.role,
   domains: u.domains || [],
@@ -65,7 +68,8 @@ const publicUser = (u) => ({
 const staffRow = (u) => ({
   id: u.id,
   name: u.name,
-  email: u.email,
+  email: u.email ?? null,
+  phone: u.phone ?? null,
   role: u.role,
   domains: u.domains || [],
   active: u.active !== false,
@@ -73,6 +77,31 @@ const staffRow = (u) => ({
 });
 
 /* ------------------------------------------------------------------ helpers */
+
+// The canonical phone form, mirroring backend/services/identity.py: E.164, so that
+// `9876543210`, `09876543210` and `+91 98765 43210` are one account here too. Cut down
+// to what this file needs — the real one carries the reasoning and the refusal messages.
+// Returns null for anything that is not an Indian mobile.
+function demoPhone(value) {
+  if (typeof value !== "string") return null;
+  let digits = value.trim().replace(/[\s\-().]/g, "");
+  if (digits.startsWith("+")) digits = digits.slice(1);
+  if (!/^\d+$/.test(digits)) return null;
+  for (const prefix of ["0091", "91", "0"]) {
+    if (digits.startsWith(prefix) && digits.length === prefix.length + 10) {
+      digits = digits.slice(prefix.length);
+      break;
+    }
+  }
+  return /^[6-9]\d{9}$/.test(digits) ? `+91${digits}` : null;
+}
+
+// Which of the two was typed at the sign-in box, in the form the account is stored under.
+const demoIdentifier = (value) => {
+  const typed = (value || "").trim();
+  if (typed.includes("@")) return typed.toLowerCase();
+  return demoPhone(typed) || typed.toLowerCase();
+};
 
 const TAX_RATE = 0.1;
 
@@ -328,11 +357,18 @@ function revenueReport(q) {
 
 const ROUTES = [
   // ---- auth
+  // `identifier` with `email` still accepted, exactly as the API does it: the field was
+  // renamed because it carries a phone number now, and the alias is what keeps every
+  // older caller working.
   ["POST", /^\/auth\/login$/, (m, body) => {
-    const email = (body.email || "").toLowerCase().trim();
-    const user = db.users.find((u) => u.email === email);
-    if (!user || DEMO_PASSWORDS[email] !== body.password) {
-      throw { status: 401, detail: "Invalid email or password" };
+    const typed = demoIdentifier(body.identifier ?? body.email);
+    const user = db.users.find((u) =>
+      typed.includes("@") ? u.email === typed : demoPhone(u.phone) === typed);
+    // Keyed on the email because that is what the demo's fixed password table is keyed
+    // on. Every seeded demo login has one; a phone-only account created from the staff
+    // screen has no password here either way, which is the same as it was before.
+    if (!user || DEMO_PASSWORDS[(user.email || "").toLowerCase()] !== body.password) {
+      throw { status: 401, detail: "Invalid email, phone number or password" };
     }
     return { token: `demo.${user.id}`, user: publicUser(user) };
   }],
@@ -389,12 +425,30 @@ const ROUTES = [
     if ((body.password || "").length < 8) {
       throw { status: 400, detail: "Password must be at least 8 characters" };
     }
-    const email = (body.email || "").toLowerCase().trim();
-    if (db.users.some((u) => u.email === email)) {
+    const email = (body.email || "").toLowerCase().trim() || null;
+    // Either identifier, at least one of the two — the rule POST /api/staff applies, and
+    // the reason this whole change exists: a waiter with no email address had to be given
+    // an invented one, which cannot receive a password reset.
+    const typedPhone = (body.phone || "").trim();
+    const phone = typedPhone ? demoPhone(typedPhone) : null;
+    if (typedPhone && !phone) {
+      throw { status: 400, detail: "That is not a phone number this can store." };
+    }
+    if (!email && !phone) {
+      throw {
+        status: 400,
+        detail: "This account needs an email address or a phone number — with neither, "
+          + "there is nothing for them to type at the sign-in box.",
+      };
+    }
+    if (email && db.users.some((u) => u.email === email)) {
       throw { status: 409, detail: "A staff member with this email already exists" };
     }
+    if (phone && db.users.some((u) => demoPhone(u.phone) === phone)) {
+      throw { status: 409, detail: "A staff member with this phone number already exists" };
+    }
     const user = {
-      id: uid(), name: (body.name || "").trim(), email, role,
+      id: uid(), name: (body.name || "").trim(), email, phone, role,
       // An admin created with nothing ticked holds everything, as POST /api/staff does:
       // no route may persist an empty domain list.
       domains: role === "admin" && domains.length === 0 ? [...DOMAINS] : domains,

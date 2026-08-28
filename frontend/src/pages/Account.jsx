@@ -6,6 +6,7 @@ import { ArrowLeft, KeyRound, Wine } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { homePathFor } from "@/lib/tenancy";
+import { displayIdentifier } from "@/lib/identity";
 import PasswordInput from "@/components/app/PasswordInput";
 
 /**
@@ -133,7 +134,11 @@ export default function Account() {
             </h2>
           </div>
           <p className="text-xs text-stone-500 mb-6 leading-relaxed" data-testid="account-who">
-            Signed in as <span className="text-stone-300">{user?.email}</span>
+            {/* Whichever identifier they have. Reading `user.email` alone left a
+                phone-only waiter with "Signed in as " and nothing after it, which reads
+                as a broken page rather than as an account without an address. */}
+            Signed in as{" "}
+            <span className="text-stone-300">{displayIdentifier(user)}</span>
             {user?.role ? (
               <span className="font-mono uppercase text-orange-500/80"> · {user.role}</span>
             ) : null}

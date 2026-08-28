@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 import { ArrowRight, Check, Lock, Wine } from "lucide-react";
 import { lockedUntilApproved, unlockedWhilePending } from "@/lib/tenancy";
 import { PROPERTY_TYPE_CHOICES } from "@/lib/domains";
+import { hasAnIdentifier } from "@/lib/identity";
 import PasswordInput from "@/components/app/PasswordInput";
 
 /**
@@ -28,7 +29,11 @@ const BLANK = {
   city: "",
   gstin: "",
   admin_name: "",
+  // Either one, at least one — the same rule the staff screen applies, because the
+  // account this form creates is a staff account like any other. An owner registering
+  // from a phone at the end of service has the same problem their waiters do.
   admin_email: "",
+  admin_phone: "",
   admin_password: "",
   // Nothing pre-selected. The API defaults an omitted type to `both`, which is right for
   // an old client but wrong for a form: a restaurant that never notices the question and
@@ -43,7 +48,12 @@ const FIELDS = [
   ["hotel_name", "Name of the business", "text", "Hilltop Retreat", true],
   ["city", "City", "text", "Manali", false],
   ["admin_name", "Your name", "text", "Priya Nair", true],
-  ["admin_email", "Your email", "email", "you@hilltop.co.in", true],
+  // Neither identifier is starred. `required` here is the browser's own rule and it
+  // cannot express "one of these two", so marking either would stop a registration the
+  // API accepts. The either/or is checked in `submit` instead, where it can be said in
+  // words.
+  ["admin_email", "Your email", "email", "you@hilltop.co.in", false],
+  ["admin_phone", "Your phone", "tel", "98765 43210", false],
   ["admin_password", "Password", "password", "At least 8 characters", true],
 ];
 
@@ -208,8 +218,17 @@ export default function Signup() {
     // Checked here first so the two mistakes a hotel actually makes come back instantly
     // rather than after a round trip. The server checks both again — this is a courtesy,
     // not the rule.
-    if (!form.hotel_name.trim() || !form.admin_name.trim() || !form.admin_email.trim()) {
-      const msg = "The name of the business, your name and your email are all needed";
+    if (!form.hotel_name.trim() || !form.admin_name.trim()) {
+      const msg = "The name of the business and your name are both needed";
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
+    // Either identifier, at least one. `required` on the inputs cannot say "one of these
+    // two" — marking either would refuse a registration the API accepts — so it is said
+    // here, in words, where it can name what the missing one is for.
+    if (!hasAnIdentifier({ email: form.admin_email, phone: form.admin_phone })) {
+      const msg = "Give an email address or a phone number — you need one of the two to sign in";
       setError(msg);
       toast.error(msg);
       return;
@@ -231,7 +250,15 @@ export default function Signup() {
     setBusy(true);
     setError("");
     try {
-      await api.post("/signup", form);
+      // Blank identifiers are omitted rather than sent as `""`. The API types both as
+      // `EmailStr | None` / `str | None`, so an empty string is a 422 about a malformed
+      // address for somebody who deliberately did not give one.
+      const { admin_email, admin_phone, ...rest } = form;
+      await api.post("/signup", {
+        ...rest,
+        ...(admin_email.trim() ? { admin_email: admin_email.trim() } : {}),
+        ...(admin_phone.trim() ? { admin_phone: admin_phone.trim() } : {}),
+      });
       setDone({ name: form.hotel_name.trim(), type: form.property_type });
     } catch (err) {
       // Every refusal this endpoint gives is worth reading: 409 names the email, 400 names
@@ -332,16 +359,25 @@ export default function Signup() {
             </div>
 
             {FIELDS.slice(2).map(([id, label, type, placeholder, required]) => (
-              <Field
-                key={id}
-                id={id}
-                label={label}
-                type={type}
-                placeholder={placeholder}
-                required={required}
-                value={form[id]}
-                onChange={set(id)}
-              />
+              <Fragment key={id}>
+                <Field
+                  id={id}
+                  label={label}
+                  type={type}
+                  placeholder={placeholder}
+                  required={required}
+                  value={form[id]}
+                  onChange={set(id)}
+                />
+                {/* Said once, under the second of the pair, because "optional" on each of
+                    two fields reads as though both could be skipped and they cannot. */}
+                {id === "admin_phone" && (
+                  <p className="text-[11px] text-stone-500 -mt-3">
+                    One of the two is enough — whichever you will actually sign in with.
+                    Give both if you want to be reachable either way.
+                  </p>
+                )}
+              </Fragment>
             ))}
           </div>
 

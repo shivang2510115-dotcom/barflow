@@ -5,6 +5,7 @@ import { useProperty } from "@/contexts/PropertyContext";
 import { toast } from "sonner";
 import { DOMAIN_LABELS, propertyDomains } from "@/lib/domains";
 import { screenInDomains } from "@/lib/sections";
+import { formatPhone, hasAnIdentifier } from "@/lib/identity";
 import PasswordInput from "@/components/app/PasswordInput";
 
 const ROLES = ["admin", "manager", "front_desk", "waiter", "kitchen"];
@@ -12,6 +13,11 @@ const ROLES = ["admin", "manager", "front_desk", "waiter", "kitchen"];
 const BLANK = {
   name: "",
   email: "",
+  // Either identifier, and at least one of the two. A waiter or a kitchen hand very often
+  // has no email address and always has a phone, and requiring an address is what made
+  // owners invent `waiter1@fake.com` — which cannot receive a password reset and collides
+  // with the identical invention at the property down the road.
+  phone: "",
   password: "",
   role: "waiter",
   domains: ["restaurant"],
@@ -249,8 +255,17 @@ export default function Staff() {
   // Client-side checks run before `run`, so the catch block above only ever handles real
   // API errors — nothing here fabricates an axios-shaped object to fall through it.
   const create = () => {
-    if (!creating.name.trim() || !creating.email.trim()) {
-      toast.error("Name and email are required");
+    if (!creating.name.trim()) {
+      toast.error("A name is required");
+      return;
+    }
+    // The either/or, said before the round trip rather than after it. The server refuses
+    // the same thing with a 400 and its wording is the one that matters; this only saves
+    // the owner a request to be told what the form already knows.
+    if (!hasAnIdentifier(creating)) {
+      toast.error(
+        "Give an email address or a phone number — they need one of the two to sign in",
+      );
       return;
     }
     if (creating.role !== "admin" && creating.domains.length === 0) {
@@ -266,10 +281,17 @@ export default function Staff() {
       // is left off entirely; sending [] would be somebody deliberately granting nothing.
       // For everyone else, no ticks means "the screens this role has always had" — the
       // server's own default — which is why an empty list is omitted rather than sent.
-      const { permissions, ...rest } = creating;
+      const { permissions, email, phone, ...rest } = creating;
       const screens = keepGrantable(permissions, creating.domains);
       await api.post("/staff", {
         ...rest,
+        // Omitted when blank, never sent as `""`. An empty string is not an absent
+        // address: the API types the field `EmailStr | None`, so `""` is a 422 about a
+        // malformed email for somebody who deliberately did not give one.
+        ...(email.trim() ? { email: email.trim() } : {}),
+        // Sent as typed. The canonical form is the server's to decide — a second
+        // normaliser here is a second answer to a question that must have exactly one.
+        ...(phone.trim() ? { phone: phone.trim() } : {}),
         ...(creating.role !== "admin" && screens.length ? { permissions: screens } : {}),
       });
       setCreating(BLANK);
@@ -341,10 +363,15 @@ export default function Staff() {
         </h2>
         <div className="flex flex-wrap gap-4 items-end">
           {[
-            ["name", "Name", "text"],
-            ["email", "Email", "email"],
-            ["password", "Password", "password"],
-          ].map(([k, label, type]) => {
+            ["name", "Name", "text", ""],
+            // Both are offered and neither is starred, because either one on its own is
+            // enough and a screen that marked one required would be asking for the
+            // invented address this change exists to end. The hints say what each is
+            // *for*, which is the question an owner filling this in actually has.
+            ["email", "Email", "email", "office staff, anyone with an address"],
+            ["phone", "Phone", "tel", "waiters, kitchen — no email needed"],
+            ["password", "Password", "password", ""],
+          ].map(([k, label, type, hint]) => {
             // The admin is inventing this password for somebody else and then has to read
             // it out to them, so being able to see what was typed is the whole point of
             // the field. `block mt-2` moves to the wrapper: it is what the reveal button
@@ -360,13 +387,18 @@ export default function Staff() {
                     ? { label: "the new staff member's password", autoComplete: "new-password",
                         wrapperClassName: "block mt-2",
                         "data-testid": "staff-create-password" }
-                    : { type })}
+                    : { type, "data-testid": `staff-create-${k}` })}
                   value={creating[k]}
                   onChange={(e) => setCreating({ ...creating, [k]: e.target.value })}
                   className={`bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none ${
                     password ? "" : "block mt-2"
                   }`}
                 />
+                {hint && (
+                  <span className="block mt-1 text-[10px] normal-case tracking-normal text-stone-600">
+                    {hint}
+                  </span>
+                )}
               </label>
             );
           })}
@@ -424,6 +456,18 @@ export default function Staff() {
         </div>
 
         <p className="text-xs text-stone-500 mt-6 max-w-3xl">
+          <span className="text-stone-300">
+            An email address or a phone number — one is enough, and either one works at the
+            sign-in box.
+          </span>{" "}
+          Give a phone for waiters and kitchen staff who have no email; give an address for
+          anyone who does, or both for anyone you want reachable either way. A number can
+          be typed however you like — 98765 43210, 098765 43210 and +91 98765 43210 are
+          stored as the same number, so it does not matter which way you or they type it.
+          Do not invent an address: it cannot receive a password reset, and an account with
+          neither identifier is refused because nobody could ever sign into it.
+        </p>
+        <p className="text-xs text-stone-500 mt-3 max-w-3xl">
           An admin reaches everything regardless of domains. Everyone else reaches only the
           areas selected here — enforced by the API, not just hidden in the menu. Leave every
           screen clear and they start with the ones their role has always had. Passwords are
@@ -447,7 +491,10 @@ export default function Staff() {
           <thead>
             <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
               <th className="text-left py-2 px-3 border-b border-stone-800">Name</th>
-              <th className="text-left py-2 px-3 border-b border-stone-800">Email</th>
+              {/* One column, not two. What matters to whoever is reading this roster is
+                  what each person types to sign in, and half the rows would be empty in
+                  whichever of the two columns they do not use. */}
+              <th className="text-left py-2 px-3 border-b border-stone-800">Signs in with</th>
               <th className="text-left py-2 px-3 border-b border-stone-800">Role</th>
               <th className="text-left py-2 px-3 border-b border-stone-800">Works in</th>
               <th className="text-left py-2 px-3 border-b border-stone-800">Screens</th>
@@ -468,8 +515,16 @@ export default function Staff() {
                       </span>
                     )}
                   </td>
+                  {/* Both when they have both, because either one gets them in and an
+                      owner resetting somebody's password needs to know which they use.
+                      Never an empty cell: the API refuses an account with neither, so a
+                      blank here would mean a record that predates that rule. */}
                   <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs text-stone-400">
-                    {u.email}
+                    {u.email && <span className="block">{u.email}</span>}
+                    {u.phone && (
+                      <span className="block text-stone-500">{formatPhone(u.phone)}</span>
+                    )}
+                    {!u.email && !u.phone && <span className="text-stone-600">—</span>}
                   </td>
                   <td className="py-2 px-3 border-b border-stone-800">
                     {u.role.replace("_", " ")}

@@ -168,7 +168,7 @@ def test_an_existing_weak_password_still_signs_in(world, monkeypatch):
     handle, _admin = world
     monkeypatch.setattr(auth, "unscoped_db", handle)
     auth.LOGIN_FAILURES_PER_ADDRESS.reset()
-    auth.LOGIN_FAILURES_PER_EMAIL.reset()
+    auth.LOGIN_FAILURES_PER_IDENTIFIER.reset()
     run(handle.users.update_one({"id": "a1"}, {"$set": {
         "password_hash": security.hash_password("password")}}))
 

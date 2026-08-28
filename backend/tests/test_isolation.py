@@ -687,7 +687,7 @@ def test_the_last_admin_rule_counts_only_this_hotels_admins(world):
 # not, each for a reason that has to be stated rather than discovered:
 SCOPE_FREE = {
     ("GET", "/api/"): "the health check reads nothing",
-    ("POST", "/api/auth/login"): "finds a login by email before its hotel is known",
+    ("POST", "/api/auth/login"): "finds a login by its identifier before its hotel is known",
     ("GET", "/api/auth/me"): "the caller's own user record",
     # Same reasoning as /auth/me, and it writes rather than reads: the row is found by
     # the id in the caller's own token, so there is no property to scope to and no id in
