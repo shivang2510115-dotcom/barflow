@@ -1,4 +1,4 @@
-import { Ban, Check, DoorOpen, PowerOff, User, Wrench } from "lucide-react";
+import { Ban, BadgeCheck, Brush, Check, DoorOpen, PowerOff, Sparkles, User, Wrench } from "lucide-react";
 import { countStates, groupRoomsByFloor, typeOf } from "@/lib/roomGrid";
 
 /**
@@ -74,6 +74,40 @@ const LOOK = {
     label: "Not bookable",
     tile: "border-stone-700 bg-stone-950 text-stone-400",
     chip: "text-stone-500",
+  },
+
+  // The fourth question, and the reason this table is a table: housekeeping asks whether
+  // the room is *made up*, which is a different axis from whether it is sold, occupied or
+  // switched on. The state keys are the housekeeping statuses themselves
+  // (`lib/housekeeping.js::housekeepingState`), so nothing translates between the API's
+  // vocabulary and this one.
+  //
+  // `out_of_order` is drawn exactly as `blocked` is, and that is the only thing the two
+  // share: one is a date range that stops the room being *sold*, the other means it is not
+  // usable *right now*. They stay separate everywhere else — see services/housekeeping.py.
+  clean: {
+    icon: Sparkles,
+    label: "Clean",
+    tile: "border-emerald-500/60 bg-emerald-500/5 text-stone-100",
+    chip: "text-emerald-300",
+  },
+  dirty: {
+    icon: Brush,
+    label: "Dirty",
+    tile: "border-amber-500/60 bg-amber-500/10 text-stone-100",
+    chip: "text-amber-300",
+  },
+  inspected: {
+    icon: BadgeCheck,
+    label: "Inspected",
+    tile: "border-sky-500/60 bg-sky-500/5 text-stone-100",
+    chip: "text-sky-300",
+  },
+  out_of_order: {
+    icon: Wrench,
+    label: "Out of order",
+    tile: "border-red-500/60 room-tile-hatch text-stone-100",
+    chip: "text-red-300",
   },
 };
 
