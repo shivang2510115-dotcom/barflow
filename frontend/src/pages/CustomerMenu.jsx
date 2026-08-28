@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 import { API, currency } from "@/lib/api";
 import { gstLabel, gstSettings, outletTotals } from "@/lib/tax";
+import { priceLabel, variantsOf } from "@/lib/menu";
 import { Plus, Minus, ShoppingBag, X, Wine } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,6 +26,9 @@ export default function CustomerMenu() {
   const [welcome, setWelcome] = useState(true);
   const [flights, setFlights] = useState([]);
   const [pulseCart, setPulseCart] = useState(0);
+  // The dish whose portion the guest is being asked to pick, or null. Only ever set for
+  // a dish that is genuinely sold in more than one.
+  const [portionFor, setPortionFor] = useState(null);
   const cartPillRef = useRef(null);
 
   useEffect(() => {
@@ -47,12 +51,28 @@ export default function CustomerMenu() {
 
   const cats = useMemo(() => Array.from(new Set(menu.map((m) => m.category))), [menu]);
   const shown = menu.filter((m) => m.category === cat);
+  // The cart is keyed by dish *and portion*, not by dish: a guest ordering one Half and
+  // one Full of the same curry is ordering two different things at two different prices,
+  // and collapsing them onto one key would charge one of them wrongly. A dish with no
+  // portions keys on its id alone, which is what every key was before this.
+  const cartKey = (id, label) => (label ? `${id}::${label}` : id);
   const cartItems = useMemo(
     () =>
       Object.entries(cart)
-        .map(([id, qty]) => {
-          const m = menu.find((x) => x.id === id);
-          return m ? { ...m, qty } : null;
+        .map(([key, entry]) => {
+          const m = menu.find((x) => x.id === entry.menu_item_id);
+          if (!m) return null;
+          // The price the guest is shown here is the price the server charges for that
+          // portion — resolved from the same list, so the two cannot drift apart.
+          const chosen = variantsOf(m).find((v) => v.label === entry.variant_label);
+          if (entry.variant_label && !chosen) return null;
+          return {
+            ...m,
+            key,
+            price: chosen ? chosen.price : m.price,
+            variant_label: entry.variant_label || null,
+            qty: entry.qty,
+          };
         })
         .filter(Boolean),
     [cart, menu]
@@ -69,17 +89,39 @@ export default function CustomerMenu() {
   );
   const { subtotal, taxableValue, tax, total } = cartTotals;
   const cartCount = cartItems.reduce((s, i) => s + i.qty, 0);
+  // How many of this dish are in the cart across every portion of it — what the counter
+  // on the row shows for a dish sold by portion.
+  const inCart = (m) =>
+    cartItems.reduce((s, i) => (i.id === m.id ? s + i.qty : s), 0);
 
-  const add = (id) => setCart((c) => ({ ...c, [id]: (c[id] || 0) + 1 }));
-  const dec = (id) =>
+  const add = (id, label = null) =>
+    setCart((c) => {
+      const key = cartKey(id, label);
+      const existing = c[key];
+      return {
+        ...c,
+        [key]: { menu_item_id: id, variant_label: label, qty: (existing?.qty || 0) + 1 },
+      };
+    });
+  const dec = (key) =>
     setCart((c) => {
       const n = { ...c };
-      if (n[id] > 1) n[id] -= 1;
-      else delete n[id];
+      if (n[key]?.qty > 1) n[key] = { ...n[key], qty: n[key].qty - 1 };
+      else delete n[key];
       return n;
     });
 
+  const choosePortion = (m, variant) => {
+    setPortionFor(null);
+    add(m.id, variant.label);
+    setPulseCart((v) => v + 1);
+  };
+
   const flyToCart = (menuItem, evt) => {
+    // A dish sold in more than one portion is asked about first — the server refuses a
+    // line that does not name one, and it is right to: the guest has to be charged for
+    // the plate they picked, not for whichever one the card happened to list first.
+    if (variantsOf(menuItem).length) return setPortionFor(menuItem);
     const btn = evt.currentTarget;
     const card = btn.closest("li");
     const imgEl = card?.querySelector("img[data-menu-thumb]");
@@ -110,7 +152,11 @@ export default function CustomerMenu() {
     if (!cartItems.length) return;
     setPlacing(true);
     try {
-      const items = cartItems.map((i) => ({ menu_item_id: i.id, quantity: i.qty }));
+      const items = cartItems.map((i) => ({
+        menu_item_id: i.id,
+        quantity: i.qty,
+        variant_label: i.variant_label,
+      }));
       const { data } = await publicApi.post(`/orders/table/${tableId}/items`, { items, source: "qr" });
 
       if (pay === "online") {
@@ -273,11 +319,27 @@ export default function CustomerMenu() {
                   {m.description}
                 </div>
               )}
-              <div className="mt-3 font-mono text-orange-400">{currency(m.price)}</div>
+              <div className="mt-3 font-mono text-orange-400">{priceLabel(m)}</div>
+              {variantsOf(m).length > 0 && (
+                <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                  {variantsOf(m).map((v) => v.label).join(" · ")}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0 self-center">
-              {cart[m.id] ? (
+              {/* A dish sold by portion keeps one button whatever is in the cart: the
+                  minus would have to ask "which portion?", and the cart sheet below
+                  already answers that a line at a time. */}
+              {variantsOf(m).length ? (
+                <button
+                  data-testid={`cmenu-add-${m.name.replace(/\s+/g,"-")}`}
+                  onClick={(e) => flyToCart(m, e)}
+                  className="rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-4 py-2 text-[10px] font-mono uppercase tracking-widest active:scale-90 transition"
+                >
+                  {inCart(m) ? `Add · ${inCart(m)}` : "Choose"}
+                </button>
+              ) : cart[m.id] ? (
                 <>
                   <button
                     data-testid={`cmenu-dec-${m.name.replace(/\s+/g,"-")}`}
@@ -286,7 +348,7 @@ export default function CustomerMenu() {
                   >
                     <Minus size={14} />
                   </button>
-                  <span className="w-6 text-center font-mono">{cart[m.id]}</span>
+                  <span className="w-6 text-center font-mono">{cart[m.id].qty}</span>
                   <button
                     data-testid={`cmenu-inc-${m.name.replace(/\s+/g,"-")}`}
                     onClick={(e) => flyToCart(m, e)}
@@ -310,6 +372,47 @@ export default function CustomerMenu() {
       </ul>
 
       <FlyToCart flights={flights} onDone={removeFlight} />
+
+      {/* Portion sheet · only in front of a dish that is genuinely sold in more than one.
+          The price on each button is the price the server charges for that portion. */}
+      {portionFor && (
+        <div
+          className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur flex items-end sm:items-center justify-center"
+          onClick={() => setPortionFor(null)}
+          data-testid="cmenu-portion-sheet"
+        >
+          <div
+            className="w-full sm:max-w-sm bg-stone-900 border-t sm:border border-orange-500/60 p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">
+              Choose a portion
+            </div>
+            <div className="font-display uppercase text-2xl mt-2 leading-none">
+              {portionFor.name}
+            </div>
+            <div className="mt-5 space-y-2">
+              {variantsOf(portionFor).map((v) => (
+                <button
+                  key={v.label}
+                  data-testid={`cmenu-portion-${v.label.replace(/\s+/g, "-")}`}
+                  onClick={() => choosePortion(portionFor, v)}
+                  className="w-full flex items-center justify-between border border-stone-700 hover:border-orange-500 px-4 py-3 text-left active:scale-[0.98] transition"
+                >
+                  <span className="text-sm">{v.label}</span>
+                  <span className="font-mono text-orange-400">{currency(v.price)}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setPortionFor(null)}
+              className="mt-5 w-full border border-stone-800 py-2 text-[10px] font-mono uppercase tracking-widest text-stone-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Cart pill */}
       {cartCount > 0 && !openCart && (
@@ -339,14 +442,21 @@ export default function CustomerMenu() {
             </div>
             <ul className="divide-y divide-stone-800">
               {cartItems.map((it) => (
-                <li key={it.id} className="py-3 flex items-center gap-3">
+                <li key={it.key} className="py-3 flex items-center gap-3">
                   <div className="flex-1">
-                    <div>{it.name}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {it.name}
+                      {it.variant_label && (
+                        <span className="text-[9px] font-mono uppercase tracking-widest border border-orange-500/60 text-orange-400 px-1.5 py-0.5">
+                          {it.variant_label}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">{currency(it.price)}</div>
                   </div>
-                  <button onClick={() => dec(it.id)} className="w-7 h-7 border border-stone-700 flex items-center justify-center"><Minus size={12} /></button>
+                  <button onClick={() => dec(it.key)} className="w-7 h-7 border border-stone-700 flex items-center justify-center"><Minus size={12} /></button>
                   <span className="w-6 text-center font-mono">{it.qty}</span>
-                  <button onClick={() => add(it.id)} className="w-7 h-7 border border-orange-500 text-orange-400 flex items-center justify-center"><Plus size={12} /></button>
+                  <button onClick={() => add(it.id, it.variant_label)} className="w-7 h-7 border border-orange-500 text-orange-400 flex items-center justify-center"><Plus size={12} /></button>
                 </li>
               ))}
             </ul>

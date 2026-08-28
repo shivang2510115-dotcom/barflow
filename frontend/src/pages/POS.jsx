@@ -4,6 +4,7 @@ import axios from "axios";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { useProperty } from "@/contexts/PropertyContext";
 import { gstLabel, gstSettings, outletTotals } from "@/lib/tax";
+import { priceLabel, variantsOf } from "@/lib/menu";
 import { Plus, Minus, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -28,6 +29,10 @@ export default function POS() {
   const [custName, setCustName] = useState("");
   const [custPhone, setCustPhone] = useState("");
   const [celebrateAmount, setCelebrateAmount] = useState(null);
+  // The dish whose portion the waiter is being asked to pick, or null. Only ever set for
+  // an item that is actually sold in more than one — see addItem. A modal in front of
+  // every tap would slow down the one screen that is used at speed.
+  const [portionFor, setPortionFor] = useState(null);
 
   // Charge-to-room: pick an in-house guest to bill the order to their folio.
   const [inHouse, setInHouse] = useState([]);
@@ -85,15 +90,37 @@ export default function POS() {
 
   const currentTable = tables.find((t) => t.id === tableId);
 
+  // One place that sends a line, so the POS and the portion sheet cannot disagree about
+  // what a variant line looks like. `variantLabel` is null for the overwhelming majority
+  // of dishes, which have no portions at all.
+  const sendLine = async (menuItemId, variantLabel, quantity = 1) => {
+    const { data } = await api.post(`/orders/table/${tableId}/items`, {
+      items: [{ menu_item_id: menuItemId, quantity, variant_label: variantLabel ?? null }],
+      source: "pos",
+    });
+    return data;
+  };
+
   const addItem = async (m) => {
     if (!tableId) return toast.error("Pick a table first");
+    // A dish sold in more than one portion has to be asked about: the server refuses a
+    // line that does not name one rather than guessing, because guessing is charging a
+    // guest for a plate nobody chose. Everything else goes straight onto the bill, one
+    // tap, exactly as it always has.
+    if (m.variants?.length) return setPortionFor(m);
     try {
-      const { data } = await api.post(`/orders/table/${tableId}/items`, {
-        items: [{ menu_item_id: m.id, quantity: 1 }],
-        source: "pos",
-      });
-      setOrder(data);
+      setOrder(await sendLine(m.id, null));
       // refresh tables to reflect occupied status
+      api.get("/tables").then((r) => setTables(r.data));
+    } catch {
+      toast.error("Could not add item");
+    }
+  };
+
+  const addPortion = async (m, variant) => {
+    setPortionFor(null);
+    try {
+      setOrder(await sendLine(m.id, variant.label));
       api.get("/tables").then((r) => setTables(r.data));
     } catch {
       toast.error("Could not add item");
@@ -103,9 +130,9 @@ export default function POS() {
   const changeQty = async (item, delta) => {
     if (!order) return;
     if (delta > 0) {
-      await api.post(`/orders/table/${tableId}/items`, {
-        items: [{ menu_item_id: item.menu_item_id, quantity: delta }],
-      });
+      // The line's own portion, not the dish's first one: tapping + on a Full must add
+      // a Full, and the server refuses the line outright if the word is dropped.
+      await sendLine(item.menu_item_id, item.variant_label, delta);
     } else {
       await api.delete(`/orders/${order.id}/items/${item.id}`);
     }
@@ -238,10 +265,12 @@ export default function POS() {
               <div className="p-4">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">{m.category}</div>
                 <div className="mt-2 font-medium">{m.name}</div>
-                <div className="mt-4 flex items-baseline justify-between">
-                  <span className="font-mono text-orange-400">{currency(m.price)}</span>
+                <div className="mt-4 flex items-baseline justify-between gap-2">
+                  <span className="font-mono text-orange-400">{priceLabel(m)}</span>
                   <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
-                    {m.station}
+                    {variantsOf(m).length
+                      ? variantsOf(m).map((v) => v.label).join(" · ")
+                      : m.station}
                   </span>
                 </div>
               </div>
@@ -277,7 +306,20 @@ export default function POS() {
                   className="py-3 flex items-center gap-3"
                 >
                 <div className="flex-1">
-                  <div className="text-sm">{it.name}</div>
+                  {/* The portion beside the dish, never instead of it: a line from
+                      before portions existed carries no label and reads exactly as it
+                      always did. */}
+                  <div className="text-sm flex items-center gap-2 flex-wrap">
+                    {it.name}
+                    {it.variant_label && (
+                      <span
+                        data-testid={`bill-portion-${it.id}`}
+                        className="text-[9px] font-mono uppercase tracking-widest border border-orange-500/60 text-orange-400 px-1.5 py-0.5"
+                      >
+                        {it.variant_label}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[10px] font-mono uppercase text-stone-500 mt-0.5">
                     {currency(it.price)} · {it.station} · {it.status}
                   </div>
@@ -439,6 +481,46 @@ export default function POS() {
           Settle Bill
         </button>
       </aside>
+
+      {/* Portion sheet · only ever in front of a dish that is sold in more than one */}
+      {portionFor && (
+        <div
+          className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur flex items-center justify-center p-6"
+          onClick={() => setPortionFor(null)}
+          data-testid="portion-sheet"
+        >
+          <div
+            className="border border-orange-500 bg-stone-900 p-6 w-full max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">
+              Portion
+            </div>
+            <div className="font-display uppercase text-2xl mt-2 leading-none">
+              {portionFor.name}
+            </div>
+            <div className="mt-5 space-y-2">
+              {variantsOf(portionFor).map((v) => (
+                <button
+                  key={v.label}
+                  data-testid={`portion-${v.label.replace(/\s+/g, "-")}`}
+                  onClick={() => addPortion(portionFor, v)}
+                  className="w-full flex items-center justify-between border border-stone-700 hover:border-orange-500 hover:bg-stone-800 px-4 py-3 text-left active:scale-[0.98] transition"
+                >
+                  <span className="text-sm">{v.label}</span>
+                  <span className="font-mono text-orange-400">{currency(v.price)}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setPortionFor(null)}
+              className="mt-5 w-full border border-stone-800 hover:border-stone-600 py-2 text-[10px] font-mono uppercase tracking-widest text-stone-400"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <BillSuccess
         open={celebrateAmount !== null}
