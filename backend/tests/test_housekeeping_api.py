@@ -19,12 +19,14 @@ import routers.frontdesk as frontdesk
 import routers.housekeeping as housekeeping
 import security
 from models.folio import CheckOutIn
-from models.hotel import HousekeepingStatusIn, HousekeepingStatus, Room
+from models.hotel import (
+    HousekeepingCancelIn, HousekeepingJobIn, HousekeepingPriority, HousekeepingStatus,
+    HousekeepingStatusIn, Room)
 from mock_db import MockDatabase
 from scoped_db import PropertyScopedDatabase, tenant_db
 from services.access import DOMAINS, LIVE, SCREEN_KEYS
 from services.clock import today as local_today
-from services.housekeeping import STATUSES
+from services.housekeeping import PRIORITIES, STATUSES
 
 SCREEN = "hotel.housekeeping"
 
@@ -408,6 +410,204 @@ def test_a_room_out_of_order_is_still_dirtied_by_a_check_out(hotel):
     # The automatic transition is the design's "any -> dirty" row and is not filtered by
     # the role table — a guest has left a room that has to be turned, whatever else is
     # wrong with it. The fault is not forgotten: the log still holds it.
+    assert room(db)["housekeeping_status"] == "dirty"
+
+
+# --------------------------------- requests ---------------------------------
+def raise_job(db, actor, room_id="r101", priority="normal", reason=""):
+    return call(housekeeping.raise_job,
+                payload=HousekeepingJobIn(room_id=room_id, priority=priority,
+                                          reason=reason),
+                user=actor, db=db)
+
+
+def jobs(db, actor, status=""):
+    return call(housekeeping.list_jobs, status=status, user=actor, db=db)
+
+
+def test_the_model_and_the_rules_hold_the_same_priorities():
+    assert set(get_args(HousekeepingPriority)) == set(PRIORITIES)
+
+
+def test_a_receptionist_raises_a_request_and_it_names_the_room(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Spill on the carpet",
+                    priority="high")
+    assert job["status"] == "open"
+    assert job["room_id"] == "r101"
+    assert job["room_number"] == "101"
+    assert job["priority"] == "high"
+    assert job["reason"] == "Spill on the carpet"
+    assert job["raised_by"] == "u-front_desk"
+    assert job["source"] == "staff"
+    assert job["acknowledged_at"] is None and job["completed_at"] is None
+    assert [h["action"] for h in job["history"]] == ["raised"]
+
+
+def test_a_request_for_a_room_that_does_not_exist_is_404(hotel):
+    people, db, _ = hotel
+    assert refused(housekeeping.raise_job,
+                   payload=HousekeepingJobIn(room_id="nope"),
+                   user=people["manager"], db=db).status_code == 404
+
+
+def test_an_unknown_priority_never_reaches_the_handler(hotel):
+    with pytest.raises(Exception) as exc:
+        HousekeepingJobIn(room_id="r101", priority="urgent")
+    assert "urgent" in str(exc.value)
+
+
+def test_an_empty_reason_is_allowed(hotel):
+    people, db, _ = hotel
+    assert raise_job(db, people["housekeeping"])["reason"] == ""
+
+
+def test_two_staff_requests_for_one_room_are_two_requests(hotel):
+    people, db, _ = hotel
+    # Deliberately not merged. A receptionist raising "fix the AC" on a room that already
+    # has "spill on the carpet" outstanding is describing a second problem, and they are
+    # looking at the list that shows them the first.
+    raise_job(db, people["front_desk"], reason="Spill on the carpet")
+    raise_job(db, people["front_desk"], reason="Fix the AC")
+    assert len(jobs(db, people["housekeeping"], status="live")) == 2
+
+
+def test_a_request_is_acknowledged_then_completed(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    picked = call(housekeeping.acknowledge_job, job_id=job["id"],
+                  user=people["housekeeping"], db=db)
+    assert picked["status"] == "in_progress"
+    assert picked["acknowledged_by"] == "u-housekeeping" and picked["acknowledged_at"]
+
+    done = call(housekeeping.complete_job, job_id=job["id"],
+                user=people["housekeeping"], db=db)
+    assert done["status"] == "done"
+    assert done["completed_by"] == "u-housekeeping" and done["completed_at"]
+    assert [h["action"] for h in done["history"]] == ["raised", "acknowledged", "completed"]
+
+
+def test_a_request_can_be_completed_without_being_acknowledged(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["housekeeping"], reason="Towels")
+    done = call(housekeeping.complete_job, job_id=job["id"],
+                user=people["housekeeping"], db=db)
+    assert done["status"] == "done" and done["acknowledged_at"] is None
+
+
+def test_two_people_acknowledging_at_once_is_an_error_for_neither(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    first = call(housekeeping.acknowledge_job, job_id=job["id"],
+                 user=people["housekeeping"], db=db)
+    second = call(housekeeping.acknowledge_job, job_id=job["id"],
+                  user=people["manager"], db=db)
+    assert first["status"] == second["status"] == "in_progress"
+    # Last write wins on the field, and the second acknowledgement writes nothing at all
+    # — the job is already there, so there is nothing to record and nothing to undo.
+    stored = run(db.housekeeping_jobs.find_one({"id": job["id"]}, {"_id": 0}))
+    assert stored["acknowledged_by"] == "u-housekeeping"
+    assert [h["action"] for h in stored["history"]] == ["raised", "acknowledged"]
+
+
+def test_a_done_request_cannot_be_reopened(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    call(housekeeping.complete_job, job_id=job["id"], user=people["housekeeping"], db=db)
+
+    clash = refused(housekeeping.acknowledge_job, job_id=job["id"],
+                    user=people["housekeeping"], db=db)
+    assert clash.status_code == 409 and "done" in clash.detail
+    assert refused(housekeeping.cancel_job, job_id=job["id"],
+                   payload=HousekeepingCancelIn(reason="changed my mind"),
+                   user=people["manager"], db=db).status_code == 409
+    assert run(db.housekeeping_jobs.find_one({"id": job["id"]}))["status"] == "done"
+
+
+def test_completing_a_done_request_twice_is_not_an_error(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    call(housekeeping.complete_job, job_id=job["id"], user=people["housekeeping"], db=db)
+    again = call(housekeeping.complete_job, job_id=job["id"],
+                 user=people["housekeeping"], db=db)
+    assert again["status"] == "done"
+    assert [h["action"] for h in again["history"]] == ["raised", "completed"]
+
+
+def test_a_cancelled_request_keeps_who_asked_and_who_called_it_off(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    off = call(housekeeping.cancel_job, job_id=job["id"],
+               payload=HousekeepingCancelIn(reason="Guest sorted it themselves"),
+               user=people["manager"], db=db)
+    assert off["status"] == "cancelled"
+    assert off["raised_by"] == "u-front_desk"
+    assert off["cancelled_by"] == "u-manager"
+    assert off["cancel_reason"] == "Guest sorted it themselves"
+    # Never confused with completion: the job was not done.
+    assert off["completed_at"] is None and off["completed_by"] is None
+
+
+def test_a_cancelled_request_cannot_be_reopened(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    call(housekeeping.cancel_job, job_id=job["id"], payload=HousekeepingCancelIn(),
+         user=people["manager"], db=db)
+    assert refused(housekeeping.acknowledge_job, job_id=job["id"],
+                   user=people["housekeeping"], db=db).status_code == 409
+    assert refused(housekeeping.complete_job, job_id=job["id"],
+                   user=people["housekeeping"], db=db).status_code == 409
+
+
+def test_a_request_this_property_does_not_have_is_404(hotel):
+    people, db, _ = hotel
+    assert refused(housekeeping.acknowledge_job, job_id="not-ours",
+                   user=people["manager"], db=db).status_code == 404
+
+
+def test_the_list_filters_by_status_and_by_live(hotel):
+    people, db, _ = hotel
+    open_job = raise_job(db, people["front_desk"], reason="Towels")
+    picked = raise_job(db, people["front_desk"], reason="Spill", room_id="r102")
+    finished = raise_job(db, people["front_desk"], reason="Bulb")
+    call(housekeeping.acknowledge_job, job_id=picked["id"], user=people["housekeeping"],
+         db=db)
+    call(housekeeping.complete_job, job_id=finished["id"], user=people["housekeeping"],
+         db=db)
+
+    assert {j["id"] for j in jobs(db, people["housekeeping"], "open")} == {open_job["id"]}
+    assert {j["id"] for j in jobs(db, people["housekeeping"], "in_progress")} == {picked["id"]}
+    assert {j["id"] for j in jobs(db, people["housekeeping"], "done")} == {finished["id"]}
+    assert {j["id"] for j in jobs(db, people["housekeeping"], "live")} == {
+        open_job["id"], picked["id"]}
+    assert len(jobs(db, people["housekeeping"])) == 3
+    # Newest first, so the screen opens on what has just come in.
+    assert [j["id"] for j in jobs(db, people["housekeeping"])][0] == finished["id"]
+
+
+def test_the_board_carries_the_requests_outstanding_on_each_room(hotel):
+    people, db, _ = hotel
+    job = raise_job(db, people["front_desk"], reason="Spill on the carpet",
+                    priority="high")
+    finished = raise_job(db, people["front_desk"], reason="Bulb")
+    call(housekeeping.complete_job, job_id=finished["id"], user=people["housekeeping"],
+         db=db)
+
+    cards = {r["number"]: r for r in
+             call(housekeeping.housekeeping_board, user=people["housekeeping"],
+                  db=db)["rooms"]}
+    assert [j["id"] for j in cards["101"]["jobs"]] == [job["id"]]
+    assert cards["101"]["jobs"][0]["priority"] == "high"
+    assert cards["102"]["jobs"] == []
+
+
+def test_completing_a_request_does_not_by_itself_clean_the_room(hotel):
+    people, db, _ = hotel
+    # Two axes, kept apart: the request is what somebody asked for, the status is what the
+    # room is. An attendant who brings towels has not cleaned the room.
+    run(db.rooms.update_one({"id": "r101"}, {"$set": {"housekeeping_status": "dirty"}}))
+    job = raise_job(db, people["front_desk"], reason="Towels")
+    call(housekeeping.complete_job, job_id=job["id"], user=people["housekeeping"], db=db)
     assert room(db)["housekeeping_status"] == "dirty"
 
 

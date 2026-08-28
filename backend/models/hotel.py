@@ -191,6 +191,76 @@ class HousekeepingEvent(BaseModel):
     changed_at: str = Field(default_factory=_now)
 
 
+# Same reasoning as HousekeepingStatus above: one list of strings, asserted equal to
+# `services.housekeeping.PRIORITIES` by a test rather than trusted.
+HousekeepingPriority = Literal["low", "normal", "high"]
+
+
+class HousekeepingJobIn(BaseModel):
+    """A request raised by a member of staff: this room needs attention.
+
+    Separate from the room's status and with a life of its own — raised, picked up, done.
+    "This room is dirty" and "the guest in 204 has asked for towels" are different facts
+    and only one of them is answered by the room being cleaned.
+
+    An empty reason is allowed. "Something is wrong in 204" is still worth knowing, and
+    the alternative is a required field that gets filled in with a full stop.
+    """
+    room_id: str
+    priority: HousekeepingPriority = "normal"
+    reason: str = ""
+
+
+class HousekeepingJob(BaseModel):
+    id: str = Field(default_factory=_uuid)
+    room_id: str
+    # Denormalised, on purpose, and the one thing in this model that is not simply the
+    # design's field list. The alert endpoint is polled every fifteen seconds by every
+    # signed-in hotel user, and naming the room from the job means that poll is one query
+    # instead of a query plus the whole rooms collection. It is what the room was called
+    # when the request was raised, which is also the honest thing for a record of what
+    # somebody asked for — the same reasoning that stores a price on an order line.
+    room_number: Optional[str] = None
+    priority: HousekeepingPriority = "normal"
+    reason: str = ""
+    # A staff id, or **None when a guest raised it from the in-room QR**. The two are told
+    # apart by `source` rather than by the absence, because "nobody is recorded" and "a
+    # guest, who has no account" are different facts and only one of them is a gap.
+    raised_by: Optional[str] = None
+    source: Literal["staff", "guest"] = "staff"
+    status: Literal["open", "in_progress", "done", "cancelled"] = "open"
+    created_at: str = Field(default_factory=_now)
+    acknowledged_at: Optional[str] = None
+    acknowledged_by: Optional[str] = None
+    completed_at: Optional[str] = None
+    completed_by: Optional[str] = None
+    # Cancelling has its own three fields rather than reusing the completed ones. Folding
+    # them together would leave a record saying a job was completed when it was called
+    # off, which is exactly the fact cancelling-as-a-status exists to keep.
+    cancelled_at: Optional[str] = None
+    cancelled_by: Optional[str] = None
+    cancel_reason: Optional[str] = None
+    # Every hand this job passed through, appended and never rewritten. Two staff
+    # acknowledging at once is last-write-wins on the fields above and both lines here,
+    # so neither of them sees an error and neither of them is erased. A guest's second
+    # press lands here too, which is how a merged request stays legible afterwards.
+    history: List[dict] = []
+
+
+class HousekeepingCancelIn(BaseModel):
+    reason: Optional[str] = None
+
+
+class GuestRequestIn(BaseModel):
+    """What a guest types into the card in their room. One box.
+
+    No priority: the guest does not triage their own request, and a field the hotel
+    cannot verify would only ever be set to `high`. No room either — that comes from the
+    QR code in the URL, so nothing a guest can type names another room or another hotel.
+    """
+    reason: str = ""
+
+
 # --------------------------- meal plans ---------------------------
 class MealPlanIn(BaseModel):
     code: str
