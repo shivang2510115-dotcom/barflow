@@ -14,6 +14,64 @@ const BLANK_TYPE = {
   max_extra_beds: "1",
 };
 
+// What the "add rooms" panel holds. `mode` is which of the two ways is open: one room
+// typed out, or a block of them numbered in sequence.
+const BLANK_ROOM = {
+  mode: "one",
+  number: "",
+  prefix: "",
+  first: "",
+  last: "",
+  floor: "",
+  block: "",
+};
+
+// A ceiling on one bulk submission. Each number is its own POST — the API has no batch
+// endpoint and this screen does not invent one — so a fat-fingered "1 to 99999" would be
+// a hundred thousand requests before anybody could stop it. Two hundred is more rooms
+// than any single floor of any hotel this serves.
+const MAX_RANGE = 200;
+
+/**
+ * The room numbers a range describes, or why it describes none.
+ *
+ * Deliberately dumb and predictable: two whole numbers and an optional prefix, so that
+ * what the preview shows is exactly what the loop will send. Leading zeros in the first
+ * number set the width — 001 to 012 gives 001…012, not 1…12 — because a hotel that pads
+ * its numbers pads all of them.
+ */
+function expandRange({ prefix, first, last }) {
+  if (!/^\d+$/.test(first) || !/^\d+$/.test(last))
+    return {
+      numbers: [],
+      problem: "A range runs between two whole numbers — 101 to 110. Anything else goes in the prefix.",
+    };
+
+  const from = Number(first);
+  const to = Number(last);
+  if (to < from)
+    return { numbers: [], problem: `${last} is below ${first} — a range counts upwards` };
+
+  const count = to - from + 1;
+  if (count > MAX_RANGE)
+    return {
+      numbers: [],
+      problem: `${first} to ${last} is ${count} rooms; ${MAX_RANGE} at a time is the most this will do in one go`,
+    };
+
+  const width = first.startsWith("0") ? first.length : 0;
+  const numbers = [];
+  for (let n = from; n <= to; n += 1) numbers.push(prefix.trim() + String(n).padStart(width, "0"));
+  return { numbers, problem: null };
+}
+
+// The preview line. Long ranges are elided in the middle rather than truncated at the
+// end, so both ends of what is about to be created stay visible.
+function listNumbers(numbers) {
+  if (numbers.length <= 12) return numbers.join(", ");
+  return `${numbers.slice(0, 5).join(", ")} … ${numbers.slice(-3).join(", ")}`;
+}
+
 /**
  * What is wrong with this room type, in the owner's words, or null.
  *
@@ -73,6 +131,189 @@ function OccupancyFields({ value, onChange, prefix }) {
   );
 }
 
+// The floor/block pair, shared by both ways of adding. Optional in the model and
+// optional here; a hotel that does not think in blocks leaves them empty.
+function PlacementFields({ draft, set }) {
+  return (
+    <>
+      {[["floor", "Floor", "2"], ["block", "Block", "A"]].map(([k, label, ph]) => (
+        <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+          {label}
+          <input
+            value={draft[k]}
+            data-testid={`room-${k}`}
+            onChange={(e) => set({ [k]: e.target.value })}
+            placeholder={ph}
+            className="block mt-2 w-20 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+          />
+        </label>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Adding rooms to one type: one at a time, or a numbered block at once.
+ *
+ * The block exists because a hotel numbers its rooms 101 to 110 and typing ten forms is
+ * not a thing anyone will do. It never fires blind: the exact list it is about to create
+ * is on the screen first, with any number that already exists called out before the
+ * button is pressed rather than discovered as a 409 halfway through.
+ */
+function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, result }) {
+  const set = (patch) => setDraft({ ...draft, ...patch });
+
+  const asked = draft.first !== "" && draft.last !== "";
+  const range = asked ? expandRange(draft) : { numbers: [], problem: null };
+  // Checked against the rooms already loaded, so the warning is there while the range is
+  // still being typed. Not a substitute for the server's 409 — another tab could take a
+  // number between this render and the POST — which is why the loop still reports what
+  // came back rather than trusting this.
+  const clashes = range.numbers.filter((n) => existing.some((r) => r.number === n));
+
+  return (
+    <div className="mt-4 pt-4 border-t border-stone-800">
+      <div className="flex gap-2 mb-4">
+        {[["one", "One room"], ["range", "A range"]].map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => set({ mode })}
+            data-testid={`room-mode-${mode}`}
+            className={`text-[10px] tracking-widest uppercase border rounded-full px-3 py-1 ${
+              draft.mode === mode
+                ? "border-orange-500 text-orange-400"
+                : "border-stone-700 text-stone-500 hover:border-stone-500"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {draft.mode === "one" ? (
+        <div className="flex flex-wrap gap-4 items-end">
+          <label className="text-xs tracking-widest uppercase text-stone-500">
+            Number
+            <input
+              value={draft.number}
+              data-testid="room-number"
+              onChange={(e) => set({ number: e.target.value })}
+              placeholder="101"
+              className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+            />
+          </label>
+          <PlacementFields draft={draft} set={set} />
+          <button
+            onClick={onAddOne}
+            disabled={busy}
+            data-testid="room-add-one"
+            className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+          >
+            {busy ? "Adding…" : "Add room"}
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-4 items-end">
+            <label className="text-xs tracking-widest uppercase text-stone-500">
+              Prefix
+              <input
+                value={draft.prefix}
+                data-testid="room-prefix"
+                onChange={(e) => set({ prefix: e.target.value })}
+                placeholder="optional"
+                className="block mt-2 w-24 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+              />
+            </label>
+            {[["first", "From"], ["last", "To"]].map(([k, label]) => (
+              <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+                {label}
+                <input
+                  value={draft[k]}
+                  data-testid={`room-${k}`}
+                  onChange={(e) => set({ [k]: e.target.value })}
+                  placeholder={k === "first" ? "101" : "110"}
+                  className="block mt-2 w-24 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+                />
+              </label>
+            ))}
+            <PlacementFields draft={draft} set={set} />
+            <button
+              onClick={onAddRange}
+              disabled={busy || !!range.problem || range.numbers.length === 0}
+              data-testid="room-add-range"
+              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              {busy
+                ? "Adding…"
+                : range.numbers.length
+                  ? `Create ${range.numbers.length}`
+                  : "Create"}
+            </button>
+          </div>
+
+          {/* Said before it happens, not after. */}
+          <div className="mt-4 text-xs" data-testid="room-range-preview">
+            {range.problem ? (
+              <p className="text-red-300">{range.problem}</p>
+            ) : range.numbers.length ? (
+              <>
+                <p className="text-stone-400">
+                  Will create {range.numbers.length} room
+                  {range.numbers.length === 1 ? "" : "s"}:{" "}
+                  <span className="font-mono text-stone-300">
+                    {listNumbers(range.numbers)}
+                  </span>
+                </p>
+                {clashes.length > 0 && (
+                  <p className="text-amber-300/90 mt-1">
+                    {clashes.length} of these already exist and will be refused:{" "}
+                    <span className="font-mono">{listNumbers(clashes)}</span>. The rest
+                    will still be created.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-stone-500">
+                Two numbers and the rooms between them, inclusive — 101 to 110 makes ten
+                rooms. Leading zeros are kept, so 001 to 012 numbers them 001…012.
+              </p>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* What the last block actually did. A partial run is reported as a partial run:
+          the count that landed, and every number that did not with the server's own
+          reason for it. */}
+      {result && (
+        <div
+          data-testid="room-bulk-result"
+          className={`mt-4 rounded p-4 border text-xs ${
+            result.failed.length
+              ? "border-red-500/40 bg-red-950/20"
+              : "border-stone-800 bg-stone-950"
+          }`}
+        >
+          <p className={result.failed.length ? "text-red-200" : "text-stone-300"}>
+            Created {result.made} of {result.asked}.
+          </p>
+          {result.failed.length > 0 && (
+            <ul className="mt-2 space-y-1 text-red-300/90">
+              {result.failed.map((f) => (
+                <li key={f.number}>
+                  <span className="font-mono">{f.number}</span> — {f.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Rooms() {
   // Configuration is admin-only on the server: `rooms.py` guards every write with
   // require_configuration("hotel"), so a manager or a receptionist pressing any of the
@@ -88,6 +329,12 @@ export default function Rooms() {
 
   const [creating, setCreating] = useState(BLANK_TYPE);
   const [editingType, setEditingType] = useState(null); // the whole record, not a subset
+  const [addingTo, setAddingTo] = useState(null); // room type id whose panel is open
+  const [roomDraft, setRoomDraft] = useState(BLANK_ROOM);
+  // What the last bulk submission actually did. Kept on the screen rather than only in a
+  // toast: a toast that says "7 of 10" and then disappears leaves the owner with three
+  // rooms missing and no record of which three.
+  const [bulkResult, setBulkResult] = useState(null);
 
   const load = useCallback(
     () =>
@@ -163,6 +410,87 @@ export default function Rooms() {
       setEditingType(null);
       toast.success("Room type saved");
     });
+  };
+
+  const openAdd = (typeId) => {
+    setAddingTo(typeId);
+    setRoomDraft(BLANK_ROOM);
+    setBulkResult(null);
+  };
+
+  // Blank means "not recorded", which the model spells `None`. Sent as null rather than
+  // "" so a room whose floor nobody typed is not stored as a room on floor empty-string.
+  const optional = (v) => (v.trim() ? v.trim() : null);
+
+  const addOneRoom = () => {
+    if (!roomDraft.number.trim()) {
+      toast.error("A room needs a number");
+      return;
+    }
+    run(async () => {
+      await api.post("/rooms", {
+        number: roomDraft.number.trim(),
+        room_type_id: addingTo,
+        floor: optional(roomDraft.floor),
+        block: optional(roomDraft.block),
+      });
+      setRoomDraft({ ...roomDraft, number: "" });
+      setBulkResult(null);
+      toast.success(`Room ${roomDraft.number.trim()} added`);
+    });
+  };
+
+  /**
+   * The range, one POST at a time, reporting what actually happened.
+   *
+   * Not routed through `run`, because `run` aborts on the first error and a block of ten
+   * rooms where the fifth number is already taken must still create the other nine. Each
+   * failure is caught, kept with the number that caused it and the server's own sentence,
+   * and shown afterwards. Nothing here reports success for a room that was refused.
+   */
+  const addRange = async () => {
+    const { numbers, problem } = expandRange(roomDraft);
+    if (problem) {
+      toast.error(problem);
+      return;
+    }
+
+    setBusy(true);
+    setBulkResult(null);
+    const failed = [];
+    let made = 0;
+    try {
+      for (const number of numbers) {
+        try {
+          // Sequential on purpose. Ten parallel POSTs against a mock database that reads,
+          // checks and writes without a transaction is how two rooms end up sharing a
+          // number despite the duplicate check; in order, each one sees the last.
+          // eslint-disable-next-line no-await-in-loop
+          await api.post("/rooms", {
+            number,
+            room_type_id: addingTo,
+            floor: optional(roomDraft.floor),
+            block: optional(roomDraft.block),
+          });
+          made += 1;
+        } catch (e) {
+          failed.push({ number, reason: formatApiErrorDetail(e.response?.data?.detail) });
+        }
+      }
+      await load();
+    } finally {
+      setBusy(false);
+    }
+
+    setBulkResult({ asked: numbers.length, made, failed });
+    if (failed.length === 0) {
+      setRoomDraft({ ...roomDraft, first: "", last: "" });
+      toast.success(`Added ${made} room${made === 1 ? "" : "s"}`);
+    } else {
+      // The count first, because the question is "how much of this worked" and the
+      // answer is not "it failed" — most of it usually landed.
+      toast.error(`Added ${made} of ${numbers.length}. ${failed.length} refused — see below.`);
+    }
   };
 
   if (loading) return <div className="p-6 md:p-10 text-stone-400">Loading rooms…</div>;
@@ -243,9 +571,13 @@ export default function Rooms() {
             : "No room types yet. Setting them up is the owner's to do: rooms, room types and rates can only be changed by an administrator, so ask them to add one before you try to take a booking."}
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-4 max-w-4xl">
           {types.map((t) => {
-            const mine = rooms.filter((r) => r.room_type_id === t.id);
+            const mine = rooms
+              .filter((r) => r.room_type_id === t.id)
+              .sort((a, b) =>
+                a.number.localeCompare(b.number, undefined, { numeric: true }),
+              );
             return (
               <div
                 key={t.id}
@@ -255,7 +587,14 @@ export default function Rooms() {
                 }`}
               >
                 <div className="flex items-baseline justify-between gap-3">
-                  <h3 className="text-lg font-semibold">{t.name}</h3>
+                  <h3 className="text-lg font-semibold">
+                    {t.name}
+                    {t.active === false && (
+                      <span className="text-[10px] tracking-widest uppercase text-stone-500 ml-3">
+                        not bookable
+                      </span>
+                    )}
+                  </h3>
                   <span className="text-xs font-mono text-stone-500">{t.code}</span>
                 </div>
                 <p className="text-sm text-stone-400 mt-2">
@@ -264,17 +603,56 @@ export default function Rooms() {
                     ? ` plus ${t.max_extra_beds} extra bed${t.max_extra_beds === 1 ? "" : "s"}`
                     : ""}
                 </p>
-                {t.active === false && (
-                  <p className="text-[10px] tracking-widest uppercase text-stone-500 mt-2">
-                    not bookable
+
+                {/* A room type with no rooms in it is the second half of the same
+                    defect: it can be quoted a rate and never actually sold, because
+                    availability counts rooms and there are none. Said here, where the
+                    button that fixes it is. */}
+                {mine.length === 0 ? (
+                  <p className="text-sm text-stone-500 mt-3">
+                    No rooms in this type yet — nothing can be booked into it until there
+                    is at least one.
                   </p>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {mine.map((r) => (
+                      <span
+                        key={r.id}
+                        data-testid={`room-${r.id}`}
+                        title={[
+                          r.floor ? `Floor ${r.floor}` : "",
+                          r.block ? `Block ${r.block}` : "",
+                          (r.out_of_order || []).length
+                            ? `${r.out_of_order.length} maintenance block(s)`
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                        className={`font-mono text-xs border rounded px-2 py-1 ${
+                          r.active === false
+                            ? "border-stone-800 text-stone-600 line-through"
+                            : "border-stone-700 text-stone-300"
+                        }`}
+                      >
+                        {r.number}
+                      </span>
+                    ))}
+                  </div>
                 )}
                 <p className="text-sm text-orange-400 mt-3 font-mono">
                   {mine.length} room{mine.length === 1 ? "" : "s"}
                 </p>
 
                 {isAdmin && (
-                  <div className="mt-4 pt-4 border-t border-stone-800 flex flex-wrap gap-3">
+                  <div className="mt-4 pt-4 border-t border-stone-800 flex flex-wrap gap-4">
+                    <button
+                      onClick={() => (addingTo === t.id ? setAddingTo(null) : openAdd(t.id))}
+                      disabled={busy}
+                      data-testid={`room-add-open-${t.id}`}
+                      className="text-[10px] tracking-widest uppercase text-orange-400 hover:text-orange-300 disabled:opacity-30"
+                    >
+                      {addingTo === t.id ? "Close" : "Add rooms"}
+                    </button>
                     <button
                       onClick={() => setEditingType({ ...t })}
                       disabled={busy}
@@ -284,6 +662,18 @@ export default function Rooms() {
                       Edit
                     </button>
                   </div>
+                )}
+
+                {isAdmin && addingTo === t.id && (
+                  <AddRoomsPanel
+                    draft={roomDraft}
+                    setDraft={setRoomDraft}
+                    busy={busy}
+                    existing={rooms}
+                    onAddOne={addOneRoom}
+                    onAddRange={addRange}
+                    result={bulkResult}
+                  />
                 )}
               </div>
             );
