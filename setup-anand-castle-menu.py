@@ -79,7 +79,8 @@ IMG = {
 
 BAR, KIT = "bar", "kitchen"
 
-# (name, category, price, station, image key)
+# (name, category, price, station, image key[, [(portion label, price), ...]])
+# A row with no portion list is a single-price dish, which is most of them.
 MENU = [
     # ---------------- Beverages
     ("Tea", "Beverages", 59, BAR, "tea"),
@@ -150,8 +151,8 @@ MENU = [
     # ---------------- Non-Veg Starters
     # Tandoori Chicken is the only one the menu prices by portion; the rest show a
     # single (full, 8pc) price. Both halves are listed so the till can ring either.
-    ("Tandoori Chicken (Half, 4 pcs)", "Non-Veg Starters", 279, KIT, "tandoori"),
-    ("Tandoori Chicken (Full, 8 pcs)", "Non-Veg Starters", 529, KIT, "tandoori"),
+    ("Tandoori Chicken", "Non-Veg Starters", 279, KIT, "tandoori",
+     [("Half (4 pcs)", 279), ("Full (8 pcs)", 529)]),
     ("Chicken Masala Tikka (8 pcs)", "Non-Veg Starters", 349, KIT, "chickentikka"),
     ("Chicken Achari Tikka (8 pcs)", "Non-Veg Starters", 349, KIT, "chickentikka"),
     ("Chicken Malai Tikka (8 pcs)", "Non-Veg Starters", 389, KIT, "chickentikka"),
@@ -213,20 +214,20 @@ MENU = [
     ("Mushroom Do Pyaza", "Veg Main Course", 329, KIT, "mushroom"),
 
     # ---------------- Non-Veg Main Course (half 4pc / full 8pc)
-    ("Karahi Chicken (Half)", "Non-Veg Main Course", 349, KIT, "chickencurry"),
-    ("Karahi Chicken (Full)", "Non-Veg Main Course", 669, KIT, "chickencurry"),
-    ("Chicken Curry (Half)", "Non-Veg Main Course", 349, KIT, "chickencurry"),
-    ("Chicken Curry (Full)", "Non-Veg Main Course", 669, KIT, "chickencurry"),
-    ("Chicken Masala (Half)", "Non-Veg Main Course", 349, KIT, "chickencurry"),
-    ("Chicken Masala (Full)", "Non-Veg Main Course", 669, KIT, "chickencurry"),
-    ("Chicken Do Pyaza (Half)", "Non-Veg Main Course", 349, KIT, "chickencurry"),
-    ("Chicken Do Pyaza (Full)", "Non-Veg Main Course", 669, KIT, "chickencurry"),
-    ("Kali Mirch Chicken (Half)", "Non-Veg Main Course", 389, KIT, "chickencurry"),
-    ("Kali Mirch Chicken (Full)", "Non-Veg Main Course", 669, KIT, "chickencurry"),
-    ("Butter Chicken (Half)", "Non-Veg Main Course", 379, KIT, "butterchicken"),
-    ("Butter Chicken (Full)", "Non-Veg Main Course", 689, KIT, "butterchicken"),
-    ("Chicken Lababdar (Half)", "Non-Veg Main Course", 349, KIT, "chickencurry"),
-    ("Chicken Lababdar (Full)", "Non-Veg Main Course", 669, KIT, "chickencurry"),
+    ("Karahi Chicken", "Non-Veg Main Course", 349, KIT, "chickencurry",
+     [("Half (4 pcs)", 349), ("Full (8 pcs)", 669)]),
+    ("Chicken Curry", "Non-Veg Main Course", 349, KIT, "chickencurry",
+     [("Half (4 pcs)", 349), ("Full (8 pcs)", 669)]),
+    ("Chicken Masala", "Non-Veg Main Course", 349, KIT, "chickencurry",
+     [("Half (4 pcs)", 349), ("Full (8 pcs)", 669)]),
+    ("Chicken Do Pyaza", "Non-Veg Main Course", 349, KIT, "chickencurry",
+     [("Half (4 pcs)", 349), ("Full (8 pcs)", 669)]),
+    ("Kali Mirch Chicken", "Non-Veg Main Course", 389, KIT, "chickencurry",
+     [("Half (4 pcs)", 389), ("Full (8 pcs)", 669)]),
+    ("Butter Chicken", "Non-Veg Main Course", 379, KIT, "butterchicken",
+     [("Half (4 pcs)", 379), ("Full (8 pcs)", 689)]),
+    ("Chicken Lababdar", "Non-Veg Main Course", 349, KIT, "chickencurry",
+     [("Half (4 pcs)", 349), ("Full (8 pcs)", 669)]),
     ("Egg Curry (2 pcs)", "Non-Veg Main Course", 229, KIT, "eggcurry"),
 
     # ---------------- Papad & Salad
@@ -286,9 +287,11 @@ def main():
         sys.exit(1)
 
     cats = {}
-    for _n, c, *_ in MENU:
-        cats[c] = cats.get(c, 0) + 1
-    print(f"Anand Castle menu — {len(MENU)} items in {len(cats)} sections:")
+    for row in MENU:
+        cats[row[1]] = cats.get(row[1], 0) + 1
+    portioned = sum(1 for row in MENU if len(row) > 5)
+    print(f"Anand Castle menu — {len(MENU)} items in {len(cats)} sections, "
+          f"{portioned} priced by portion:")
     for c, n in cats.items():
         print(f"   {c:22} {n:>3}")
     print("\nPrices were read off the menu pages, not the PDF text layer, which pairs")
@@ -310,14 +313,24 @@ def main():
     have = {i["name"].strip().casefold() for i in call("/menu")[1]}
     made = skipped = 0
     failed = []
-    for name, category, price, station, img in MENU:
+    for row in MENU:
+        name, category, price, station, img = row[:5]
+        portions = row[5] if len(row) > 5 else []
         if name.strip().casefold() in have:
             skipped += 1
             continue
-        s, b = call("/menu", {
+        body = {
             "name": name, "category": category, "price": float(price),
-            "station": station, "image_url": IMG.get(img, ""),
-        })
+            "station": station, "image": IMG.get(img, ""),
+        }
+        if portions:
+            # One dish, priced by portion, chosen when it is ordered. Half is listed
+            # first so the scalar `price` the API mirrors is the cheaper one — an
+            # untaught reader then shows "from Rs379", which is incomplete rather
+            # than wrong.
+            body["variants"] = [{"label": lbl, "price": float(amt)}
+                                for lbl, amt in portions]
+        s, b = call("/menu", body)
         if s == 200:
             made += 1
         else:

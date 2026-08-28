@@ -919,9 +919,14 @@ def _open_order(admin):
     """
     table = admin.post(f"{API}/tables", json={
         "label": f"T{uuid.uuid4().hex[:5].upper()}", "capacity": 4, "zone": "Test"}).json()
+    # A dish priced by portion refuses an order that does not name one, which is right —
+    # the alternative is charging a guess. So pick a plain item rather than menu[0]: that
+    # was only ever the right item by sort order, and one seed change away from failing
+    # in a way that would look like a bug in portions rather than in this helper.
     menu = admin.get(f"{API}/menu").json()
+    plain = next(m for m in menu if not (m.get("variants") or []))
     return admin.post(f"{API}/orders/table/{table['id']}/items", json={
-        "items": [{"menu_item_id": menu[0]["id"], "quantity": 2}], "source": "pos"}).json()
+        "items": [{"menu_item_id": plain["id"], "quantity": 2}], "source": "pos"}).json()
 
 
 def test_settle_to_room_posts_an_outlet_debit(admin):
