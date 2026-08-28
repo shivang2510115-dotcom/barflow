@@ -41,6 +41,7 @@ import Notifications from "@/pages/admin/Notifications";
 import Account from "@/pages/Account";
 import Settings from "@/pages/admin/Settings";
 import CustomerMenu from "@/pages/CustomerMenu";
+import GuestRoomRequest from "@/pages/GuestRoomRequest";
 import PaymentReturn from "@/pages/PaymentReturn";
 import AppLayout from "@/components/app/AppLayout";
 import Splash from "@/components/app/Splash";
@@ -168,6 +169,10 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
             <Route path="/t/:tableId" element={<TableRouteSwitch />} />
+            {/* The in-room QR, the same shape as the table one above it: no login, and the
+                id in the printed URL is the only thing that names the hotel. Outside
+                /app on purpose — a guest has no console to be inside. */}
+            <Route path="/room/:roomId" element={<GuestRoomRequest />} />
             {/* Outside /app on purpose: the operator is sent home from every route in
                 that shell, and their own password is not the hotel's. */}
             <Route
