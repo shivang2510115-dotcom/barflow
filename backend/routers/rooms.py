@@ -19,8 +19,16 @@ CONFIG = require_configuration("hotel", setup_time=True)
 
 # The Rooms screen reads both lists; the front desk reads /rooms too, to pick the room a
 # guest is checked into, so that one endpoint names both screens.
-READ_ROOM_TYPES = require_access("hotel", permission=("hotel.rooms", "hotel.rates"),
-                                 setup_time=True)
+#
+# `hotel.bookings` is here for the same reason it is on READ_ROOMS below: the bookings
+# floor plan labels each door with its type, and a front_desk user holds neither
+# hotel.rooms nor hotel.rates. Without it that screen had to ask the pricing engine for
+# the same records through /availability — a receptionist's floor plan labelled by a
+# quoting endpoint. This discloses nothing new: a name, a code and an occupancy, about
+# rooms the same caller already lists.
+READ_ROOM_TYPES = require_access(
+    "hotel", permission=("hotel.rooms", "hotel.rates", "hotel.bookings"),
+    setup_time=True)
 # And now the bookings screen, which offers the rooms a booking can be pre-assigned to.
 # It reads the same list the desk already reads — number, type and floor — so this adds
 # a third screen to an existing answer rather than a new disclosure: anyone holding

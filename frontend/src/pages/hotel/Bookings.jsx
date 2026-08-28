@@ -28,23 +28,13 @@ const toLocalISODate = (d) =>
 /**
  * The room types, for the code on each tile.
  *
- * `/room-types` sits behind `hotel.rooms` or `hotel.rates`, and a receptionist holds
- * neither by default (`services/access.py::DEFAULT_PERMISSIONS`) — yet they are exactly
- * who reads this screen. `/availability` carries `hotel.bookings`, the key this screen
- * already requires, and returns the same room-type records for the night being looked
- * at. The cheap call is tried first and the second is the fallback, rather than showing
- * the front desk a wall of doors with no idea what any of them is.
+ * `/room-types` names `hotel.bookings` among its screens, so the receptionist who reads
+ * this page can read it directly. It used to fall back to `/availability` on a 403 —
+ * labelling a floor plan through the pricing engine — which worked but was the wrong
+ * shape; the gate was widened instead.
  */
-async function loadTypes(date) {
-  try {
-    return (await api.get("/room-types")).data;
-  } catch (e) {
-    if (e.response?.status !== 403) throw e;
-    const { data } = await api.get("/availability", {
-      params: { check_in: date, check_out: nextDay(date) },
-    });
-    return data.map((r) => r.room_type);
-  }
+async function loadTypes() {
+  return (await api.get("/room-types")).data;
 }
 
 export default function Bookings() {
@@ -78,7 +68,7 @@ export default function Bookings() {
         params: { start: night, end: nextDay(night) },
         signal: controller.signal,
       }),
-      loadTypes(night),
+      loadTypes(),
     ])
       .then(([rooms, bookings, types]) => {
         if (live) setPlan({ night, rooms: rooms.data, bookings: bookings.data, types });
