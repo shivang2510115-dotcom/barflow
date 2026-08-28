@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
+import RoomGrid from "@/components/app/RoomGrid";
+import { nextDay, occupancyState } from "@/lib/roomGrid";
 import { toast } from "sonner";
 
 const STATUS_STYLE = {
@@ -17,17 +19,79 @@ function isExpiredHold(b) {
   return b.status === "tentative" && b.hold_expires_at && new Date(b.hold_expires_at) < new Date();
 }
 
+// A calendar date, from local getters. `toISOString()` is UTC, and for a hotel in India
+// between midnight and 05:30 it would answer yesterday — the night the desk is standing
+// in the middle of is the one thing this screen must not get wrong.
+const toLocalISODate = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * The room types, for the code on each tile.
+ *
+ * `/room-types` sits behind `hotel.rooms` or `hotel.rates`, and a receptionist holds
+ * neither by default (`services/access.py::DEFAULT_PERMISSIONS`) — yet they are exactly
+ * who reads this screen. `/availability` carries `hotel.bookings`, the key this screen
+ * already requires, and returns the same room-type records for the night being looked
+ * at. The cheap call is tried first and the second is the fallback, rather than showing
+ * the front desk a wall of doors with no idea what any of them is.
+ */
+async function loadTypes(date) {
+  try {
+    return (await api.get("/room-types")).data;
+  } catch (e) {
+    if (e.response?.status !== 403) throw e;
+    const { data } = await api.get("/availability", {
+      params: { check_in: date, check_out: nextDay(date) },
+    });
+    return data.map((r) => r.room_type);
+  }
+}
+
 export default function Bookings() {
+  const nav = useNavigate();
   const [rows, setRows] = useState([]);
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // The night the plan is about. One night, because a room that changes hands at noon is
+  // two different answers over a week, and "who is in 204" is always asked about one.
+  const [night, setNight] = useState(() => toLocalISODate(new Date()));
+  // Held as one object, for the same reason the new-booking screen does: never a render
+  // where the doors come from this night and the guests from the last one.
+  const [plan, setPlan] = useState(null);
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q), 300);
     return () => clearTimeout(t);
   }, [q]);
+
+  // The plan is deliberately not filtered by the search box above it. Typing a guest's
+  // name narrows the list to find their reference; it must not empty the building.
+  useEffect(() => {
+    const controller = new AbortController();
+    let live = true;
+    Promise.all([
+      api.get("/rooms", { signal: controller.signal }),
+      api.get("/bookings", {
+        params: { start: night, end: nextDay(night) },
+        signal: controller.signal,
+      }),
+      loadTypes(night),
+    ])
+      .then(([rooms, bookings, types]) => {
+        if (live) setPlan({ night, rooms: rooms.data, bookings: bookings.data, types });
+      })
+      .catch((e) => {
+        if (axios.isCancel(e) || e.code === "ERR_CANCELED") return;
+        toast.error(formatApiErrorDetail(e.response?.data?.detail));
+      });
+    return () => {
+      live = false;
+      controller.abort();
+    };
+  }, [night]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -51,6 +115,48 @@ export default function Bookings() {
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         Bookings
       </h1>
+
+      {/* Who is in which room. The list below answers "where is booking BK-1042"; this
+          answers the question the desk is actually asked, which is the other way round —
+          somebody rings down from 204 and nobody should have to scan a column of room
+          numbers to find out who that is. */}
+      <section className="mb-12" data-testid="bookings-plan">
+        <div className="flex flex-wrap gap-4 items-end mb-5">
+          <label className="text-xs tracking-widest uppercase text-stone-500">
+            Night of
+            <input
+              type="date"
+              value={night}
+              data-testid="bookings-plan-night"
+              onChange={(e) => e.target.value && setNight(e.target.value)}
+              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+            />
+          </label>
+          <p className="text-xs text-stone-500 pb-2 max-w-md">
+            A stay is half-open, so a guest leaving on this date is not in the room for
+            this night — the door is already the next arrival's.
+          </p>
+        </div>
+
+        {!plan ? (
+          <p className="text-stone-500 text-sm">Loading the building…</p>
+        ) : (
+          <RoomGrid
+            rooms={plan.rooms}
+            types={plan.types}
+            stateOf={(r) => occupancyState(r, { date: plan.night, bookings: plan.bookings })}
+            legendStates={["occupied", "vacant", "blocked", "inactive"]}
+            onSelect={(room, view) => nav(`/app/hotel/bookings/${view.booking.id}`)}
+            selectable={(room, view) => view.state === "occupied"}
+            empty="No rooms are set up yet — add some under Rooms."
+            testIdPrefix="bookings-room"
+          />
+        )}
+      </section>
+
+      <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+        Every booking
+      </h2>
 
       <div className="flex flex-wrap gap-4 items-end mb-6">
         <label className="text-xs tracking-widest uppercase text-stone-500">

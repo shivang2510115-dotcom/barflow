@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import RoomGrid from "@/components/app/RoomGrid";
+import { inventoryState, typeOf } from "@/lib/roomGrid";
 import { toast } from "sonner";
 
 // What POST /room-types is sent when nothing has been typed. The numbers match the
@@ -314,6 +316,150 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
   );
 }
 
+/**
+ * One door, opened.
+ *
+ * The table carried its two links on every row; the plan carries none, because a tile has
+ * to be readable at a glance from across the desk and a row of tiny words on each of
+ * twenty-three of them is not. Clicking a door opens this instead — everything the row
+ * said, plus the things it could not fit: the type, the maintenance blocks in full, and
+ * an edit, which the table never had at all even though `PUT /rooms/{id}` has always
+ * taken one. A room typed onto the wrong floor could previously only be deleted and
+ * retyped.
+ */
+function RoomPanel({ room, type, types, edit, setEdit, busy, onSave, onClose, onToggle, onDelete }) {
+  const blocks = room.out_of_order || [];
+
+  return (
+    <div
+      data-testid="room-panel"
+      className="mt-6 border border-orange-500/40 bg-stone-900 rounded p-5 max-w-3xl"
+    >
+      <div className="flex items-baseline justify-between gap-4">
+        <h3 className="text-2xl font-mono tabular-nums">{room.number}</h3>
+        <button
+          onClick={onClose}
+          className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-stone-300"
+        >
+          Close
+        </button>
+      </div>
+      <p className="text-sm text-stone-400 mt-1">
+        {type ? `${type.name} · ${type.code}` : "Type not found"}
+        {room.floor ? ` · floor ${room.floor}` : " · no floor recorded"}
+        {room.block ? ` · block ${room.block}` : ""}
+        {room.active === false ? " · inactive" : ""}
+      </p>
+
+      {/* The blocks in full. The table could only say "2 blocks", which tells the owner
+          something is wrong with the room and nothing about what or when. */}
+      {blocks.length > 0 && (
+        <ul className="mt-3 text-xs text-red-300/90 space-y-1" data-testid="room-panel-blocks">
+          {blocks.map((b, i) => (
+            <li key={`${b.from}-${b.to}-${i}`}>
+              <span className="font-mono">
+                {b.from} → {b.to}
+              </span>
+              {b.reason ? ` — ${b.reason}` : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {edit ? (
+        <div className="mt-5 pt-5 border-t border-stone-800">
+          <div className="flex flex-wrap gap-4 items-end">
+            <label className="text-xs tracking-widest uppercase text-stone-500">
+              Number
+              <input
+                value={edit.number}
+                data-testid="room-edit-number"
+                onChange={(e) => setEdit({ ...edit, number: e.target.value })}
+                className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+              />
+            </label>
+            <label className="text-xs tracking-widest uppercase text-stone-500">
+              Type
+              <select
+                value={edit.room_type_id}
+                data-testid="room-edit-type"
+                onChange={(e) => setEdit({ ...edit, room_type_id: e.target.value })}
+                className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+              >
+                {types.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {[["floor", "Floor"], ["block", "Block"]].map(([k, label]) => (
+              <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+                {label}
+                <input
+                  value={edit[k] ?? ""}
+                  data-testid={`room-edit-${k}`}
+                  onChange={(e) => setEdit({ ...edit, [k]: e.target.value })}
+                  className="block mt-2 w-20 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                />
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-3 mt-5">
+            <button
+              onClick={onSave}
+              disabled={busy}
+              data-testid="room-edit-save"
+              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              {busy ? "Saving…" : "Save room"}
+            </button>
+            <button
+              onClick={() => setEdit(null)}
+              disabled={busy}
+              className="border border-stone-700 text-stone-400 hover:text-stone-200 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-xs text-stone-500 mt-4 max-w-xl">
+            Moving a room to another type changes what it is sold as from now on. Bookings
+            already taken keep the price they were quoted, and a live booking assigned to
+            this room is not moved with it — check the plan for these dates first.
+          </p>
+        </div>
+      ) : (
+        <div className="mt-5 pt-5 border-t border-stone-800 flex flex-wrap gap-4">
+          <button
+            onClick={() => setEdit({ ...room })}
+            disabled={busy}
+            data-testid="room-panel-edit"
+            className="text-[10px] tracking-widest uppercase text-orange-400 hover:text-orange-300 disabled:opacity-30"
+          >
+            Edit
+          </button>
+          <button
+            onClick={onToggle}
+            disabled={busy}
+            data-testid={`room-toggle-${room.id}`}
+            className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30"
+          >
+            {room.active === false ? "Reactivate" : "Deactivate"}
+          </button>
+          <button
+            onClick={onDelete}
+            disabled={busy}
+            data-testid={`room-delete-${room.id}`}
+            className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-30"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // What the panel says, per action. Kept together so the three read as one voice and
 // the destructive ones cannot drift into being milder than what they do.
 const CONFIRM_COPY = {
@@ -373,6 +519,11 @@ export default function Rooms() {
   // never window.confirm, which cannot say what is about to happen in more than a
   // sentence and cannot be styled to look as final as it is.
   const [confirming, setConfirming] = useState(null);
+  // Which door is open on the plan, by id rather than by record: the room list is
+  // reloaded after every write, and holding the old object would leave the panel
+  // describing a room as it was before the edit that just succeeded.
+  const [openRoomId, setOpenRoomId] = useState(null);
+  const [roomEdit, setRoomEdit] = useState(null);
 
   const load = useCallback(
     () =>
@@ -556,6 +707,12 @@ export default function Rooms() {
         toast.success(`${confirming.type.name} deleted`);
       } else if (confirming.kind === "delete-room") {
         await api.delete(`/rooms/${confirming.room.id}`);
+        // The panel is addressed to a door that no longer exists. Closed here rather than
+        // left to render against a room the next load will not return.
+        if (openRoomId === confirming.room.id) {
+          setOpenRoomId(null);
+          setRoomEdit(null);
+        }
         toast.success(`Room ${confirming.room.number} deleted`);
       } else {
         // PUT /rooms/{id} takes a whole RoomIn and $sets it, so the record is spread back
@@ -574,10 +731,42 @@ export default function Rooms() {
       setConfirming(null);
     });
 
+  /**
+   * The room panel's edit, saved.
+   *
+   * `PUT /rooms/{id}` takes a whole `RoomIn` and `$set`s it, so the untouched record is
+   * spread back for the same reason the room-type edit does it — sending only the changed
+   * fields would reset `active` to the model default and quietly put a deactivated room
+   * back on sale. `out_of_order` is dropped rather than sent: it is not part of `RoomIn`,
+   * and maintenance blocks are the front desk's, not configuration's.
+   */
+  const saveRoom = () => {
+    if (!roomEdit.number.trim()) {
+      toast.error("A room needs a number");
+      return;
+    }
+    if (!roomEdit.room_type_id) {
+      toast.error("A room belongs to a room type");
+      return;
+    }
+    run(async () => {
+      const { id, out_of_order: _blocks, ...rest } = roomEdit;
+      await api.put(`/rooms/${id}`, {
+        ...rest,
+        number: roomEdit.number.trim(),
+        floor: optional(roomEdit.floor ?? ""),
+        block: optional(roomEdit.block ?? ""),
+      });
+      setRoomEdit(null);
+      toast.success(`Room ${roomEdit.number.trim()} saved`);
+    });
+  };
 
   if (loading) return <div className="p-6 md:p-10 text-stone-400">Loading rooms…</div>;
 
   const empty = types.length === 0;
+  // Read back off the freshly loaded list, so a deleted room closes its own panel.
+  const openRoom = rooms.find((r) => r.id === openRoomId) || null;
 
   return (
     <div className="p-6 md:p-10">
@@ -585,6 +774,61 @@ export default function Rooms() {
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         Rooms
       </h1>
+
+      {/* The building first. A hotel is floors and doors, and the inventory question —
+          what exists, and can it be sold — is answered by looking at it rather than by
+          reading twenty-three rows. The room types below still own the configuration:
+          this is the same rooms, arranged the way the receptionist already holds them. */}
+      {rooms.length > 0 && (
+        <section className="mb-10" data-testid="rooms-plan">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+            The building · {rooms.length} room{rooms.length === 1 ? "" : "s"}
+          </h2>
+          <RoomGrid
+            rooms={rooms}
+            types={types}
+            stateOf={(r) => inventoryState(r)}
+            legendStates={["active", "inactive", "blocked"]}
+            // Every action a door has here is configuration, and configuration is
+            // admin-only on the server (`rooms.py` guards each write with
+            // require_configuration). A manager or receptionist sees the plan — the desk
+            // needs to know what rooms exist — and is never given a tile that opens a
+            // panel of buttons that can only come back 403.
+            onSelect={
+              isAdmin
+                ? (r) => {
+                    setRoomEdit(null);
+                    setOpenRoomId((cur) => (cur === r.id ? null : r.id));
+                  }
+                : undefined
+            }
+            selectedId={openRoomId}
+          />
+          {!isAdmin && (
+            <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+              Rooms, room types and rates can only be changed by an administrator.
+            </p>
+          )}
+        </section>
+      )}
+
+      {openRoom && isAdmin && (
+        <RoomPanel
+          room={openRoom}
+          type={typeOf(openRoom, types)}
+          types={types}
+          edit={roomEdit}
+          setEdit={setRoomEdit}
+          busy={busy}
+          onSave={saveRoom}
+          onClose={() => {
+            setOpenRoomId(null);
+            setRoomEdit(null);
+          }}
+          onToggle={() => setConfirming({ kind: "toggle-room", room: openRoom })}
+          onDelete={() => setConfirming({ kind: "delete-room", room: openRoom })}
+        />
+      )}
 
       {isAdmin && (
         <div
@@ -696,65 +940,28 @@ export default function Rooms() {
                     is at least one.
                   </p>
                 ) : (
-                  <div className="overflow-x-auto mt-3">
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="text-[10px] tracking-[0.2em] uppercase text-stone-500">
-                          <th className="text-left py-1 pr-3 border-b border-stone-800">Room</th>
-                          <th className="text-left py-1 pr-3 border-b border-stone-800">Floor</th>
-                          <th className="text-left py-1 pr-3 border-b border-stone-800">Block</th>
-                          <th className="text-left py-1 pr-3 border-b border-stone-800">Status</th>
-                          {isAdmin && <th className="border-b border-stone-800" />}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mine.map((r) => {
-                          const blocks = (r.out_of_order || []).length;
-                          return (
-                            <tr
-                              key={r.id}
-                              data-testid={`room-${r.id}`}
-                              className={r.active === false ? "opacity-50" : ""}
-                            >
-                              <td className="py-1 pr-3 border-b border-stone-800 font-mono">
-                                {r.number}
-                              </td>
-                              <td className="py-1 pr-3 border-b border-stone-800 text-stone-400">
-                                {r.floor || "—"}
-                              </td>
-                              <td className="py-1 pr-3 border-b border-stone-800 text-stone-400">
-                                {r.block || "—"}
-                              </td>
-                              <td className="py-1 pr-3 border-b border-stone-800 text-[10px] tracking-widest uppercase text-stone-500">
-                                {r.active === false ? "inactive" : "active"}
-                                {blocks > 0 && ` · ${blocks} block${blocks === 1 ? "" : "s"}`}
-                              </td>
-                              {isAdmin && (
-                                <td className="py-1 border-b border-stone-800 text-right whitespace-nowrap">
-                                  <button
-                                    onClick={() => setConfirming({ kind: "toggle-room", room: r })}
-                                    disabled={busy}
-                                    data-testid={`room-toggle-${r.id}`}
-                                    className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30 mr-3"
-                                  >
-                                    {r.active === false ? "Reactivate" : "Deactivate"}
-                                  </button>
-                                  <button
-                                    onClick={() => setConfirming({ kind: "delete-room", room: r })}
-                                    disabled={busy}
-                                    data-testid={`room-delete-${r.id}`}
-                                    className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-30"
-                                  >
-                                    Delete
-                                  </button>
-                                </td>
-                              )}
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                  // The numbers, not a table of them: which doors this type is, in one
+                  // line, with the plan above answering everything the other four columns
+                  // used to. Clicking one opens the same door the plan opens.
+                  <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1" data-testid={`room-type-numbers-${t.id}`}>
+                    {mine.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        data-testid={`room-${r.id}`}
+                        disabled={!isAdmin}
+                        onClick={() => {
+                          setRoomEdit(null);
+                          setOpenRoomId(r.id);
+                        }}
+                        className={`font-mono text-sm ${
+                          r.active === false ? "text-stone-600 line-through" : "text-stone-300"
+                        } ${isAdmin ? "hover:text-orange-400" : "cursor-default"}`}
+                      >
+                        {r.number}
+                      </button>
+                    ))}
+                  </p>
                 )}
                 <p className="text-sm text-orange-400 mt-3 font-mono">
                   {mine.length} room{mine.length === 1 ? "" : "s"}
