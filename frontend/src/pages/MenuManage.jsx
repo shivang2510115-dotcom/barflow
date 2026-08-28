@@ -79,10 +79,13 @@ function cleanVariants(variants) {
 export default function MenuManage() {
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(BLANK);
-  // The item whose portions are open for editing, and the rows being edited. Only one at
-  // a time: this is a settings screen, not a spreadsheet.
+  // The item open for editing and the draft of it. Only one at a time: this is a
+  // settings screen, not a spreadsheet.
   const [editing, setEditing] = useState(null);
-  const [draft, setDraft] = useState([]);
+  const [draft, setDraft] = useState(null);
+  // Removing a dish is not undoable, so it asks first — the same inline two-step this
+  // codebase uses for cancelling a booking and voiding a folio line.
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const load = () => api.get("/menu").then((r) => setItems(r.data));
   useEffect(() => { load(); }, []);
@@ -101,8 +104,14 @@ export default function MenuManage() {
   };
 
   const del = async (id) => {
-    await api.delete(`/menu/${id}`);
-    load();
+    try {
+      await api.delete(`/menu/${id}`);
+      setConfirmDelete(null);
+      toast.success("Removed from the menu");
+      load();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err.response?.data?.detail));
+    }
   };
 
   const toggle = async (m) => {
@@ -110,17 +119,27 @@ export default function MenuManage() {
     load();
   };
 
-  const openPortions = (m) => {
+  // One editor for the whole item rather than a portions-only one: a price typo and a
+  // wrong photograph are the same job to whoever is fixing the card, and sending them to
+  // two different places to do it is how one of them stays wrong.
+  const openEdit = (m) => {
+    setConfirmDelete(null);
     setEditing(m.id);
-    setDraft(variantsOf(m).map((v) => ({ ...v })));
+    setDraft({ ...m, variants: variantsOf(m).map((v) => ({ ...v })) });
   };
 
-  const savePortions = async (m) => {
+  const saveEdit = async (m) => {
+    if (!draft.name.trim()) return toast.error("An item needs a name");
+    if (!draft.category.trim()) return toast.error("An item needs a category");
     try {
-      // The whole item, with the portions replaced: adding, editing and removing are one
+      // The whole item goes back, portions included: adding, editing and removing are one
       // write, and the server is what decides `price` from what comes out of it.
-      await api.put(`/menu/${m.id}`, { ...m, variants: cleanVariants(draft) });
-      toast.success("Portions saved");
+      await api.put(`/menu/${m.id}`, {
+        ...draft,
+        price: Number(draft.price) || 0,
+        variants: cleanVariants(draft.variants || []),
+      });
+      toast.success("Saved");
       setEditing(null);
       load();
     } catch (err) {
@@ -228,22 +247,123 @@ export default function MenuManage() {
                       </ul>
                     )}
 
-                    {editing === m.id && (
-                      <div className="mt-4 border-t border-stone-800 pt-4">
-                        <VariantRows idPrefix={`menu-edit-${m.id}`} variants={draft} onChange={setDraft} />
-                        <div className="mt-4 flex items-center gap-2">
+                    {editing === m.id && draft && (
+                      <div className="mt-4 border-t border-stone-800 pt-4 space-y-3">
+                        {[
+                          ["name", "Name", "text"],
+                          ["category", "Category", "text"],
+                          ["image", "Image URL", "text"],
+                        ].map(([k, label, type]) => (
+                          <label key={k} className="block">
+                            <span className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500">{label}</span>
+                            <input
+                              type={type}
+                              data-testid={`menu-edit-${k}-${m.id}`}
+                              value={draft[k] ?? ""}
+                              onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
+                              className="mt-1 w-full bg-transparent border-b border-stone-700 py-1.5 text-sm focus:border-orange-500 focus:outline-none"
+                            />
+                          </label>
+                        ))}
+
+                        <label className="block">
+                          <span className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500">Description</span>
+                          <textarea
+                            data-testid={`menu-edit-description-${m.id}`}
+                            rows={2}
+                            value={draft.description ?? ""}
+                            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                            className="mt-1 w-full bg-transparent border-b border-stone-700 py-1.5 text-sm focus:border-orange-500 focus:outline-none resize-none"
+                          />
+                        </label>
+
+                        <div className="flex gap-3">
+                          <label className="flex-1">
+                            {/* Ignored once portions exist — the server takes `price` from
+                                the first of them — so it says so rather than sitting there
+                                looking editable and doing nothing. */}
+                            <span className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500">
+                              Price {cleanVariants(draft.variants || []).length > 0 && (
+                                <span className="text-stone-600 normal-case tracking-normal">· set by portions</span>
+                              )}
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              disabled={cleanVariants(draft.variants || []).length > 0}
+                              data-testid={`menu-edit-price-${m.id}`}
+                              value={draft.price ?? 0}
+                              onChange={(e) => setDraft({ ...draft, price: e.target.value })}
+                              className="mt-1 w-full bg-transparent border-b border-stone-700 py-1.5 text-sm focus:border-orange-500 focus:outline-none disabled:opacity-40"
+                            />
+                          </label>
+                          <label className="flex-1">
+                            <span className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500">Station</span>
+                            <select
+                              data-testid={`menu-edit-station-${m.id}`}
+                              value={draft.station}
+                              onChange={(e) => setDraft({ ...draft, station: e.target.value })}
+                              className="mt-1 w-full bg-stone-950 border border-stone-700 py-1.5 px-2 text-sm focus:border-orange-500 focus:outline-none"
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="kitchen">Restaurant</option>
+                            </select>
+                          </label>
+                        </div>
+
+                        {draft.image && (
+                          <div className="aspect-[16/9] bg-stone-900 overflow-hidden border border-stone-800">
+                            <img src={draft.image} alt="" className="w-full h-full object-cover"
+                                 onError={(e) => { e.target.style.display = "none"; }} />
+                          </div>
+                        )}
+
+                        <div className="pt-1">
+                          <VariantRows
+                            idPrefix={`menu-edit-${m.id}`}
+                            variants={draft.variants || []}
+                            onChange={(v) => setDraft({ ...draft, variants: v })}
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-1">
                           <button
-                            data-testid={`menu-portions-save-${m.id}`}
-                            onClick={() => savePortions(m)}
+                            data-testid={`menu-edit-save-${m.id}`}
+                            onClick={() => saveEdit(m)}
                             className="rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 py-1.5 px-4 text-[10px] font-mono uppercase tracking-widest"
                           >
                             Save
                           </button>
                           <button
-                            onClick={() => setEditing(null)}
+                            onClick={() => { setEditing(null); setDraft(null); }}
                             className="text-[10px] font-mono uppercase tracking-widest text-stone-500 hover:text-stone-300"
                           >
                             Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {confirmDelete === m.id && (
+                      <div className="mt-4 border-t border-red-500/30 pt-4">
+                        <p className="text-xs text-stone-300">
+                          Remove <span className="text-stone-100">{m.name}</span> from the menu?
+                          Bills that already contain it keep it and their totals do not change.
+                        </p>
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            data-testid={`menu-delete-confirm-${m.id}`}
+                            onClick={() => del(m.id)}
+                            className="rounded-full border border-red-500/40 text-red-400 hover:bg-red-500/10 py-1.5 px-4 text-[10px] font-mono uppercase tracking-widest"
+                          >
+                            Remove
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(null)}
+                            className="text-[10px] font-mono uppercase tracking-widest text-stone-500 hover:text-stone-300"
+                          >
+                            Keep it
                           </button>
                         </div>
                       </div>
@@ -256,14 +376,20 @@ export default function MenuManage() {
                       <div className="flex items-center gap-3">
                         {editing !== m.id && (
                           <button
-                            data-testid={`menu-portions-edit-${m.name.replace(/\s+/g,"-")}`}
-                            onClick={() => openPortions(m)}
+                            data-testid={`menu-edit-${m.name.replace(/\s+/g,"-")}`}
+                            onClick={() => openEdit(m)}
                             className="text-[10px] font-mono uppercase tracking-widest text-stone-500 hover:text-orange-400"
                           >
-                            {variantsOf(m).length ? "Edit portions" : "Add portions"}
+                            Edit
                           </button>
                         )}
-                        <button onClick={() => del(m.id)} className="text-stone-500 hover:text-red-500"><Trash2 size={14} /></button>
+                        <button
+                          data-testid={`menu-delete-${m.id}`}
+                          onClick={() => { setEditing(null); setConfirmDelete(m.id); }}
+                          className="text-stone-500 hover:text-red-500"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   </div>

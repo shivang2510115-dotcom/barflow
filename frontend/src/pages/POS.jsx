@@ -194,9 +194,15 @@ export default function POS() {
   const foot = outletTotals(order?.subtotal || 0, gst, discount);
 
   return (
-    <div className="p-4 md:p-6 grid lg:grid-cols-[1fr_420px] gap-4 min-h-screen">
-      {/* Left · Menu */}
-      <div>
+    <div className="p-4 md:p-6 grid lg:grid-cols-[minmax(0,1fr)_420px] gap-4 min-h-screen">
+      {/* Left · Menu.
+          min-w-0, and minmax(0,1fr) on the track above it, because a grid item's default
+          min-width is auto: it refuses to shrink below its widest child. The category
+          strip is wider than the screen, so without these two the column grew past the
+          viewport, the whole page scrolled sideways, and the bill — which is meant to
+          stay put on the right — slid away with it. The strip's own overflow-x-auto
+          cannot do anything until its parent is allowed to be narrower than its content. */}
+      <div className="min-w-0">
         <div className="flex items-baseline justify-between flex-wrap gap-3">
           <div>
             <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 mb-1">POS</div>
@@ -285,7 +291,7 @@ export default function POS() {
       </div>
 
       {/* Right · Bill */}
-      <aside className="border border-stone-800 bg-stone-900/40 p-5 sticky lg:top-4 lg:self-start">
+      <aside className="border border-stone-800 bg-stone-900/40 p-5 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto min-w-0">
         <div className="flex items-center justify-between mb-4">
           <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">Bill</div>
           <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
