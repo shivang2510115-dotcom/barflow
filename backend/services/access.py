@@ -141,6 +141,9 @@ SCREENS: dict[str, dict] = {
     "hotel.rooms":        {"label": "Rooms",        "section": "Hotel",      "domains": ("hotel",)},
     "hotel.rates":        {"label": "Rates",        "section": "Hotel",      "domains": ("hotel",)},
     "hotel.guests":       {"label": "Guests",       "section": "Hotel",      "domains": (SHARED,)},
+    # The attendant's phone screen: room statuses and the requests raised against them.
+    # Declared `hotel` like the rest of this section — an outlet has no rooms to clean.
+    "hotel.housekeeping": {"label": "Housekeeping", "section": "Hotel",      "domains": ("hotel",)},
     "outlet.tables":      {"label": "Tables",       "section": "Restaurant", "domains": OUTLET},
     "outlet.pos":         {"label": "POS / Bill",   "section": "Restaurant", "domains": OUTLET},
     "outlet.kot":         {"label": "KOT board",    "section": "Restaurant", "domains": OUTLET},
@@ -173,6 +176,14 @@ ROLE_SCREENS: dict[str, tuple[str, ...]] = {
     "front_desk": ("hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.guests"),
     "waiter": ("outlet.tables", "outlet.reservations", "outlet.pos", "outlet.kot"),
     "kitchen": ("outlet.kot", "outlet.inventory"),
+    # One screen, and the shortest entry here on purpose. An attendant reaches the
+    # corridor they work in and nothing else — not bookings, not rates, not the POS, not
+    # the guest list. Adding a *role* key is not the growth this table is frozen against:
+    # what stays fixed is the set of screens each existing role reached, so that a new
+    # screen does not quietly widen everybody. A role that has never existed has no old
+    # navigation to describe, and giving it an empty tuple would create accounts that
+    # cannot open the one screen they were hired for.
+    "housekeeping": ("hotel.housekeeping",),
 }
 
 

@@ -13,6 +13,12 @@ BookingStatus = Literal[
     "tentative", "confirmed", "checked_in", "checked_out", "cancelled", "no_show"
 ]
 
+# Spelled out rather than built from `services.housekeeping.STATUSES`, because a Literal
+# needs its members at type-check time and a tuple unpacked into one is unreadable to
+# every tool that reads this file. tests/test_housekeeping_api.py asserts the two lists
+# are the same set, so they cannot drift in silence.
+HousekeepingStatus = Literal["clean", "dirty", "inspected", "out_of_order"]
+
 
 def _uuid() -> str:
     return str(uuid.uuid4())
@@ -133,6 +139,126 @@ class RoomIn(BaseModel):
 class Room(RoomIn):
     id: str = Field(default_factory=_uuid)
     out_of_order: List[dict] = []
+
+    # ---- housekeeping ----
+    # Four fields the owner never types. They live on `Room` and not on `RoomIn` for the
+    # same reason `out_of_order` does, and it is load-bearing: `PUT /api/rooms/{id}` sets
+    # `payload.model_dump()` wholesale, so a field on the input model would be reset to
+    # its default every time somebody corrected a room's floor — an attendant's morning
+    # of work undone by an edit on the Rooms screen.
+    #
+    # **`housekeeping_status = "out_of_order"` is not the `out_of_order` list above.**
+    # That list is date ranges and controls what the booking engine will *sell*; this
+    # says the room is not usable *right now* and stops the desk assigning it. Two axes,
+    # two owners, deliberately never merged — see services/housekeeping.py.
+    housekeeping_status: HousekeepingStatus = "clean"
+    # Free text, and required by the API when the status is `out_of_order`. It describes
+    # the state the room is in *now*; the history of what it used to say is in
+    # `housekeeping_events`, which is never updated.
+    housekeeping_note: Optional[str] = None
+    housekeeping_updated_at: Optional[str] = None
+    housekeeping_updated_by: Optional[str] = None
+
+
+# --------------------------- housekeeping --------------------------
+class HousekeepingStatusIn(BaseModel):
+    """What an attendant taps on a room card.
+
+    An unknown status is a 422 from here rather than a hand-written 400, which is what
+    the design asks for and is also the honest code: the request is malformed, not
+    refused. `services.housekeeping.STATUSES` is the same list, and a test asserts they
+    have not drifted.
+    """
+    status: HousekeepingStatus
+    note: Optional[str] = None
+
+
+class HousekeepingEvent(BaseModel):
+    """One line of the append-only log. Never updated, never deleted.
+
+    This is what individual logins are for. When a guest says their room was filthy, the
+    question is who marked it clean and when, and a status field on the room can only
+    ever answer the last half of it.
+    """
+    id: str = Field(default_factory=_uuid)
+    room_id: str
+    from_status: str
+    to_status: str
+    note: Optional[str] = None
+    # A user id. `None` is not used: even the automatic transition at check-out records
+    # the person who checked the guest out, because somebody did press that button.
+    changed_by: Optional[str] = None
+    changed_at: str = Field(default_factory=_now)
+
+
+# Same reasoning as HousekeepingStatus above: one list of strings, asserted equal to
+# `services.housekeeping.PRIORITIES` by a test rather than trusted.
+HousekeepingPriority = Literal["low", "normal", "high"]
+
+
+class HousekeepingJobIn(BaseModel):
+    """A request raised by a member of staff: this room needs attention.
+
+    Separate from the room's status and with a life of its own — raised, picked up, done.
+    "This room is dirty" and "the guest in 204 has asked for towels" are different facts
+    and only one of them is answered by the room being cleaned.
+
+    An empty reason is allowed. "Something is wrong in 204" is still worth knowing, and
+    the alternative is a required field that gets filled in with a full stop.
+    """
+    room_id: str
+    priority: HousekeepingPriority = "normal"
+    reason: str = ""
+
+
+class HousekeepingJob(BaseModel):
+    id: str = Field(default_factory=_uuid)
+    room_id: str
+    # Denormalised, on purpose, and the one thing in this model that is not simply the
+    # design's field list. The alert endpoint is polled every fifteen seconds by every
+    # signed-in hotel user, and naming the room from the job means that poll is one query
+    # instead of a query plus the whole rooms collection. It is what the room was called
+    # when the request was raised, which is also the honest thing for a record of what
+    # somebody asked for — the same reasoning that stores a price on an order line.
+    room_number: Optional[str] = None
+    priority: HousekeepingPriority = "normal"
+    reason: str = ""
+    # A staff id, or **None when a guest raised it from the in-room QR**. The two are told
+    # apart by `source` rather than by the absence, because "nobody is recorded" and "a
+    # guest, who has no account" are different facts and only one of them is a gap.
+    raised_by: Optional[str] = None
+    source: Literal["staff", "guest"] = "staff"
+    status: Literal["open", "in_progress", "done", "cancelled"] = "open"
+    created_at: str = Field(default_factory=_now)
+    acknowledged_at: Optional[str] = None
+    acknowledged_by: Optional[str] = None
+    completed_at: Optional[str] = None
+    completed_by: Optional[str] = None
+    # Cancelling has its own three fields rather than reusing the completed ones. Folding
+    # them together would leave a record saying a job was completed when it was called
+    # off, which is exactly the fact cancelling-as-a-status exists to keep.
+    cancelled_at: Optional[str] = None
+    cancelled_by: Optional[str] = None
+    cancel_reason: Optional[str] = None
+    # Every hand this job passed through, appended and never rewritten. Two staff
+    # acknowledging at once is last-write-wins on the fields above and both lines here,
+    # so neither of them sees an error and neither of them is erased. A guest's second
+    # press lands here too, which is how a merged request stays legible afterwards.
+    history: List[dict] = []
+
+
+class HousekeepingCancelIn(BaseModel):
+    reason: Optional[str] = None
+
+
+class GuestRequestIn(BaseModel):
+    """What a guest types into the card in their room. One box.
+
+    No priority: the guest does not triage their own request, and a field the hotel
+    cannot verify would only ever be set to `high`. No room either — that comes from the
+    QR code in the URL, so nothing a guest can type names another room or another hotel.
+    """
+    reason: str = ""
 
 
 # --------------------------- meal plans ---------------------------

@@ -26,7 +26,15 @@ if JWT_SECRET == _DEFAULT_JWT_SECRET and not using_mock:
         "has read the source. Set JWT_SECRET to a long random value and restart."
     )
 
-Role = Literal["admin", "manager", "waiter", "kitchen", "front_desk"]
+# The one list of roles. `routers/staff.py` types its request bodies on this rather than
+# repeating the strings, so a role that is not here cannot be created or assigned.
+#
+# `housekeeping` is an attendant with a phone, updating the room they have just finished.
+# Individual logins rather than one shared "housekeeping" account, because the append-only
+# event log is what answers "who marked this room clean and when" — and it only answers it
+# if the accounts are people. What they reach is `hotel.housekeeping` and nothing else:
+# not bookings, not rates, not the POS. See services/access.py::ROLE_SCREENS.
+Role = Literal["admin", "manager", "waiter", "kitchen", "front_desk", "housekeeping"]
 
 
 def hash_password(password: str) -> str:

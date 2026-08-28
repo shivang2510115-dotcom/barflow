@@ -223,6 +223,34 @@ async def check_out(booking_id: str, payload: CheckOutIn, user: dict = Depends(C
     await db.bookings.update_one({"id": booking_id}, {"$set": {
         "status": "checked_out", "checked_out_at": now}})
 
+    # The one automatic housekeeping transition, and the reason there is one: marking the
+    # room dirty is the single step most likely to be forgotten, and forgetting it is how
+    # the desk assigns a departed, unmade room to an arriving guest. Imported here rather
+    # than at module scope, like `post_due_nights` above, to keep the two routers
+    # independent.
+    #
+    # `apply_status` is a no-op when the room is already dirty — somebody may have marked
+    # it during the stay — so an append-only log does not collect a second identical line.
+    # It is recorded against the person who checked the guest out: the transition is
+    # automatic, but somebody did press the button, and "the system" is not an answer to
+    # who changed this room.
+    #
+    # It touches `housekeeping_status` and nothing else. `rooms.out_of_order` — the date
+    # ranges that decide what can be sold — is a different field with a different owner,
+    # and a check-out that quietly withdrew a room from sale would be a bug worth money.
+    room_id = booking.get("assigned_room_id")
+    housekeeping_event = None
+    if room_id:
+        from routers.housekeeping import apply_status
+        from services.housekeeping import DIRTY
+        room = await db.rooms.find_one({"id": room_id}, {"_id": 0})
+        if room:
+            housekeeping_event = await apply_status(
+                db, room, DIRTY, note=None, changed_by=user.get("id"))
+
     return {"booking": await db.bookings.find_one({"id": booking_id}, {"_id": 0}),
             "folio": await db.folios.find_one({"id": folio["id"]}, {"_id": 0}),
-            "balance": balance}
+            "balance": balance,
+            # What the desk needs to say "204 has gone to housekeeping". `None` when the
+            # booking held no room, or the room was already dirty.
+            "housekeeping_event": housekeeping_event}

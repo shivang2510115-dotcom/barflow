@@ -83,6 +83,13 @@ SCOPED_COLLECTIONS = (
     # under its own business account. A leak across tenants here is a leak of exactly the
     # kind this module exists to make impossible.
     "occasions", "message_log", "message_claims", "messaging_settings",
+    # Housekeeping. The event log is a record of which of this hotel's staff touched
+    # which of its rooms, and a job carries a guest's own words about the room they are
+    # sleeping in — both as much the property's own as its guest list is. The job
+    # collection is also the one a guest writes to without a token, through the in-room
+    # QR, which makes the bound handle the only thing standing between two hotels'
+    # requests: the scope comes from the room, and the room names exactly one property.
+    "housekeeping_events", "housekeeping_jobs",
 )
 
 
@@ -400,6 +407,44 @@ async def db_for_table(table_id: str, request: Request | None = None,
         raise HTTPException(404, "Table not found")
 
     return PropertyScopedDatabase(table[PROPERTY_FIELD]), table
+
+
+async def db_for_room(room_id: str, request: Request | None = None,
+                      caller: dict | None = _UNRESOLVED  # type: ignore[assignment]
+                      ) -> tuple[PropertyScopedDatabase, dict]:
+    """The same, for the QR code printed and placed in a guest room.
+
+    Deliberately `db_for_table` with one word changed, because it is the same problem: a
+    guest scans a code and asks for something without an account, so there is no caller to
+    resolve a property from. A room belongs to exactly one hotel, which makes the printed
+    link itself the tenant identifier — the property comes from the record, and nothing a
+    guest can type names another hotel or another room.
+
+    A pending or suspended hotel's card stops working here, with the same 404 an unknown
+    room gets. A guest holding a printed card is not owed the information that this hotel
+    exists but has been switched off, and the housekeeping desk is not helped by a
+    different code.
+
+    The two are kept as separate functions rather than one taking a collection name. They
+    are three lines each; the shared version would take the one thing that must never be
+    caller-supplied — which collection to trust a public id against — and make it an
+    argument.
+    """
+    room = await _db_module.unscoped_db.rooms.find_one({"id": room_id}, {"_id": 0})
+    if not room or not await _live_property(room.get(PROPERTY_FIELD)):
+        raise HTTPException(404, "Room not found")
+
+    # A staff token, when there is one, has to agree with the room — otherwise a
+    # receptionist in one hotel could raise requests in another by pasting a room id. The
+    # openness of this route is for the guest sitting in that room, not a way around the
+    # caller's own scope. Same 404: a room that is not this hotel's does not exist as far
+    # as it is concerned.
+    if caller is _UNRESOLVED:
+        caller = await optional_user(request)
+    if caller and caller.get(PROPERTY_FIELD) != room[PROPERTY_FIELD]:
+        raise HTTPException(404, "Room not found")
+
+    return PropertyScopedDatabase(room[PROPERTY_FIELD]), room
 
 
 async def db_for_order(order_id: str) -> tuple[PropertyScopedDatabase, dict]:

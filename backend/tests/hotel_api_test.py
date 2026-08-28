@@ -1887,7 +1887,8 @@ def test_the_screen_catalogue_is_readable_by_any_signed_in_user(admin):
     keys = {row["key"] for row in catalogue}
     assert keys == {
         "hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.rooms",
-        "hotel.rates", "hotel.guests", "outlet.tables", "outlet.pos", "outlet.kot",
+        "hotel.rates", "hotel.guests", "hotel.housekeeping",
+        "outlet.tables", "outlet.pos", "outlet.kot",
         "outlet.reservations", "outlet.menu", "outlet.inventory", "outlet.reports",
         "admin.staff", "admin.analytics"}
     for row in catalogue:
@@ -1980,7 +1981,8 @@ def test_an_admin_needs_no_ticks_and_is_stored_holding_every_screen(admin):
         "name": "New Admin", "email": email, "password": "admin12345678",
         "role": "admin", "domains": [], "permissions": []})
     assert r.status_code == 200, r.text
-    assert len(r.json()["permissions"]) == 15
+    # Every key in the catalogue, which the housekeeping screen has just joined.
+    assert len(r.json()["permissions"]) == 16
 
 
 def test_a_staff_member_created_without_ticks_gets_what_their_role_implied(admin):

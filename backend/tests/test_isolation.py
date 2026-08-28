@@ -27,6 +27,7 @@ import routers.bookings as bookings
 import routers.folios as folios
 import routers.frontdesk as frontdesk
 import routers.guests as guests
+import routers.housekeeping as housekeeping
 import routers.inventory as inventory
 import routers.menu as menu
 import routers.orders as orders
@@ -39,8 +40,8 @@ import routers.tables as tables
 from mock_db import MockDatabase
 from models.folio import ChargeIn, PaymentIn, VoidIn
 from models.hotel import (
-    BookingIn, BookingUpdateIn, CancelIn, GuestIn, MealPlanIn, RoomAssignmentIn, RoomIn,
-    TaxSlab)
+    BookingIn, BookingUpdateIn, CancelIn, GuestIn, GuestRequestIn, HousekeepingStatusIn,
+    MealPlanIn, RoomAssignmentIn, RoomIn, TaxSlab)
 from scoped_db import PropertyScopedDatabase, UnscopedCollectionError, tenant_db
 from services.access import DOMAINS, LIVE, PENDING, SCREEN_KEYS, SUSPENDED
 from services.clock import today as local_today
@@ -568,6 +569,117 @@ def test_a_suspended_hotels_qr_link_does_not_work(world):
                    payload=orders.AddItemsIn(items=[])).status_code == 404
 
 
+# ------------------------------ housekeeping ------------------------------
+def test_the_housekeeping_board_holds_none_of_bs_rooms(world):
+    a, _b = world
+    board = call(housekeeping.housekeeping_board, user=a.admin, db=a.db)
+    assert {r["id"] for r in board["rooms"]} == {"a-room"}
+    assert "b-room" not in str(board)
+
+
+def test_setting_the_status_of_bs_room_from_as_session_is_404(world):
+    a, b = world
+    assert refused(housekeeping.set_housekeeping_status, room_id="b-room",
+                   payload=HousekeepingStatusIn(status="dirty"), user=a.admin,
+                   db=a.db).status_code == 404
+    assert run(b.db.rooms.find_one({"id": "b-room"})).get("housekeeping_status") is None
+
+
+def test_the_log_of_bs_room_is_not_readable_from_as_session(world):
+    a, b = world
+    call(housekeeping.set_housekeeping_status, room_id="b-room",
+         payload=HousekeepingStatusIn(status="dirty"), user=b.admin, db=b.db)
+    assert refused(housekeeping.housekeeping_events, room_id="b-room", user=a.admin,
+                   db=a.db).status_code == 404
+    assert len(call(housekeeping.housekeeping_events, room_id="b-room", user=b.admin,
+                    db=b.db)) == 1
+
+
+def test_a_request_list_holds_none_of_bs_requests(world):
+    a, b = world
+    made = call(housekeeping.raise_job, payload=housekeeping.HousekeepingJobIn(
+        room_id="b-room", reason="Spill"), user=b.admin, db=b.db)
+    assert call(housekeeping.list_jobs, status="", user=a.admin, db=a.db) == []
+    assert refused(housekeeping.acknowledge_job, job_id=made["id"], user=a.admin,
+                   db=a.db).status_code == 404
+    assert run(b.db.housekeeping_jobs.find_one({"id": made["id"]}))["status"] == "open"
+
+
+def test_the_alert_holds_none_of_bs_requests(world):
+    a, b = world
+    # Both hotels have a room "101" and an outstanding request against it. A poll that
+    # was not scoped would put the other hotel's guest's words on this hotel's screen —
+    # four times a minute, on every screen anybody has open.
+    call(housekeeping.guest_request, room_id="a-room",
+         payload=GuestRequestIn(reason="A wants towels"))
+    call(housekeeping.guest_request, room_id="b-room",
+         payload=GuestRequestIn(reason="B wants towels"))
+
+    seen = call(housekeeping.housekeeping_alerts, user=a.admin, db=a.db)
+    assert seen["count"] == 1
+    assert seen["jobs"][0]["reason"] == "A wants towels"
+    assert "B wants towels" not in str(seen)
+    assert call(housekeeping.housekeeping_alerts, user=b.admin,
+                db=b.db)["jobs"][0]["reason"] == "B wants towels"
+
+
+def test_a_request_cannot_be_raised_against_the_other_hotels_room(world):
+    a, _b = world
+    assert refused(housekeeping.raise_job, payload=housekeeping.HousekeepingJobIn(
+        room_id="b-room"), user=a.admin, db=a.db).status_code == 404
+
+
+# ------------------------------ the in-room QR ------------------------------
+def test_the_room_qr_raises_the_request_against_the_hotel_that_owns_the_room(world):
+    a, b = world
+    out = call(housekeeping.guest_request, room_id="b-room",
+               payload=GuestRequestIn(reason="Fresh towels"))
+    assert out["received"] is True and out["room_number"] == "101"
+    # Resolved from the room, because a guest holding a printed card has no token — and
+    # the request lands in B, not in whichever hotel happened to be first.
+    raised = run(b.db.housekeeping_jobs.find_one({"reason": "Fresh towels"}))
+    assert raised["property_id"] == "b-property"
+    assert raised["source"] == "guest" and raised["raised_by"] is None
+    assert run(a.db.housekeeping_jobs.find({}).to_list(10)) == []
+
+
+def test_the_room_card_names_the_hotel_that_owns_the_room_and_nothing_else(world):
+    _a, b = world
+    run(b.db.rooms.update_one({"id": "b-room"}, {"$set": {
+        "housekeeping_status": "dirty", "housekeeping_note": "Guest complained"}}))
+    card = call(housekeeping.guest_room_card, room_id="b-room")
+    assert card == {"property_name": "The Regent", "room_number": "101"}
+
+
+def test_a_pending_hotels_room_qr_does_not_work(world):
+    _a, b = world
+    run(db_module.unscoped_db.properties.update_one(
+        {"id": "b-property"}, {"$set": {"status": PENDING}}))
+    assert refused(housekeeping.guest_request, room_id="b-room",
+                   payload=GuestRequestIn()).status_code == 404
+    assert refused(housekeeping.guest_room_card, room_id="b-room").status_code == 404
+
+
+def test_a_suspended_hotels_room_qr_does_not_work(world):
+    _a, b = world
+    run(db_module.unscoped_db.properties.update_one(
+        {"id": "b-property"}, {"$set": {"status": SUSPENDED}}))
+    assert refused(housekeeping.guest_request, room_id="b-room",
+                   payload=GuestRequestIn()).status_code == 404
+
+
+def test_a_staff_token_from_one_hotel_cannot_reach_the_others_room_card(world):
+    a, _b = world
+    # The QR route's openness is for the guest in that room, not a way around the
+    # caller's own scope. Same 404 an unknown room gets.
+    with pytest.raises(HTTPException) as exc:
+        run(scoped_db.db_for_room("b-room", caller=a.admin))
+    assert exc.value.status_code == 404
+    # ...and A's own room still resolves, to A.
+    scoped, room = run(scoped_db.db_for_room("a-room", caller=a.admin))
+    assert scoped.property_id == "a-property" and room["number"] == "101"
+
+
 # ----------------------------- tables & reservations -----------------------------
 def test_the_floor_plan_holds_none_of_bs_tables(world):
     a, _b = world
@@ -783,6 +895,16 @@ SCOPE_FREE = {
     ("POST", "/api/orders/table/{table_id}/items"): "QR: scope comes from the table",
     ("GET", "/api/orders/table/{table_id}/current"): "QR: scope comes from the table",
     ("GET", "/api/tables/public/{table_id}"): "QR: scope comes from the table",
+    # The card printed and placed in each guest room. Listed for exactly the reason the
+    # three table routes above are, and by the same mechanism: they take no token — a
+    # guest scans and asks for towels without an account — so they resolve the property
+    # from the room in the URL through `scoped_db.db_for_room`, which is a scoped handle
+    # bound from a record rather than from the caller. The guard below recognises two
+    # dependency functions by identity, and these call theirs inside the handler instead,
+    # like `orders.add_items` does. Nothing here reads a collection unscoped: everything
+    # after `db_for_room` goes through the handle it returns.
+    ("GET", "/api/housekeeping/room/{room_id}/public"): "QR: scope comes from the room",
+    ("POST", "/api/housekeeping/room/{room_id}/requests"): "QR: scope comes from the room",
     ("POST", "/api/payments/checkout/session"): "scope comes from the order",
     ("GET", "/api/payments/checkout/status/{session_id}"): "scope comes from the order",
     ("POST", "/api/webhook/stripe"): "Stripe delivers this; scope comes from the order",
