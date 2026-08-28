@@ -37,6 +37,35 @@ export default function Guests() {
       .then((r) => setSelected(r.data))
       .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
 
+  /**
+   * Mark this guest as not to be messaged, or undo it.
+   *
+   * `PUT /guests/{id}` replaces the editable half of the record, so the whole of it is
+   * sent back rather than the one field — anything omitted here would be cleared. The
+   * server treats a *missing* `no_messages` as "leave it alone" for exactly that reason
+   * (see backend/models/hotel.py), which is the safety net rather than the mechanism.
+   *
+   * This is the only place the flag can be set, and it is worth its own control rather
+   * than a line in the notes: unsolicited commercial messaging is regulated in India, the
+   * property carries that risk, and "we wrote it in the notes" is not a record of consent.
+   */
+  const setConsent = (noMessages) => {
+    const fields = [
+      "name", "phone", "email", "address", "nationality", "id_proof_type",
+      "id_proof_number", "notes",
+    ];
+    const body = Object.fromEntries(fields.map((k) => [k, selected[k] ?? null]));
+    api
+      .put(`/guests/${selected.id}`, { ...body, no_messages: noMessages })
+      .then(() => open(selected.id))
+      .then(() =>
+        toast.success(
+          noMessages ? "This customer will not be messaged" : "Messaging allowed again",
+        ),
+      )
+      .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)));
+  };
+
   return (
     <div className="p-6 md:p-10">
       <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Hotel</div>
@@ -111,6 +140,44 @@ export default function Guests() {
                 </ul>
               </>
             )}
+
+            {/* The dates this property marks for them. Recorded here or at the till; the
+                greeting itself is pressed from Customers -> Messaging on the day. */}
+            <div className="mt-6 pt-5 border-t border-stone-800">
+              <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+                Occasions
+              </div>
+              {(selected.occasions || []).length === 0 ? (
+                <p className="text-xs text-stone-600">None recorded.</p>
+              ) : (
+                <ul className="text-sm space-y-1">
+                  {selected.occasions.map((o) => (
+                    <li key={o.id} className="font-mono text-xs text-stone-400">
+                      {o.date} · {o.label}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="mt-5 pt-5 border-t border-stone-800">
+              <label className="flex items-start gap-3 text-sm text-stone-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="guest-no-messages"
+                  checked={Boolean(selected.no_messages)}
+                  onChange={(e) => setConsent(e.target.checked)}
+                  className="accent-orange-500 w-4 h-4 mt-0.5"
+                />
+                <span>
+                  Do not message this customer
+                  <span className="block text-[11px] text-stone-600 mt-1">
+                    Honoured everywhere — no greeting and no follow-up, whatever else is
+                    configured.
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
         )}
       </div>
