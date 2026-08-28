@@ -39,7 +39,15 @@ export default function FrontDesk() {
 
   const startCheckIn = (booking) => {
     setCheckingIn(booking);
-    setForm({ room_id: "", id_proof_type: "Aadhaar", id_proof_number: "" });
+    // A booking that was pre-assigned a room arrives with it already chosen, so the
+    // desk does not have to look up and re-pick what somebody already decided. It is
+    // still a plain select: the guest at the desk may need a different room, and the
+    // desk decides — the server re-checks whichever room is sent.
+    setForm({
+      room_id: booking.assigned_room_id || "",
+      id_proof_type: "Aadhaar",
+      id_proof_number: "",
+    });
   };
 
   const submitCheckIn = async () => {
@@ -70,14 +78,24 @@ export default function FrontDesk() {
 
   if (!data) return <div className="p-6 md:p-10 text-stone-400">Loading front desk…</div>;
 
-  const occupiedRoomIds = new Set(
-    data.in_house.map((b) => b.assigned_room_id).filter(Boolean),
+  // In-house guests hold their room, and so now do today's other arrivals — a room
+  // pre-assigned to somebody arriving this afternoon is not free to give away this
+  // morning. Departures are deliberately not counted: a stay is half-open, so a guest
+  // leaving today frees the room for someone arriving today.
+  //
+  // This is a convenience, not the rule. The server re-checks whichever room is sent,
+  // across the whole stay window, and refuses with the booking that holds it.
+  const heldByOthers = new Set(
+    [...data.arrivals, ...data.in_house]
+      .filter((b) => b.id !== checkingIn?.id)
+      .map((b) => b.assigned_room_id)
+      .filter(Boolean),
   );
   const freeRooms = rooms.filter(
     (r) =>
       r.active !== false &&
       r.room_type_id === checkingIn?.room_type_id &&
-      !occupiedRoomIds.has(r.id),
+      (!heldByOthers.has(r.id) || r.id === checkingIn?.assigned_room_id),
   );
 
   return (
@@ -176,6 +194,12 @@ export default function FrontDesk() {
           <p className="text-xs text-stone-500 font-mono mb-4">
             {checkingIn.reference} · {checkingIn.check_in} → {checkingIn.check_out}
           </p>
+          {checkingIn.room && (
+            <p className="text-xs text-stone-400 mb-4">
+              Room <span className="text-orange-400">{checkingIn.room.number}</span> was
+              assigned to this booking already — change it below if the guest needs another.
+            </p>
+          )}
 
           <div className="flex flex-wrap gap-4 items-end">
             <label className="text-xs tracking-widest uppercase text-stone-500">

@@ -2430,3 +2430,23 @@ def test_a_cancelled_booking_cannot_be_given_a_room(admin, ep_plan):
 
     r = admin.put(f"{API}/bookings/{booking['id']}/room", json={"room_id": rooms[0]["id"]})
     assert r.status_code == 409, r.text
+
+
+def test_the_bookings_screen_alone_can_read_the_room_list_to_assign_from(admin, ep_plan):
+    """A receptionist ticked only for bookings still has to see the rooms, or the assign
+    picker on the booking screen is empty and the feature does not exist for them."""
+    rt, rooms, guest = _bookable(admin, rooms=1)
+    booking = _book(admin, rt, guest, ep_plan, "2030-11-10", "2030-11-12")
+    s = _staff_session(admin, f"bookonly-{uuid.uuid4().hex[:6]}@barflow.io",
+                       "bookonly12345", "front_desk", ["hotel"],
+                       permissions=["hotel.bookings"])
+
+    listing = s.get(f"{API}/rooms")
+    assert listing.status_code == 200, listing.text
+    assert any(r["id"] == rooms[0]["id"] for r in listing.json())
+    # …and the front-desk board is still not theirs.
+    assert s.get(f"{API}/front-desk").status_code == 403
+
+    assigned = s.put(f"{API}/bookings/{booking['id']}/room",
+                     json={"room_id": rooms[0]["id"]})
+    assert assigned.status_code == 200, assigned.text

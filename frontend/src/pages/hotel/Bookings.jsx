@@ -91,6 +91,7 @@ export default function Bookings() {
                 <th className="text-left py-3 px-3 border-b border-stone-800">Reference</th>
                 <th className="text-left py-3 px-3 border-b border-stone-800">Guest</th>
                 <th className="text-left py-3 px-3 border-b border-stone-800">Dates</th>
+                <th className="text-left py-3 px-3 border-b border-stone-800">Room</th>
                 <th className="text-left py-3 px-3 border-b border-stone-800">Status</th>
                 <th className="text-right py-3 px-3 border-b border-stone-800">Total</th>
               </tr>
@@ -111,6 +112,17 @@ export default function Bookings() {
                     </td>
                     <td className="py-3 px-3 border-b border-stone-800 font-mono text-xs tabular-nums">
                       {b.check_in} → {b.check_out}
+                    </td>
+                    {/* "Who still needs a room for tomorrow" is the 9am question, so a
+                        booking without one says so rather than showing a blank cell. */}
+                    <td className="py-3 px-3 border-b border-stone-800 tabular-nums">
+                      {b.room ? (
+                        b.room.number
+                      ) : (
+                        <span className="text-[10px] tracking-widest uppercase text-stone-500">
+                          not assigned
+                        </span>
+                      )}
                     </td>
                     <td className="py-3 px-3 border-b border-stone-800">
                       <span className={`text-[10px] tracking-widest uppercase border rounded-full px-2 py-1 ${STATUS_STYLE[b.status] || ""}`}>

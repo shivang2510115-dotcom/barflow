@@ -21,8 +21,13 @@ CONFIG = require_configuration("hotel", setup_time=True)
 # guest is checked into, so that one endpoint names both screens.
 READ_ROOM_TYPES = require_access("hotel", permission=("hotel.rooms", "hotel.rates"),
                                  setup_time=True)
-READ_ROOMS = require_access("hotel", permission=("hotel.rooms", "hotel.front_desk"),
-                            setup_time=True)
+# And now the bookings screen, which offers the rooms a booking can be pre-assigned to.
+# It reads the same list the desk already reads — number, type and floor — so this adds
+# a third screen to an existing answer rather than a new disclosure: anyone holding
+# hotel.bookings can already see every booking these rooms will hold.
+READ_ROOMS = require_access(
+    "hotel", permission=("hotel.rooms", "hotel.front_desk", "hotel.bookings"),
+    setup_time=True)
 # Not setup-time: blocking a room for a burst pipe is running the hotel, not describing
 # it, and a property that cannot take a booking has nothing to protect from the block.
 OUT_OF_ORDER = require_access("hotel", "admin", "manager", permission="hotel.rooms")
