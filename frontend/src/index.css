@@ -161,3 +161,47 @@ body {
     background-size: 200% 200%;
     animation: drift 18s ease-in-out infinite;
 }
+
+/* ------------------------------- the floor plan -------------------------------
+   Three rules, and all three are restrained on purpose. A hotel screen is open all
+   day in somebody's peripheral vision, so nothing here loops and nothing here
+   delays a receptionist who came to find room 204.
+
+   The out-of-order hatch is not decoration: it is the second signal on the one
+   state where acting on the wrong answer means walking a guest to a room with no
+   water, and it survives being read by someone who cannot see the red. */
+.room-tile-hatch {
+    background-color: rgb(28 25 23);
+    background-image: repeating-linear-gradient(
+        135deg,
+        rgba(248, 113, 113, 0.16) 0,
+        rgba(248, 113, 113, 0.16) 2px,
+        transparent 2px,
+        transparent 8px
+    );
+}
+
+/* A floor settles in rather than appearing. Once, on load, 260ms, the floors
+   staggered a beat apart so the building reads as stacking upwards. */
+@keyframes floorIn {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+.room-floor {
+    animation: floorIn 260ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .room-floor {
+        animation: none;
+    }
+    .room-tile {
+        transition: none;
+    }
+}
