@@ -33,6 +33,7 @@ from migrations.backfill_property import backfill as backfill_property
 from migrations.backfill_outlet_gst import backfill as backfill_outlet_gst
 from migrations.backfill_property_type import backfill as backfill_property_type
 from migrations.backfill_tenancy import backfill as backfill_tenancy
+from migrations.backfill_reference_data import backfill as backfill_reference_data
 from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
 from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
 
@@ -538,6 +539,12 @@ async def on_startup():
         stamped_docs, stamped_property,
         f" ({', '.join(f'{k} {v}' for k, v in sorted(per_collection.items()))})"
         if per_collection else "")
+    # After the tenancy stamp, because it seeds through a scoped handle and a property
+    # has to exist to be scoped to.
+    seeded_props, current_props = await backfill_reference_data()
+    logger.info(
+        "Reference data: %d propert(ies) given GST bands and meal plans, %d already current.",
+        seeded_props, current_props)
     # Last of the migrations, and the only one that is allowed to do nothing: an unset
     # key means this deployment stores identity documents in plain text, which is what
     # it did yesterday and is not a reason to refuse a hotel its check-in screen. It is
