@@ -21,6 +21,12 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// The keys a structured refusal uses to name *what* is in the way, in the order they
+// read best. A 409 from DELETE /room-types/{id} says "Room type still has rooms" and
+// carries the room numbers; dropping them leaves the owner to go and find out which
+// ones themselves, which is the whole job the message was trying to save them.
+const REFUSAL_LISTS = ["dates", "rooms", "bookings"];
+
 export function formatApiErrorDetail(detail) {
   if (detail == null) return "Something went wrong. Please try again.";
   if (typeof detail === "string") return detail;
@@ -31,10 +37,14 @@ export function formatApiErrorDetail(detail) {
       .join(" ");
   if (detail && typeof detail.msg === "string") return detail.msg;
   if (detail && typeof detail.message === "string") {
-    const dates = Array.isArray(detail.dates) && detail.dates.length
-      ? ` (${detail.dates.join(", ")})`
-      : "";
-    return detail.message + dates;
+    // At most one of these is ever present — a refusal names one obstacle — but they are
+    // all appended rather than the first one found, so a payload that grows a second
+    // list says both instead of silently keeping whichever this file happened to check
+    // for first.
+    const named = REFUSAL_LISTS.flatMap((key) =>
+      Array.isArray(detail[key]) && detail[key].length ? [detail[key].join(", ")] : [],
+    );
+    return named.length ? `${detail.message} (${named.join("; ")})` : detail.message;
   }
   return String(detail);
 }
