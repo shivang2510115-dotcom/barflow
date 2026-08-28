@@ -12,7 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException
 # import, so a test that swaps the handle swaps this too. Same arrangement as
 # routers/orders.py, which reads the outlet's GST rate off the same record.
 import db as _db_module
-from models.hotel import Booking, BookingIn, BookingUpdateIn, CancelIn, RoomAssignmentIn
+from models.hotel import (
+    Booking, BookingIn, BookingUpdateIn, CancelIn, ExtendStayIn, RoomAssignmentIn)
 from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.availability import (
@@ -40,7 +41,19 @@ CALENDAR = require_access("hotel", "admin", "manager", "front_desk", permission=
 # the way check-out does.
 ASSIGN = require_access("hotel", "admin", "manager", "front_desk",
                         permission=("hotel.bookings", "hotel.front_desk"))
+# Extending a stay is the same shape of act as assigning a room, and takes the same key:
+# the request arrives at the desk, from a guest standing in front of it or on the phone,
+# and a receptionist who has to fetch the owner to add two nights is a receptionist the
+# hotel works around. It is reached from the booking screen and from the front-desk
+# board, so it names both screen keys.
+EXTEND = require_access("hotel", "admin", "manager", "front_desk",
+                        permission=("hotel.bookings", "hotel.front_desk"))
 LIVE = list(CONSUMING_STATUSES)
+
+# The three an amendment is refused for, and the one list both `update_booking` and
+# `extend_stay` ask. A cancelled or no-show booking holds nothing to extend and a
+# departed one is history — adding a night to it would put a charge on a settled folio.
+CLOSED_TO_AMENDMENT = ("cancelled", "checked_out", "no_show")
 
 
 async def _property_record(user: dict) -> dict | None:
@@ -316,7 +329,7 @@ async def update_booking(booking_id: str, payload: BookingUpdateIn,
     booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(404, "Booking not found")
-    if booking["status"] in ("cancelled", "checked_out", "no_show"):
+    if booking["status"] in CLOSED_TO_AMENDMENT:
         raise HTTPException(409, f"A {booking['status']} booking cannot be edited")
 
     changes = {k: v for k, v in payload.model_dump().items() if v is not None}
@@ -488,3 +501,130 @@ async def set_booking_room(booking_id: str, payload: RoomAssignmentIn,
                                  {"$set": {"assigned_room_id": room["id"]}})
     return {**await db.bookings.find_one({"id": booking_id}, {"_id": 0}), "room": room}
 
+
+# ---------------------------- extending a stay ----------------------------
+def _extended_quote(existing: dict, added: dict) -> dict:
+    """The stay's quote with the added nights appended, and nothing else recomputed.
+
+    Every night already in `existing` keeps the tariff and the GST it was quoted at. The
+    guest was told a number for those nights; a rate rise since — or a seasonal period
+    somebody added over the dates — must not reach backwards and change it. Only the
+    totals move, and they move by exactly the sum of the new lines.
+
+    Written as a merge rather than a re-quote of the whole window on purpose: re-quoting
+    is the obvious implementation, it produces the right answer on the day the rate has
+    not changed, and it silently reprices the whole stay on the day it has.
+    """
+    nights = list(existing.get("nights") or []) + list(added["nights"])
+    room_subtotal = round(sum(float(n["tariff"]) for n in nights), 2)
+    tax_total = round(sum(float(n["gst_amount"]) for n in nights), 2)
+    return {**existing, "nights": nights, "room_subtotal": room_subtotal,
+            "tax_total": tax_total, "total": round(room_subtotal + tax_total, 2)}
+
+
+async def _added_nights_are_free_or_409(db, booking: dict, room_type: dict,
+                                        added_from: str, added_to: str) -> None:
+    """Is there a room for the extra nights? Refuse naming what is in the way if not.
+
+    Two questions, and which one is asked depends on whether this booking already holds a
+    physical room:
+
+    * **it does** — then it is *that* room that has to be free, and the question is the
+      per-room one `PUT /bookings/{id}/room` asks. Reused rather than re-implemented:
+      `room_for_booking_or_409` is where the rule lives, it already refuses an
+      out-of-order block and a room another live booking holds, and it already names the
+      blocker so the desk can go and move it. A second copy here would be a second place
+      for the two-guests-one-door bug to come back.
+    * **it does not** — then any room of the type will do at check-in, so the question is
+      the type's inventory, exactly as `POST /bookings` asks it.
+
+    Only the *added* nights are examined, never the whole stay: this booking occupies the
+    nights it already has, and asking about them would find the booking blocking its own
+    extension.
+    """
+    if booking.get("assigned_room_id"):
+        # A view of this booking over the added nights alone. `room_for_booking_or_409`
+        # compares a room against a window, and the window an extension is about is the
+        # new tail — not the stay so far, which this booking is legitimately holding.
+        await room_for_booking_or_409(
+            db, {**booking, "check_in": added_from, "check_out": added_to},
+            booking["assigned_room_id"])
+        return
+
+    rooms = await db.rooms.find(
+        {"room_type_id": booking["room_type_id"]}, {"_id": 0}).to_list(20000)
+    live = await db.bookings.find({
+        "room_type_id": booking["room_type_id"], "status": {"$in": LIVE},
+        "id": {"$ne": booking["id"]},
+    }, {"_id": 0}).to_list(5000)
+    if count_available(booking["room_type_id"], added_from, added_to, rooms, live) < 1:
+        raise HTTPException(409, {
+            "message": (f"No {room_type['name']} is free for "
+                        f"{added_from} → {added_to} — the stay was not extended"),
+            "check_in": added_from,
+            "check_out": added_to,
+        })
+
+
+@router.post("/bookings/{booking_id}/extend")
+async def extend_stay(booking_id: str, payload: ExtendStayIn,
+                      user: dict = Depends(EXTEND),
+                      db: PropertyScopedDatabase = Depends(tenant_db)):
+    """"Can I stay two more nights?" — the operation, not a date edit.
+
+    An explicit endpoint rather than `PUT /bookings/{id}` with a new `check_out`, because
+    for a guest already in the room this has to do more than move a date, and each of the
+    extra things is one somebody would otherwise have to remember:
+
+    * **check-out only.** `ExtendStayIn` has no `check_in`, so an extension cannot move a
+      guest's arrival. Moving a *future* booking's arrival is an ordinary edit and
+      `update_booking` still does it.
+    * **the extra nights have to be free** — the pre-assigned room, or the type's
+      inventory — and a clash comes back as a 409 that names the booking, or the
+      out-of-order block, standing in the way.
+    * **only the added nights are priced.** `update_booking` reprices the whole stay,
+      which is right for an amendment the guest is being re-quoted for and wrong here:
+      the first three nights were already sold at a number.
+    * **an in-house guest's new nights reach the folio by themselves.** Nothing here
+      posts anything. `routers/folios.py::post_due_nights` derives what is owed from the
+      booking's `check_out` and its stored quote, both of which this endpoint has just
+      moved, so the next folio read picks the new nights up — at the price quoted here,
+      not at today's rate. That is deliberately the *only* mechanism: a second one could
+      disagree with it, and two mechanisms disagreeing about a room night is a guest
+      charged twice.
+
+    Refused for the same three statuses `update_booking` refuses. A `tentative` or
+    `confirmed` booking extends before arrival; a `checked_in` one extends at the desk,
+    which is where this is usually asked.
+    """
+    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(404, "Booking not found")
+    if booking["status"] in CLOSED_TO_AMENDMENT:
+        raise HTTPException(409, f"A {booking['status']} booking cannot be extended")
+
+    added_from = booking["check_out"]
+    if payload.check_out <= added_from:
+        raise HTTPException(
+            400, f"An extension must move check-out later than {added_from}")
+
+    room_type = await db.room_types.find_one({"id": booking["room_type_id"]}, {"_id": 0})
+    if not room_type:
+        raise HTTPException(400, "This booking's room type no longer exists")
+
+    await _added_nights_are_free_or_409(db, booking, room_type,
+                                        added_from, payload.check_out)
+
+    # Priced before anything is written, so an unpriceable night refuses the whole
+    # extension rather than leaving a stay that has grown and a quote that has not.
+    added = await _quote_or_422(db, room_type, added_from, payload.check_out,
+                                booking["adults"], booking["children"],
+                                await _plan_for_booking(db, booking))
+
+    await db.bookings.update_one({"id": booking_id}, {"$set": {
+        "check_out": payload.check_out,
+        "quote": _extended_quote(booking.get("quote") or {}, added),
+    }})
+    # `added` alongside the booking so the desk can quote the extension itself — "two
+    # more nights, ₹13,440" — without subtracting one total from another on screen.
+    return {**await db.bookings.find_one({"id": booking_id}, {"_id": 0}), "added": added}

@@ -166,6 +166,18 @@ class CancelIn(BaseModel):
     reason: Optional[str] = None
 
 
+class ExtendStayIn(BaseModel):
+    """"The guest would like two more nights."
+
+    One field, and deliberately only one. An extension moves check-**out** and nothing
+    else: the guest is already in the room, or is arriving on a date they have been
+    told, so `check_in` has nothing to move to. Moving a future booking's arrival is an
+    ordinary edit and `BookingUpdateIn` above already does it — this payload exists so
+    that the extension cannot accidentally be one.
+    """
+    check_out: str
+
+
 class RoomAssignmentIn(BaseModel):
     """Which physical room a booking holds. `None` clears it.
 

@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, formatApiErrorDetail } from "@/lib/api";
+import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
+
+// `YYYY-MM-DD` plus n days, in UTC. A check-out is a calendar date, not an instant —
+// see BookingDetail.jsx, where the same arithmetic decides what the guest is charged.
+const addDays = (iso, n) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+};
 
 const Row = ({ b, action }) => (
   <li className="flex items-center justify-between gap-4 py-3 border-b border-stone-800">
@@ -24,6 +31,11 @@ export default function FrontDesk() {
   const [form, setForm] = useState({ room_id: "", id_proof_type: "Aadhaar", id_proof_number: "" });
   const [busy, setBusy] = useState(false);
 
+  // "Can I stay two more nights?" is asked here, at the desk, by a guest in house or one
+  // due to leave today — so the control is here and not only on the booking screen.
+  const [extending, setExtending] = useState(null); // booking being extended
+  const [newCheckOut, setNewCheckOut] = useState("");
+
   const load = useCallback(() => {
     Promise.all([api.get("/front-desk"), api.get("/rooms")])
       .then(([d, r]) => {
@@ -37,7 +49,41 @@ export default function FrontDesk() {
     load();
   }, [load]);
 
+  const startExtend = (booking) => {
+    setCheckingIn(null); // one panel at a time
+    setExtending(booking);
+    setNewCheckOut(addDays(booking.check_out, 1));
+  };
+
+  const submitExtend = async () => {
+    if (!newCheckOut || newCheckOut <= extending.check_out) {
+      toast.error("The new check-out has to be later than the current one");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data: res } = await api.post(`/bookings/${extending.id}/extend`, {
+        check_out: newCheckOut,
+      });
+      const added = res.added?.nights?.length ?? 0;
+      toast.success(
+        `${res.reference} extended to ${res.check_out} — ${added} more night` +
+          `${added === 1 ? "" : "s"}, ${currency(res.added?.total)}`,
+      );
+      setExtending(null);
+      setNewCheckOut("");
+      load();
+    } catch (e) {
+      // The 409 names the booking, or the out-of-order block, holding the room over the
+      // extra nights — which is what lets the desk go and move it.
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const startCheckIn = (booking) => {
+    setExtending(null); // one panel at a time
     setCheckingIn(booking);
     // A booking that was pre-assigned a room arrives with it already chosen, so the
     // desk does not have to look up and re-pick what somebody already decided. It is
@@ -146,12 +192,23 @@ export default function FrontDesk() {
                   key={b.id}
                   b={b}
                   action={
-                    <button
-                      onClick={() => nav(`/app/hotel/bookings/${b.id}`)}
-                      className="shrink-0 border border-stone-700 text-stone-300 hover:border-orange-500 hover:text-orange-400 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
-                    >
-                      Open
-                    </button>
+                    <div className="shrink-0 flex gap-2">
+                      {/* A guest due to leave today asking to stay on is the commonest
+                          way this is asked at all — it belongs on the departures list. */}
+                      <button
+                        onClick={() => startExtend(b)}
+                        data-testid={`extend-${b.id}`}
+                        className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
+                      >
+                        Extend
+                      </button>
+                      <button
+                        onClick={() => nav(`/app/hotel/bookings/${b.id}`)}
+                        className="border border-stone-700 text-stone-300 hover:border-orange-500 hover:text-orange-400 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
+                      >
+                        Open
+                      </button>
+                    </div>
                   }
                 />
               ))}
@@ -172,12 +229,21 @@ export default function FrontDesk() {
                   key={b.id}
                   b={b}
                   action={
-                    <Link
-                      to={`/app/hotel/bookings/${b.id}`}
-                      className="shrink-0 text-xs tracking-widest uppercase text-orange-400 hover:underline"
-                    >
-                      Folio
-                    </Link>
+                    <div className="shrink-0 flex items-center gap-3">
+                      <button
+                        onClick={() => startExtend(b)}
+                        data-testid={`extend-${b.id}`}
+                        className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
+                      >
+                        Extend
+                      </button>
+                      <Link
+                        to={`/app/hotel/bookings/${b.id}`}
+                        className="text-xs tracking-widest uppercase text-orange-400 hover:underline"
+                      >
+                        Folio
+                      </Link>
+                    </div>
                   }
                 />
               ))}
@@ -185,6 +251,50 @@ export default function FrontDesk() {
           )}
         </section>
       </div>
+
+      {extending && (
+        <div className="mt-10 border border-orange-500/40 bg-stone-900 rounded p-5 max-w-xl">
+          <h3 className="text-lg font-semibold mb-1">
+            Extend {extending.guest?.name}
+          </h3>
+          <p className="text-xs text-stone-500 font-mono mb-4">
+            {extending.reference} · {extending.check_in} → {extending.check_out}
+            {extending.room ? ` · room ${extending.room.number}` : ""}
+          </p>
+          <p className="text-sm text-stone-400 mb-4">
+            Check-in does not move. Only the added nights are priced, and they go on the
+            folio with everything else — the nights already quoted keep their price.
+          </p>
+
+          <label className="text-xs tracking-widest uppercase text-stone-500">
+            New check out
+            <input
+              type="date"
+              autoFocus
+              value={newCheckOut}
+              min={addDays(extending.check_out, 1)}
+              onChange={(e) => setNewCheckOut(e.target.value)}
+              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+            />
+          </label>
+
+          <div className="flex gap-3 mt-5">
+            <button
+              onClick={submitExtend}
+              disabled={busy || !newCheckOut || newCheckOut <= extending.check_out}
+              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              {busy ? "Extending…" : "Confirm extension"}
+            </button>
+            <button
+              onClick={() => setExtending(null)}
+              className="border border-stone-700 text-stone-400 hover:text-stone-200 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {checkingIn && (
         <div className="mt-10 border border-stone-800 bg-stone-900 rounded p-5 max-w-xl">
