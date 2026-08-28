@@ -197,11 +197,32 @@ body {
     animation: floorIn 260ms ease-out both;
 }
 
+/* The housekeeping alert arriving. It appears over whatever somebody is working on, so
+   it rises rather than materialising — a panel that is simply there was either always
+   there or is a rendering bug, and neither reading makes anyone look at it. Once, on
+   appearance, and over in a fifth of a second. */
+@keyframes alertIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+.hk-alert {
+    animation: alertIn 200ms ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .room-floor {
         animation: none;
     }
     .room-tile {
         transition: none;
+    }
+    .hk-alert {
+        animation: none;
     }
 }

@@ -33,6 +33,7 @@ import { SectionProvider } from "@/contexts/SectionContext";
 import { PropertyProvider, useOwnProperty } from "@/contexts/PropertyContext";
 import PendingBanner from "@/components/app/PendingBanner";
 import OverdueBanner from "@/components/app/OverdueBanner";
+import HousekeepingAlert from "@/components/app/HousekeepingAlert";
 import {
   availableSections,
   firstPathIn,
@@ -416,6 +417,11 @@ export default function AppLayout({ children }) {
               though the other were absent. */}
           <OverdueBanner />
           {children}
+          {/* Over every screen of the hotel console rather than on the housekeeping one:
+              the request a guest raises has to reach whoever is signed in, wherever they
+              happen to be standing. It renders nothing at all for a browser that does not
+              hold the hotel domain, and makes no request either. */}
+          <HousekeepingAlert />
         </main>
       </div>
     </SectionProvider>
