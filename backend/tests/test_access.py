@@ -369,7 +369,7 @@ def test_the_catalogue_covers_the_keys_the_design_named():
         "hotel.rates", "hotel.guests", "hotel.housekeeping",
         "outlet.tables", "outlet.pos", "outlet.kot", "outlet.reservations",
         "outlet.menu", "outlet.inventory", "outlet.reports",
-        "admin.staff", "admin.analytics",
+        "admin.staff", "admin.analytics", "admin.expenses",
     }
 
 
