@@ -109,7 +109,9 @@ export default function Inventory() {
                   <td className="p-3 font-mono text-xs uppercase tracking-widest text-stone-500">{it.category}</td>
                   <td className={`p-3 font-mono ${low ? "text-yellow-400" : "text-stone-100"}`}>{it.stock} <span className="text-stone-500 text-xs">{it.unit}</span></td>
                   <td className="p-3 font-mono text-stone-400">{it.threshold}</td>
-                  <td className="p-3 font-mono text-stone-400">${it.cost_per_unit}</td>
+                  {/* Rupees, through currency(), like the rest of the app. This column
+                      was printing a dollar sign at a product sold in India. */}
+                  <td className="p-3 font-mono text-stone-400">{currency(it.cost_per_unit)}</td>
                   <td className="p-3">
                     <div className="flex items-center gap-2 justify-end">
                       <button onClick={() => adjust(it.id, -1)} data-testid={`inv-dec-${it.name.replace(/\s+/g,"-")}`} className="w-7 h-7 border border-stone-700 hover:border-orange-500 flex items-center justify-center"><Minus size={12} /></button>
