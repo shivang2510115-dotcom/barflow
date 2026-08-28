@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
+import RoomGrid from "@/components/app/RoomGrid";
+import { typeOf, windowState } from "@/lib/roomGrid";
 import { toast } from "sonner";
 
 // Check-in/check-out are calendar dates, never instants — toISOString() converts to
@@ -34,20 +36,34 @@ export default function NewBooking() {
     adults: 2,
     children: 0,
   });
+  // Everything one search produced, or null. Held as one object rather than four pieces
+  // of state so there is no instant where the plan is drawn from this search's rooms and
+  // last search's bookings — which is exactly the instant a room would be shown free
+  // that is not.
   const [results, setResults] = useState(null);
   const [searching, setSearching] = useState(false);
-  const [choice, setChoice] = useState(null); // { room_type, quote }
+  const [choice, setChoice] = useState(null); // { room, room_type, quote }
   const [guest, setGuest] = useState({ name: "", phone: "" });
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => {
     setForm((f) => ({ ...f, [k]: v }));
     // Any change to the search params invalidates prior results/quotes — they were
-    // priced for the old values, so force a fresh search before booking again.
+    // priced for the old values, and the plan was drawn for the old window — so force a
+    // fresh search before booking again.
     setResults(null);
     setChoice(null);
   };
 
+  /**
+   * The three answers the plan needs, all for the same window, all from the server.
+   *
+   * `/availability` is the type-level rule, and it is read rather than reimplemented: a
+   * booking with no room assigned to it still consumes its type's inventory, so a
+   * physically empty Suite can sit inside a type that is sold out. `/rooms` is the
+   * building. `/bookings` narrowed to this window is who already holds which door.
+   * lib/roomGrid.js puts the three together; the server decides at the end.
+   */
   const search = async () => {
     if (form.check_out <= form.check_in) {
       toast.error("Check-out must be after check-in");
@@ -56,13 +72,39 @@ export default function NewBooking() {
     setSearching(true);
     setChoice(null);
     try {
-      const { data } = await api.get("/availability", { params: form });
-      setResults(data);
+      const [availability, rooms, bookings] = await Promise.all([
+        api.get("/availability", { params: form }),
+        api.get("/rooms"),
+        api.get("/bookings", { params: { start: form.check_in, end: form.check_out } }),
+      ]);
+      setResults({
+        window: { check_in: form.check_in, check_out: form.check_out },
+        rows: availability.data,
+        types: availability.data.map((r) => r.room_type),
+        byType: new Map(availability.data.map((r) => [r.room_type.id, r])),
+        rooms: rooms.data,
+        bookings: bookings.data,
+      });
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     } finally {
       setSearching(false);
     }
+  };
+
+  /**
+   * A free door, chosen.
+   *
+   * Picking the room picks the room type — a door is only ever one type — so the party
+   * is quoted against what they will actually sleep in rather than against a category
+   * they then have to be matched to. The cheapest plan is pre-selected so the panel is
+   * usable on arrival; every plan is still on the screen to switch to.
+   */
+  const chooseRoom = (room) => {
+    const row = results.byType.get(room.room_type_id);
+    if (!row?.quotes?.length) return;
+    const cheapest = [...row.quotes].sort((a, b) => Number(a.total) - Number(b.total))[0];
+    setChoice({ room, room_type: row.room_type, quote: cheapest });
   };
 
   const book = async () => {
@@ -104,7 +146,35 @@ export default function NewBooking() {
         adults: Number(form.adults),
         children: Number(form.children),
       });
-      toast.success(`Booked — ${data.reference}`);
+
+      /**
+       * The door, given to the booking that now exists.
+       *
+       * Second call, and it has to be: a room is assigned to a booking id, and there is
+       * no booking id until `POST /bookings` has answered. `PUT /bookings/{id}/room` is
+       * the only thing that decides whether this room may be held — it re-reads the
+       * blocks and the live bookings immediately before it writes and refuses with the
+       * reference that is in the way. The plan drawn above is a convenience that stops
+       * the desk clicking a visibly-taken door; this is the rule.
+       *
+       * A refusal here is not a failed booking. The reservation is made and priced; only
+       * the room did not stick, because something took it in the seconds since the search.
+       * Saying so and going to the booking anyway is the honest outcome — the desk lands
+       * on the screen that can assign another room, holding the server's own sentence.
+       * Swallowing it would send them away believing the guest is in 204.
+       */
+      let assigned = null;
+      try {
+        const res = await api.put(`/bookings/${data.id}/room`, { room_id: choice.room.id });
+        assigned = res.data.room;
+      } catch (e) {
+        toast.error(
+          `${data.reference} is booked, but room ${choice.room.number} could not be held: ` +
+            formatApiErrorDetail(e.response?.data?.detail),
+        );
+      }
+
+      if (assigned) toast.success(`Booked — ${data.reference} · room ${assigned.number}`);
       nav(`/app/hotel/bookings/${data.id}`);
     } catch (e) {
       // 409 = no room left for these dates by the time of write, 422 = a night in the
@@ -150,79 +220,120 @@ export default function NewBooking() {
         </button>
       </div>
 
-      {results && results.length === 0 && (
+      {results && results.rows.length === 0 && (
         <p className="text-stone-400">No room types are set up yet.</p>
       )}
 
-      <div className="grid gap-4">
-        {(results || []).map((row) => (
-          <div key={row.room_type.id} className="border border-stone-800 bg-stone-900 rounded p-5">
-            <div className="flex items-baseline justify-between flex-wrap gap-2">
-              <h3 className="text-lg font-semibold">{row.room_type.name}</h3>
-              <span
-                className={
-                  row.available > 0
-                    ? "text-orange-400 font-mono text-sm"
-                    : "text-stone-500 font-mono text-sm"
-                }
+      {results && results.rows.length > 0 && (
+        <>
+          {/* What each type costs and how many of it are left, on one line each. The
+              plan below says which doors; this says what they are worth, so the desk
+              can answer "anything cheaper?" without leaving the screen. */}
+          <div className="mb-8 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            {results.rows.map((row) => (
+              <div
+                key={row.room_type.id}
+                className="border border-stone-800 bg-stone-900 rounded px-4 py-3"
               >
-                {row.available} free
-              </span>
-            </div>
-
-            {row.unpriced_dates && (
-              <p className="text-sm text-red-400 mt-3">
-                No rate set for {row.unpriced_dates.join(", ")} — add one under Rates
-                before booking this type.
-              </p>
-            )}
-            {!row.fits_party && (
-              <p className="text-sm text-stone-500 mt-3">Too small for this party.</p>
-            )}
-            {row.fits_party && row.available <= 0 && (
-              <p className="text-sm text-stone-500 mt-3">Nothing free for these dates.</p>
-            )}
-
-            {row.available > 0 && row.fits_party && (
-              <div className="grid gap-2 mt-4 md:grid-cols-3">
-                {row.quotes.map((q) => (
-                  <button
-                    key={quoteKey(q)}
-                    onClick={() => setChoice({ room_type: row.room_type, quote: q })}
-                    className={`text-left border rounded p-3 transition-colors ${
-                      choice && quoteKey(choice.quote) === quoteKey(q) &&
-                      choice.room_type?.id === row.room_type.id
-                        ? "border-orange-500 bg-stone-800"
-                        : "border-stone-800 hover:border-stone-600"
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-semibold">{row.room_type.name}</span>
+                  <span
+                    className={`font-mono text-xs ${
+                      row.available > 0 ? "text-orange-400" : "text-stone-500"
                     }`}
                   >
-                    <div className="text-xs tracking-widest uppercase text-stone-500">
-                      {q.meal_plan
-                        ? `${q.meal_plan.code} · ${q.meal_plan.name}`
-                        : "All inclusive"}
-                    </div>
-                    <div className="text-xl font-semibold mt-1">{currency(q.total)}</div>
-                    <div className="text-xs text-stone-500 mt-1">
-                      {q.nights.length} night{q.nights.length === 1 ? "" : "s"} incl.{" "}
-                      {currency(q.tax_total)} tax
-                    </div>
-                  </button>
-                ))}
+                    {row.available} free
+                  </span>
+                </div>
+                {row.unpriced_dates ? (
+                  <p className="text-xs text-red-400 mt-2">
+                    No rate set for {row.unpriced_dates.join(", ")} — add one under Rates.
+                  </p>
+                ) : !row.fits_party ? (
+                  <p className="text-xs text-stone-500 mt-2">Too small for this party.</p>
+                ) : (
+                  <p className="text-xs text-stone-400 mt-2 flex flex-wrap gap-x-3">
+                    {row.quotes.map((q) => (
+                      <span key={quoteKey(q)}>
+                        <span className="text-stone-500 tracking-widest uppercase text-[10px]">
+                          {q.meal_plan ? q.meal_plan.code : "All-in"}
+                        </span>{" "}
+                        {currency(q.total)}
+                      </span>
+                    ))}
+                  </p>
+                )}
               </div>
-            )}
+            ))}
           </div>
-        ))}
-      </div>
+
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+            Free for {results.window.check_in} → {results.window.check_out}
+          </h2>
+          <RoomGrid
+            rooms={results.rooms}
+            types={results.types}
+            stateOf={(r) =>
+              windowState(r, {
+                from: results.window.check_in,
+                to: results.window.check_out,
+                bookings: results.bookings,
+                availabilityByType: results.byType,
+              })
+            }
+            legendStates={["free", "taken", "blocked", "full", "inactive"]}
+            onSelect={(room) => chooseRoom(room)}
+            selectable={(room, view) => view.state === "free"}
+            selectedId={choice?.room?.id ?? null}
+            empty="No rooms are set up yet — add some under Rooms."
+          />
+          <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+            A free door is a door nothing holds for these dates. The room is only really
+            yours once the booking is written: the server re-checks it at that moment and
+            says which booking took it if one did.
+          </p>
+        </>
+      )}
 
       {choice && (
         <div className="mt-10 border border-stone-800 bg-stone-900 rounded p-5 max-w-xl">
           <h3 className="text-lg font-semibold mb-1">
+            Room <span className="font-mono">{choice.room.number}</span> ·{" "}
             {choice.room_type.name}
-            {choice.quote.meal_plan ? ` · ${choice.quote.meal_plan.code}` : ""}
           </h3>
           <p className="text-sm text-stone-400 mb-4">
-            {form.check_in} → {form.check_out} · {currency(choice.quote.total)}
+            {typeOf(choice.room, results.types)?.code
+              ? `${typeOf(choice.room, results.types).code} · `
+              : ""}
+            {choice.room.floor ? `Floor ${choice.room.floor} · ` : ""}
+            {form.check_in} → {form.check_out}
           </p>
+
+          {/* One card per meal plan, or one all-inclusive card. Unchanged in what it
+              does; it now belongs to the room that was picked rather than standing in
+              for the choice of room. */}
+          <div className="grid gap-2 md:grid-cols-2 mb-6">
+            {(results.byType.get(choice.room.room_type_id)?.quotes || []).map((q) => (
+              <button
+                key={quoteKey(q)}
+                onClick={() => setChoice({ ...choice, quote: q })}
+                className={`text-left border rounded p-3 transition-colors ${
+                  quoteKey(choice.quote) === quoteKey(q)
+                    ? "border-orange-500 bg-stone-800"
+                    : "border-stone-800 hover:border-stone-600"
+                }`}
+              >
+                <div className="text-xs tracking-widest uppercase text-stone-500">
+                  {q.meal_plan ? `${q.meal_plan.code} · ${q.meal_plan.name}` : "All inclusive"}
+                </div>
+                <div className="text-xl font-semibold mt-1">{currency(q.total)}</div>
+                <div className="text-xs text-stone-500 mt-1">
+                  {q.nights.length} night{q.nights.length === 1 ? "" : "s"} incl.{" "}
+                  {currency(q.tax_total)} tax
+                </div>
+              </button>
+            ))}
+          </div>
 
           <div className="flex gap-4 flex-wrap">
             {[["name", "Guest name"], ["phone", "Phone"]].map(([k, label]) => (
@@ -242,7 +353,7 @@ export default function NewBooking() {
             disabled={saving}
             className="mt-6 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-8 py-2 text-sm tracking-widest uppercase"
           >
-            {saving ? "Booking…" : "Confirm booking"}
+            {saving ? "Booking…" : `Book room ${choice.room.number}`}
           </button>
         </div>
       )}
