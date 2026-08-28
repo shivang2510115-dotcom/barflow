@@ -242,8 +242,8 @@ async def occasions_today(user: dict = Depends(OPERATIONAL),
         # each row's `problem`: it is the same answer for every row and it is fixed by a
         # different person in a different place. Same shape GET /whatsapp/status answers
         # in, so the screen can say the same thing the Notifications screen does.
-        "whatsapp": {"configured": not whatsapp_config_problem(),
-                     "problem": whatsapp_config_problem()},
+        "whatsapp": {"configured": not whatsapp_config_problem(need_owner_phone=False),
+                     "problem": whatsapp_config_problem(need_owner_phone=False)},
     }
 
 
@@ -389,7 +389,7 @@ async def follow_ups(user: dict = Depends(OPERATIONAL),
         "enabled": True,
         "days": follow_up_days(settings),
         "customers": await _due_follow_ups(db, settings, local_today()),
-        "problem": template_problem(settings, FOLLOW_UP) or whatsapp_config_problem(),
+        "problem": template_problem(settings, FOLLOW_UP) or whatsapp_config_problem(need_owner_phone=False),
     }
 
 
@@ -420,7 +420,7 @@ async def run_follow_ups(db: PropertyScopedDatabase, property_record: dict,
 
     if not follow_up_enabled(settings):
         return {**counts, "skipped": FOLLOW_UP_OFF}
-    blocked = template_problem(settings, FOLLOW_UP) or whatsapp_config_problem()
+    blocked = template_problem(settings, FOLLOW_UP) or whatsapp_config_problem(need_owner_phone=False)
     if blocked:
         logger.warning("[follow-ups] %s: nothing sent — %s",
                        property_record.get("name"), blocked)

@@ -280,19 +280,24 @@ async def build_daily_brief(db, date: Optional[str] = None) -> dict:
     }
 
 
-def whatsapp_config_problem() -> str:
+def whatsapp_config_problem(need_owner_phone: bool = True) -> str:
     """What is missing, in the words of the thing that has to be fixed, or "".
 
     Named individually rather than as one "not configured": each of these is a different
-    page of Meta's dashboard, and being told which one is the difference between five
-    minutes and an afternoon.
+    page of the provider's dashboard, and being told which one is the difference between
+    five minutes and an afternoon.
+
+    `need_owner_phone` is False when the recipient is not the owner. OWNER_PHONE is where
+    the nightly brief goes; a birthday greeting goes to the customer, and citing a missing
+    OWNER_PHONE as the reason a customer could not be messaged sends whoever reads it to
+    fix the wrong thing.
     """
     missing = []
     if not os.environ.get("WHATSAPP_TOKEN"):
-        missing.append("WHATSAPP_TOKEN (Meta app -> WhatsApp -> API Setup)")
+        missing.append("WHATSAPP_TOKEN (the provider's API token)")
     if not os.environ.get("WHATSAPP_PHONE_ID"):
         missing.append("WHATSAPP_PHONE_ID (the Phone number ID, not the phone number)")
-    if not (os.environ.get("OWNER_PHONE") or "").strip():
+    if need_owner_phone and not (os.environ.get("OWNER_PHONE") or "").strip():
         missing.append("OWNER_PHONE (recipient, with country code, digits only)")
     return "Not configured: " + "; ".join(missing) if missing else ""
 
