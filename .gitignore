@@ -46,3 +46,4 @@ functions/venv
 # local stand-ins for the Secret Manager values, read by the Functions emulator.
 # Same contents as the real secrets; never committed.
 functions/.secret.local
+table-qr-codes.pdf
