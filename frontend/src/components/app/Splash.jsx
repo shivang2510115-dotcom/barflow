@@ -1,134 +1,71 @@
 import React, { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Wine } from "lucide-react";
 
 /**
- * "Bar Comes Alive" splash — plays once per session on first mount.
- * Duration: ~2.6s. Skips instantly on prefers-reduced-motion.
+ * The screen shown while the app boots. Three concentric arcs turning at different
+ * speeds, and the word Loading.
+ *
+ * It replaced a 2.6-second animated sequence. A splash is a toll paid on every cold
+ * start by someone who wants to be somewhere else — a receptionist opening the tablet
+ * with a guest at the desk — so this one is quiet, short, and says the only thing worth
+ * saying. It leaves as soon as the app is ready rather than holding the screen for a
+ * fixed run of animation.
+ *
+ * Nothing here is imported from a component library: the arcs are three bordered circles
+ * with three sides made transparent, which is a border-box trick that needs no SVG, no
+ * dependency and no JavaScript to run the motion.
  */
+const MIN_MS = 450;      // below this a flash of spinner reads as a glitch, not as loading
+const REDUCED_MS = 120;  // no motion to see, so no reason to wait for it
+
 export default function Splash({ onDone }) {
-  const [visible, setVisible] = useState(true);
+  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const t = setTimeout(() => setVisible(false), reduce ? 300 : 2600);
+    const t = setTimeout(() => setLeaving(true), reduce ? REDUCED_MS : MIN_MS);
     return () => clearTimeout(t);
   }, []);
 
-  const handleDone = () => {
-    setVisible(false);
-    onDone?.();
-  };
+  useEffect(() => {
+    if (!leaving) return;
+    // Long enough for the fade to finish, short enough not to be felt as a delay.
+    const t = setTimeout(() => onDone?.(), 260);
+    return () => clearTimeout(t);
+  }, [leaving, onDone]);
 
   return (
-    <AnimatePresence onExitComplete={handleDone}>
-      {visible && (
-        <motion.div
-          key="splash"
-          className="fixed inset-0 z-[100] bg-stone-950 overflow-hidden"
-          initial={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.6, ease: "easeInOut" }}
-          data-testid="splash-screen"
-        >
-          {/* Neon reflections — flicker on */}
-          <motion.div
-            className="absolute inset-0"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: [0, 0.15, 0.05, 0.25, 0.4] }}
-            transition={{ duration: 1.2, times: [0, 0.2, 0.35, 0.5, 1] }}
-            style={{
-              backgroundImage:
-                "radial-gradient(600px 300px at 20% 20%, rgba(234,88,12,0.35), transparent 60%), radial-gradient(500px 260px at 80% 80%, rgba(234,88,12,0.28), transparent 60%)",
-            }}
-          />
+    <div
+      data-testid="splash-screen"
+      className={`fixed inset-0 z-[100] bg-stone-950 flex flex-col items-center justify-center
+                  transition-opacity duration-[260ms] ${leaving ? "opacity-0" : "opacity-100"}`}
+    >
+      <style>{`
+        @keyframes bf-spin { to { transform: rotate(360deg); } }
+        @keyframes bf-breathe { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+        /* Someone who has asked for less motion gets a still ring that simply breathes,
+           rather than three things turning in their peripheral vision all day. */
+        @media (prefers-reduced-motion: reduce) {
+          .bf-arc { animation: bf-breathe 1.6s ease-in-out infinite !important; }
+        }
+      `}</style>
 
-          {/* Bar shelves lighting up */}
-          <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 flex flex-col gap-6 px-8">
-            {[0.35, 0.55, 0.75].map((delay, i) => (
-              <motion.div
-                key={i}
-                className="h-[1px] bg-orange-500/70"
-                initial={{ scaleX: 0, transformOrigin: i % 2 ? "right" : "left" }}
-                animate={{ scaleX: 1 }}
-                transition={{ delay, duration: 0.5, ease: "easeOut" }}
-              />
-            ))}
-          </div>
-
-          {/* Pour animation — glass silhouette + liquid */}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="relative w-40 h-56">
-              {/* Glass outline */}
-              <motion.svg
-                viewBox="0 0 100 140"
-                className="absolute inset-0 w-full h-full"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.6, duration: 0.5 }}
-              >
-                <path
-                  d="M 20 20 L 30 120 Q 30 130 40 130 L 60 130 Q 70 130 70 120 L 80 20 Z"
-                  stroke="#f5f5f4"
-                  strokeWidth="1.5"
-                  fill="none"
-                />
-              </motion.svg>
-
-              {/* Liquid rising */}
-              <motion.div
-                className="absolute bottom-[7%] left-1/2 -translate-x-1/2 w-[50%] rounded-b-lg"
-                style={{
-                  background:
-                    "linear-gradient(180deg, #fb923c 0%, #ea580c 60%, #9a3412 100%)",
-                }}
-                initial={{ height: 0 }}
-                animate={{ height: ["0%", "55%"] }}
-                transition={{ delay: 1.0, duration: 0.9, ease: "easeOut" }}
-              />
-
-              {/* Pouring stream */}
-              <motion.div
-                className="absolute left-1/2 -translate-x-1/2 w-[3px] bg-orange-500"
-                initial={{ height: 0, top: -20 }}
-                animate={{ height: [0, 60, 0] }}
-                transition={{ delay: 0.9, duration: 1.0, times: [0, 0.4, 1] }}
-                style={{ boxShadow: "0 0 12px rgba(234,88,12,0.8)" }}
-              />
-            </div>
-          </div>
-
-          {/* Wordmark */}
-          <div className="absolute bottom-16 inset-x-0 flex flex-col items-center gap-3">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.8, duration: 0.6 }}
-              className="flex items-center gap-2"
-            >
-              <Wine className="text-orange-500" size={20} />
-              <span className="font-display uppercase text-2xl tracking-tight">BarFlow</span>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 2.0, duration: 0.4 }}
-              className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-500"
-            >
-              Pour · Bill · Never run dry
-            </motion.div>
-          </div>
-
-          {/* Grain */}
+      <div className="relative h-24 w-24">
+        {[
+          { size: "inset-0",   dur: "1.6s", dir: "normal",  colour: "border-t-orange-500" },
+          { size: "inset-3",   dur: "2.2s", dir: "reverse", colour: "border-t-orange-400/70" },
+          { size: "inset-6",   dur: "2.8s", dir: "normal",  colour: "border-t-stone-500" },
+        ].map((ring, i) => (
           <div
-            className="absolute inset-0 pointer-events-none opacity-10 mix-blend-overlay"
-            style={{
-              backgroundImage:
-                "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='0.9'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")",
-            }}
+            key={i}
+            className={`bf-arc absolute ${ring.size} rounded-full border-2 border-transparent ${ring.colour}`}
+            style={{ animation: `bf-spin ${ring.dur} linear infinite ${ring.dir}` }}
           />
-        </motion.div>
-      )}
-    </AnimatePresence>
+        ))}
+      </div>
+
+      <div className="mt-8 text-[10px] tracking-[0.5em] uppercase text-stone-500">
+        Loading
+      </div>
+    </div>
   );
 }

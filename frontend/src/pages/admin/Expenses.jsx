@@ -597,13 +597,18 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
 
   const control = "bg-stone-950 border border-stone-700 text-stone-100 py-1.5 px-2 rounded text-sm";
 
-  const reverse = (row) => {
-    const reason = window.prompt(`Reverse ${currency(row.amount)} — why?`);
-    if (reason === null) return;
+  // An inline two-step, not window.prompt: the rest of this app confirms a destructive
+  // action in place — cancelling a booking, voiding a folio line, removing a dish — and a
+  // browser dialog is unstyleable, blocked in some browsers, and unusable on a tablet.
+  const [reversing, setReversing] = useState(null);   // { id, amount, reason }
+
+  const confirmReverse = () => {
+    if (!reversing.reason.trim()) return toast.error("Say why it is being reversed");
     api
-      .post(`/expenses/${row.id}/void`, { reason })
+      .post(`/expenses/${reversing.id}/void`, { reason: reversing.reason.trim() })
       .then(() => {
         toast.success("Expense reversed");
+        setReversing(null);
         onVoided();
       })
       .catch(onError);
@@ -706,16 +711,50 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
                   {currency(r.amount)}
                 </td>
                 {mayRecord && (
-                  <td className="py-2 text-right">
-                    {!r.voided_at && (
+                  <td className="py-2 text-right align-top">
+                    {!r.voided_at && reversing?.id !== r.id && (
                       <button
                         type="button"
                         data-testid={`reverse-${r.id}`}
-                        onClick={() => reverse(r)}
+                        onClick={() => setReversing({ id: r.id, amount: r.amount, reason: "" })}
                         className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400"
                       >
                         Reverse
                       </button>
+                    )}
+                    {reversing?.id === r.id && (
+                      <div className="text-left border border-red-500/30 bg-red-950/20 rounded p-3 w-72 ml-auto">
+                        <p className="text-xs text-stone-300">
+                          Reverse {currency(reversing.amount)}? The original line stays and a
+                          reversal is added beside it — nothing is deleted.
+                        </p>
+                        <input
+                          autoFocus
+                          data-testid={`reverse-reason-${r.id}`}
+                          value={reversing.reason}
+                          onChange={(e) => setReversing({ ...reversing, reason: e.target.value })}
+                          onKeyDown={(e) => e.key === "Enter" && confirmReverse()}
+                          placeholder="Why?"
+                          className="mt-2 w-full bg-transparent border-b border-stone-700 py-1 text-sm focus:border-orange-500 outline-none"
+                        />
+                        <div className="mt-3 flex items-center gap-3">
+                          <button
+                            type="button"
+                            data-testid={`reverse-confirm-${r.id}`}
+                            onClick={confirmReverse}
+                            className="rounded-full border border-red-500/40 text-red-400 hover:bg-red-500/10 py-1 px-4 text-[10px] tracking-widest uppercase"
+                          >
+                            Reverse
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setReversing(null)}
+                            className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-stone-300"
+                          >
+                            Keep it
+                          </button>
+                        </div>
+                      </div>
                     )}
                   </td>
                 )}
@@ -745,11 +784,20 @@ function CategoryManager({ categories, onChanged, onError }) {
       .catch(onError);
   };
 
-  const rename = (c) => {
-    const name = window.prompt("Rename this category", c.name);
-    if (name === null || name === c.name) return;
+  // Edited in place rather than through window.prompt, for the same reason the reversal
+  // is: a browser dialog cannot be styled, is blocked in some browsers, and is awkward on
+  // the tablet this is actually used on.
+  const [renaming, setRenaming] = useState(null);   // { id, name }
+
+  const saveRename = (c) => {
+    const name = (renaming?.name || "").trim();
+    if (!name) return toast.error("A category needs a name");
+    if (name === c.name) return setRenaming(null);
     api.put(`/expense-categories/${c.id}`, { name, active: c.active !== false })
-      .then(onChanged)
+      .then(() => {
+        setRenaming(null);
+        onChanged();
+      })
       .catch(onError);
   };
 
@@ -804,16 +852,41 @@ function CategoryManager({ categories, onChanged, onError }) {
               {categories.map((c) => (
                 <tr key={c.id} className="border-t border-stone-800">
                   <td className={`py-2 pr-4 ${c.active === false ? "text-stone-600" : "text-stone-300"}`}>
-                    {c.name}
-                    {c.active === false && (
-                      <span className="ml-2 text-[10px] tracking-widest uppercase text-stone-600">
-                        Retired
-                      </span>
+                    {renaming?.id === c.id ? (
+                      <input
+                        autoFocus
+                        data-testid={`category-rename-${c.id}`}
+                        value={renaming.name}
+                        onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveRename(c);
+                          if (e.key === "Escape") setRenaming(null);
+                        }}
+                        onBlur={() => saveRename(c)}
+                        className="bg-transparent border-b border-orange-500 py-0.5 text-sm outline-none w-48"
+                      />
+                    ) : (
+                      <>
+                        {c.name}
+                        {c.active === false && (
+                          <span className="ml-2 text-[10px] tracking-widest uppercase text-stone-600">
+                            Retired
+                          </span>
+                        )}
+                      </>
                     )}
                   </td>
                   <td className="py-2 text-right space-x-4 whitespace-nowrap">
-                    <button type="button" className={action} onClick={() => rename(c)}>
-                      Rename
+                    <button
+                      type="button"
+                      className={action}
+                      onClick={() =>
+                        renaming?.id === c.id
+                          ? saveRename(c)
+                          : setRenaming({ id: c.id, name: c.name })
+                      }
+                    >
+                      {renaming?.id === c.id ? "Save" : "Rename"}
                     </button>
                     <button
                       type="button"
