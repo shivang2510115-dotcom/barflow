@@ -20,8 +20,8 @@ import routers.housekeeping as housekeeping
 import security
 from models.folio import CheckOutIn
 from models.hotel import (
-    HousekeepingCancelIn, HousekeepingJobIn, HousekeepingPriority, HousekeepingStatus,
-    HousekeepingStatusIn, Room)
+    GuestRequestIn, HousekeepingCancelIn, HousekeepingJobIn, HousekeepingPriority,
+    HousekeepingStatus, HousekeepingStatusIn, Room)
 from mock_db import MockDatabase
 from scoped_db import PropertyScopedDatabase, tenant_db
 from services.access import DOMAINS, LIVE, SCREEN_KEYS
@@ -609,6 +609,191 @@ def test_completing_a_request_does_not_by_itself_clean_the_room(hotel):
     job = raise_job(db, people["front_desk"], reason="Towels")
     call(housekeeping.complete_job, job_id=job["id"], user=people["housekeeping"], db=db)
     assert room(db)["housekeeping_status"] == "dirty"
+
+
+# ------------------------------ the card in the room ------------------------------
+# The limiter's counters live in the database rather than in this process — see
+# services/ratelimit.py — so the `hotel` fixture's throwaway file gives each test its own
+# allowance without anything here having to reset them. The two flood tests below reset
+# anyway, because they are the ones that would be wrong in silence.
+def guest_asks(room_id="r101", reason="", request=None):
+    return call(housekeeping.guest_request, room_id=room_id,
+                payload=GuestRequestIn(reason=reason), request=request)
+
+
+def live_jobs(db):
+    return run(db.housekeeping_jobs.find(
+        {"status": {"$in": ["open", "in_progress"]}}, {"_id": 0}).to_list(100))
+
+
+def test_a_guest_raises_a_request_from_the_card_in_their_room(hotel):
+    _people, db, _ = hotel
+    answer = guest_asks(reason="Spill on the carpet")
+    assert answer == {"ok": True, "received": True, "room_number": "101"}
+
+    jobs_raised = live_jobs(db)
+    assert len(jobs_raised) == 1
+    job = jobs_raised[0]
+    assert job["room_id"] == "r101" and job["room_number"] == "101"
+    assert job["reason"] == "Spill on the carpet"
+    assert job["status"] == "open"
+    assert job["priority"] == "normal"
+    # A guest has no account. `source` is what says so; the absence alone would read as a
+    # record somebody failed to write.
+    assert job["raised_by"] is None and job["source"] == "guest"
+
+
+def test_the_card_shows_the_hotels_name_and_the_room_number_and_nothing_else(hotel):
+    _people, db, _ = hotel
+    run(db.rooms.update_one({"id": "r101"}, {"$set": {
+        "housekeeping_status": "out_of_order", "housekeeping_note": "Burst pipe",
+        "out_of_order": [{"from": "2026-09-01", "to": "2026-09-05"}]}}))
+    card = call(housekeeping.guest_room_card, room_id="r101")
+    assert card == {"property_name": "The Grand", "room_number": "101"}
+
+
+def test_a_guest_cannot_read_anything_else_about_the_room(hotel):
+    _people, db, _ = hotel
+    guest_asks(reason="Towels")
+    answer = guest_asks(reason="Towels")
+    card = call(housekeeping.guest_room_card, room_id="r101")
+    # Nothing in either response mentions the room's state, the request that exists, the
+    # guest in the room, or anything with an id somebody could use for something else.
+    for response in (answer, card):
+        blob = str(response)
+        for secret in ("dirty", "clean", "out_of_order", "housekeeping_status", "r101",
+                       "open", "in_progress", "job", "reason", "u-"):
+            assert secret not in blob
+
+
+def test_a_guest_pressing_twice_merges_rather_than_duplicating(hotel):
+    _people, db, _ = hotel
+    guest_asks(reason="Spill on the carpet")
+    guest_asks(reason="Also need fresh towels")
+
+    jobs_raised = live_jobs(db)
+    assert len(jobs_raised) == 1
+    assert jobs_raised[0]["reason"] == "Spill on the carpet\nAlso need fresh towels"
+    # Both presses are on the record, so "why was this room visited twice" is answerable.
+    assert [h["action"] for h in jobs_raised[0]["history"]] == ["raised", "guest_request"]
+    assert jobs_raised[0]["history"][1]["by"] is None
+
+
+def test_pressing_twice_with_the_same_words_adds_nothing_to_the_reason(hotel):
+    _people, db, _ = hotel
+    guest_asks(reason="Spill on the carpet")
+    guest_asks(reason="  spill on the CARPET  ")
+    jobs_raised = live_jobs(db)
+    assert len(jobs_raised) == 1
+    assert jobs_raised[0]["reason"] == "Spill on the carpet"
+    assert len(jobs_raised[0]["history"]) == 2
+
+
+def test_the_answer_is_the_same_whether_it_merged_or_not(hotel):
+    _people, _db, _ = hotel
+    # A disclosure decision, not laziness: "we already have one of these" would tell
+    # whoever scanned the card that a request is outstanding on that room.
+    first = guest_asks(reason="Towels")
+    assert guest_asks(reason="Towels again") == first
+
+
+def test_a_guest_request_merges_into_one_an_attendant_has_already_picked_up(hotel):
+    people, db, _ = hotel
+    guest_asks(reason="Spill on the carpet")
+    job = live_jobs(db)[0]
+    call(housekeeping.acknowledge_job, job_id=job["id"], user=people["housekeeping"],
+         db=db)
+    guest_asks(reason="And the kettle is broken")
+
+    outstanding = live_jobs(db)
+    assert len(outstanding) == 1
+    assert outstanding[0]["status"] == "in_progress"
+    assert outstanding[0]["reason"] == "Spill on the carpet\nAnd the kettle is broken"
+
+
+def test_a_guest_request_after_the_last_one_was_finished_is_a_new_request(hotel):
+    people, db, _ = hotel
+    guest_asks(reason="Towels")
+    call(housekeeping.complete_job, job_id=live_jobs(db)[0]["id"],
+         user=people["housekeeping"], db=db)
+    guest_asks(reason="Towels")
+    # A finished job is not reopened — that is what makes "who asked and when" survive.
+    all_jobs = run(db.housekeeping_jobs.find({}, {"_id": 0}).to_list(100))
+    assert len(all_jobs) == 2
+    assert {j["status"] for j in all_jobs} == {"done", "open"}
+
+
+def test_a_guest_request_merges_into_one_a_receptionist_raised(hotel):
+    people, db, _ = hotel
+    raise_job(db, people["front_desk"], reason="Guest phoned about the AC",
+              priority="high")
+    guest_asks(reason="The AC is still not working")
+    outstanding = live_jobs(db)
+    assert len(outstanding) == 1
+    # The priority the desk set survives; a guest does not triage their own request.
+    assert outstanding[0]["priority"] == "high"
+    assert outstanding[0]["reason"] == (
+        "Guest phoned about the AC\nThe AC is still not working")
+
+
+def test_an_empty_reason_from_a_guest_is_allowed(hotel):
+    _people, db, _ = hotel
+    # "Something is wrong in 204" is still worth knowing.
+    assert guest_asks(reason="")["received"] is True
+    assert live_jobs(db)[0]["reason"] == ""
+
+
+def test_an_empty_second_press_does_not_blank_the_reason(hotel):
+    _people, db, _ = hotel
+    guest_asks(reason="Spill on the carpet")
+    guest_asks(reason="")
+    assert live_jobs(db)[0]["reason"] == "Spill on the carpet"
+
+
+def test_a_request_for_a_room_that_does_not_exist_is_404_to_a_guest_too(hotel):
+    _people, _db, _ = hotel
+    assert refused(housekeeping.guest_request, room_id="nope",
+                   payload=GuestRequestIn(reason="x")).status_code == 404
+    assert refused(housekeeping.guest_room_card, room_id="nope").status_code == 404
+
+
+def test_a_flood_from_one_room_is_refused(hotel):
+    _people, db, _ = hotel
+    limit = housekeeping.GUEST_REQUESTS_PER_ROOM.limit
+    run(housekeeping.GUEST_REQUESTS_PER_ROOM.reset())
+    run(housekeeping.GUEST_REQUESTS_PER_ADDRESS.reset())
+    for _ in range(limit):
+        assert guest_asks(reason="Towels")["received"] is True
+
+    refusal = refused(housekeeping.guest_request, room_id="r101",
+                      payload=GuestRequestIn(reason="Towels"))
+    assert refusal.status_code == 429
+    assert "front desk" in refusal.detail
+    # And it says nothing about which limit, or how many are left.
+    assert str(limit) not in refusal.detail
+    # The flood cost a counter, not a hundred cards on the attendant's screen.
+    assert len(live_jobs(db)) == 1
+
+
+def test_one_room_being_flooded_does_not_silence_the_room_next_door(hotel):
+    _people, db, _ = hotel
+    run(housekeeping.GUEST_REQUESTS_PER_ROOM.reset())
+    run(housekeeping.GUEST_REQUESTS_PER_ADDRESS.reset())
+    for _ in range(housekeeping.GUEST_REQUESTS_PER_ROOM.limit):
+        guest_asks(reason="Towels")
+    assert refused(housekeeping.guest_request, room_id="r101",
+                   payload=GuestRequestIn()).status_code == 429
+    # 102's own budget is untouched: the key is the room, not the hotel's one address.
+    assert guest_asks(room_id="r102", reason="Towels")["received"] is True
+
+
+def test_the_limiters_use_the_shared_implementation(hotel):
+    # Not a second one. Two rate limiters is how two of them end up with different
+    # behaviour and only one of them gets fixed.
+    from services.ratelimit import RateLimiter
+    assert isinstance(housekeeping.GUEST_REQUESTS_PER_ROOM, RateLimiter)
+    assert isinstance(housekeeping.GUEST_REQUESTS_PER_ADDRESS, RateLimiter)
+    assert housekeeping.GUEST_REQUESTS_PER_ROOM.name != housekeeping.GUEST_REQUESTS_PER_ADDRESS.name
 
 
 # ---------------------------- who reaches the screen ----------------------------

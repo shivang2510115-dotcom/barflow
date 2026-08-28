@@ -14,17 +14,20 @@ range. An attendant's tap must never cost the hotel a booking.
 """
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+import db as _db_module
 from models.hotel import (
-    HousekeepingCancelIn, HousekeepingEvent, HousekeepingJob, HousekeepingJobIn,
-    HousekeepingStatusIn)
-from scoped_db import PropertyScopedDatabase, tenant_db
+    GuestRequestIn, HousekeepingCancelIn, HousekeepingEvent, HousekeepingJob,
+    HousekeepingJobIn, HousekeepingStatusIn)
+from scoped_db import PropertyScopedDatabase, db_for_room, tenant_db
 from security import require_access
 from services.clock import today
 from services.housekeeping import (
-    CANCELLED, DONE, IN_PROGRESS, LIVE_JOB_STATUSES, OPEN, OUT_OF_ORDER, STATUSES,
-    can_move_job, can_set, is_ready, note_required, status_of)
+    CANCELLED, DEFAULT_PRIORITY, DONE, IN_PROGRESS, LIVE_JOB_STATUSES, OPEN,
+    OUT_OF_ORDER, STATUSES, can_move_job, can_set, is_ready, merge_reason, note_required,
+    status_of)
+from services.ratelimit import RateLimiter, client_ip
 
 router = APIRouter()
 
@@ -53,6 +56,35 @@ JOBS = require_access("hotel", "admin", "manager", "front_desk", "housekeeping",
 # button on a page that 403s the person who presses it. The role list still holds, so
 # this is the hotel's own staff and nobody else.
 ACKNOWLEDGE = require_access("hotel", "admin", "manager", "front_desk", "housekeeping")
+
+# ----------------- What a guest with the in-room card may do -----------------
+# The two routes at the bottom of this file take no token: a guest scans the QR beside
+# the kettle and asks for towels without an account, exactly as the table QR already
+# works. A printed code in a room is an open door, and a room holding two hundred pending
+# requests is a denial of service against the screen an attendant is trying to work from.
+#
+# Both limiters come from services/ratelimit.py — the same one the login, signup and
+# table-QR doors use. A second implementation of this is how two of them end up with
+# different behaviour and only one of them gets fixed.
+#
+# Keyed on the **room**, not on address-and-room the way the table limiter is, and the
+# difference is deliberate: a restaurant's tables share one guest wifi, so a flat per-IP
+# budget there would let the first four tables silence the room. A hotel room is occupied
+# by one party, and what this number has to bound is how many requests one room can put
+# on the housekeeping screen — which is a fact about the room, whichever phone is used.
+# Six in ten minutes is far above a guest who pressed twice because they were unsure, and
+# the merge rule below means those two presses are one job anyway.
+GUEST_REQUESTS_PER_ROOM = RateLimiter(limit=6, window_seconds=600, name="hk_room")
+
+# And a looser one per address, across every room, which is what catches the caller who
+# has been given or has scraped many room ids. A whole floor of guests on the hotel's own
+# wifi shares one address, so this has to sit well above real use.
+GUEST_REQUESTS_PER_ADDRESS = RateLimiter(limit=60, window_seconds=600, name="hk_ip")
+
+# What a guest is told when either limit stops them. Never which one, and never a number:
+# the person reading it is overwhelmingly a real guest whose phone retried, and the useful
+# next step is the same for all of them.
+ASK_THE_DESK = "Please call the front desk and they will help straight away."
 
 # How many log lines one room's history hands back at most. The log is append-only and a
 # room accumulates a few lines a day for years, so it is read newest-first and capped
@@ -399,3 +431,108 @@ async def cancel_job(job_id: str, payload: HousekeepingCancelIn,
                            note=reason,
                            patch={"cancelled_at": _now(), "cancelled_by": user.get("id"),
                                   "cancel_reason": reason})
+
+
+# --------------------------- the card in the room ---------------------------
+# The two routes below take no dependency at all. They are the QR code printed and placed
+# in each room: a guest scans it, says what they need, and a request appears. No account,
+# exactly like the table QR that already ships — and scoped the same way, from the room in
+# the URL through `db_for_room`, so the printed link is itself the tenant identifier and
+# nothing a guest can type names another room or another hotel. A pending or suspended
+# property's card refuses, because `db_for_room` checks the owning property's status.
+#
+# **A guest can see nothing else.** Not the room's status, not whether anybody has already
+# asked for something, not other rooms, not who is staying anywhere. The response below is
+# the hotel's name and the room's number: what is printed on the card they are holding.
+# The rule is `routers/frontdesk.py::_pos_guest`'s — everything left in the response is
+# something an anonymous caller may read — applied to a caller who is even less known than
+# a waiter.
+@router.get("/housekeeping/room/{room_id}/public")
+async def guest_room_card(room_id: str, request: Request = None):
+    """What the in-room QR page shows above the box: which hotel, which room.
+
+    Two fields, both of them printed on the card the guest is holding and on the door
+    they are standing at. The room record carries its floor, its type, its housekeeping
+    status, its note and the date ranges it is out of order for, and none of that leaves
+    this function — a room's status is an operational fact about the hotel, and the guest
+    who was told their room is `dirty` is a support call nobody needs.
+    """
+    scoped, room = await db_for_room(room_id, request)
+    # `properties` stands outside tenancy, so it is reached through `unscoped_db` and
+    # filtered by the id the scoped handle is already bound to. There is no id here from
+    # a request that could name another hotel.
+    record = await _db_module.unscoped_db.properties.find_one(
+        {"id": scoped.property_id}, {"_id": 0})
+    return {"property_name": (record or {}).get("name"),
+            "room_number": room.get("number")}
+
+
+@router.post("/housekeeping/room/{room_id}/requests")
+async def guest_request(room_id: str, payload: GuestRequestIn, request: Request = None):
+    """A guest asks for their room to be dealt with.
+
+    **A second request for a room that already has a live one merges into it.** The
+    existing job is kept and the words are appended; no duplicate appears on the
+    housekeeping screen. A guest pressing twice is a guest who is unsure it worked, and
+    answering that with two identical cards is how a screen becomes a wall nobody reads.
+    Merging into `in_progress` as well as `open` is deliberate: an attendant already on
+    their way to the room wants the extra sentence, and a second card would send a second
+    person.
+
+    Staff requests do not merge — see `raise_job`. The difference is what each of them can
+    see: a receptionist raising a second request is looking at the list that holds the
+    first, and a guest is looking at a box and a button.
+
+    **The answer is the same whether it merged or not**, and that is a disclosure decision
+    rather than laziness. Saying "we already have one of these" would tell whoever scanned
+    the card that a request is outstanding on that room, which is a fact about the hotel's
+    operations and not the guest's to be handed. It is also exactly what merging is for:
+    the guest cannot tell, and does not need to.
+
+    Rate-limited per room and per address before anything is read or written, so a flood
+    costs a counter rather than a document.
+    """
+    ip = client_ip(request)
+    # The room's budget first, because it is the one a real guest could conceivably reach,
+    # so its refusal is the one they see.
+    if (await GUEST_REQUESTS_PER_ROOM.limited(room_id)
+            or await GUEST_REQUESTS_PER_ADDRESS.limited(ip)):
+        raise HTTPException(429, f"That has already been sent through. {ASK_THE_DESK}")
+
+    db, room = await db_for_room(room_id, request)
+    reason = (payload.reason or "").strip()
+
+    live = await _live_job_for_room(db, room["id"])
+    if live:
+        merged = merge_reason(live.get("reason"), reason)
+        # The press is recorded whether or not it added a word. It is evidence that the
+        # guest was not sure, which is worth a line to whoever asks later why the room was
+        # visited twice; the limiter above is what stops that line becoming a thousand.
+        update: dict = {"$push": {"history": _history("guest_request", None, reason)}}
+        if merged != (live.get("reason") or ""):
+            update["$set"] = {"reason": merged}
+        await db.housekeeping_jobs.update_one({"id": live["id"]}, update)
+        return _received(room)
+
+    job = HousekeepingJob(
+        room_id=room["id"], room_number=room.get("number"), priority=DEFAULT_PRIORITY,
+        # An empty reason is allowed: "something is wrong in 204" is still worth knowing,
+        # and the alternative is a required box that gets filled in with a full stop.
+        reason=reason,
+        # `None`, not a placeholder id. A guest has no account, and the `source` field is
+        # what says so — an absence alone would read as a record somebody failed to write.
+        raised_by=None, source="guest",
+    ).model_dump()
+    job["history"] = [_history("raised", None, reason)]
+    await db.housekeeping_jobs.insert_one(job)
+    return _received(room)
+
+
+def _received(room: dict) -> dict:
+    """The confirmation. Identical for a new request and for a merged one — see above.
+
+    No job id: there is no public route that would take one, so it would be an identifier
+    handed out for nothing, and the next person to add a route would find it already in a
+    guest's hands.
+    """
+    return {"ok": True, "received": True, "room_number": room.get("number")}
