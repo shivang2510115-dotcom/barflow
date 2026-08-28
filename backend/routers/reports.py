@@ -326,21 +326,89 @@ def _send_whatsapp(to: str, text: str) -> dict:
     level and return a shape that read like a send, so a misconfigured deployment and a
     working one were indistinguishable — the failure this function exists to make
     visible.
+
+    Free-form text, which Meta only accepts within 24 hours of the customer messaging the
+    business. That is fine for the two things that use it — the owner's own nightly brief
+    and the test message an admin sends to their own phone, both to a number that has
+    opted into the conversation. Anything sent to a *customer* days after a visit is
+    outside that window and has to be an approved template: see `send_whatsapp_template`
+    below, which is the same transport with a different body.
     """
     problem = whatsapp_config_problem()
     if problem:
         logger.warning("WhatsApp not sent — %s", problem)
         return {"sent": False, "configured": False, "to": to, "error": problem,
                 "message": text}
+    return _post_whatsapp(to, {"type": "text", "text": {"body": text}})
 
+
+def send_whatsapp_template(to: str, template: str, language: str,
+                           variables: list) -> dict:
+    """Send an approved template, with its variables filled in, and say what happened.
+
+    The only way to reach a customer outside the 24-hour window, and therefore the only
+    way a birthday greeting or a post-visit note can go at all. `template` is a name Meta
+    has reviewed and approved under this business account; `variables` are the positional
+    body parameters that fill its `{{1}}`, `{{2}}` … in order. Nothing here writes a
+    sentence — the words are Meta's, held against the name.
+
+    Public, unlike `_send_whatsapp`, because `routers/messaging.py` is the caller and the
+    import needs to read as the deliberate crossing that it is.
+
+    Two config checks, not one, and they refuse in different words on purpose.
+    `whatsapp_config_problem()` covers the credentials — the same three environment
+    variables, named individually, that the status endpoint already reports. Whether a
+    *template* exists is the property's own configuration and is checked before this is
+    ever called (services/messaging.py::template_problem), because it is fixed in a
+    different place by a different person. `OWNER_PHONE` being required by
+    `whatsapp_config_problem()` is a quirk this inherits: it is the brief's recipient and
+    has nothing to do with a customer's number, but a deployment missing it is one nobody
+    has finished setting up, so refusing is the honest answer either way.
+    """
+    problem = whatsapp_config_problem()
+    if problem:
+        logger.warning("WhatsApp template %r not sent — %s", template, problem)
+        return {"sent": False, "configured": False, "to": to, "error": problem,
+                "template": template}
+
+    body = {
+        "type": "template",
+        "template": {
+            "name": template,
+            "language": {"code": language},
+            # Body parameters only. A header or a button variable would be another
+            # component here, and neither is asked for by anything this application
+            # sends — an unused empty `components` entry is a shape Meta rejects.
+            "components": [{
+                "type": "body",
+                "parameters": [{"type": "text", "text": str(v)} for v in variables],
+            }] if variables else [],
+        },
+    }
+    result = _post_whatsapp(to, body)
+    result["template"] = template
+    return result
+
+
+def _post_whatsapp(to: str, message: dict) -> dict:
+    """The one HTTP call, and the one reading of what came back.
+
+    Split out of `_send_whatsapp` when templates arrived rather than copied, because the
+    valuable half of that function was never the request — it was the refusal handling
+    below, which turns Meta's error codes into something a hotelier can act on. A second
+    copy of that would drift, and its first divergence would be a failed birthday message
+    reported as an unexplained 400.
+
+    The caller has already established that the credentials are present; `message` is
+    whatever body the caller wants merged with the envelope every send shares.
+    """
     import json as _json, urllib.error, urllib.request
     token = os.environ["WHATSAPP_TOKEN"]
     phone_id = os.environ["WHATSAPP_PHONE_ID"]
     body = _json.dumps({
         "messaging_product": "whatsapp",
         "to": to,
-        "type": "text",
-        "text": {"body": text},
+        **message,
     }).encode()
     req = urllib.request.Request(
         f"https://graph.facebook.com/v20.0/{phone_id}/messages",
