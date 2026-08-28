@@ -137,8 +137,8 @@ async def login(payload: LoginIn, request: Request = None):
         raise await refuse()
     # And the same one level up: a suspended hotel refuses its whole staff, its admin
     # included. Byte-identical to the two refusals above, deliberately — "this hotel is
-    # suspended" tells whoever typed the address that the hotel is on this platform and
-    # that this email is one of its logins, which is more than a wrong password reveals.
+    # suspended" tells whoever typed it that the hotel is on this platform and that this
+    # identifier is one of its logins, which is more than a wrong password reveals.
     # A pending hotel logs in normally: setting the place up is exactly what it is for.
     property_record = await resolve_property(user)
     if property_record and property_record.get("status") == SUSPENDED:
@@ -147,9 +147,10 @@ async def login(payload: LoginIn, request: Request = None):
     # This address keeps whatever failures it has accumulated, and only the account
     # forgets. An attacker holding one valid login of their own would otherwise clear
     # their address's counter between every fifty guesses simply by signing into it;
-    # clearing the *email* needs the password to that email, which is the thing they are
+    # clearing the *identifier* needs the password to it, which is the thing they are
     # trying to find out. The person it helps is the front desk who mistyped twice
-    # before getting it right.
+    # before getting it right — and now also the waiter who typed their own number three
+    # different ways, since all three clear the one bucket they all counted against.
     await LOGIN_FAILURES_PER_IDENTIFIER.forget(identifier)
     token = create_access_token(user["id"], user.get("email"), user["role"])
     return {
