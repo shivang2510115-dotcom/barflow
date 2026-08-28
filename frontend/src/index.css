@@ -215,6 +215,24 @@ body {
     animation: alertIn 200ms ease-out both;
 }
 
+/* The planner's editor and detail panels, which open above the grid rather than over it.
+   Same reasoning as the alert above and the same 200ms: a panel that is simply there was
+   either always there or is a rendering bug. Reused by both because they are the same
+   gesture — something opened in response to a click. */
+.planner-sheet {
+    animation: alertIn 200ms ease-out both;
+}
+
+/* Event chips light up under the pointer. A transition rather than a jump, because a
+   month grid is a dense field of small targets and the fade is what tells you which one
+   you are actually on. */
+.planner-chip {
+    transition: background-color 120ms ease-out;
+}
+
+/* Somebody who has asked their operating system for less motion is asking for less of
+   exactly this. The colour still changes and the panels still appear — nothing is
+   hidden — they simply arrive rather than move. */
 @media (prefers-reduced-motion: reduce) {
     .room-floor {
         animation: none;
@@ -224,5 +242,11 @@ body {
     }
     .hk-alert {
         animation: none;
+    }
+    .planner-sheet {
+        animation: none;
+    }
+    .planner-chip {
+        transition: none;
     }
 }

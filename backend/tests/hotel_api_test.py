@@ -1890,10 +1890,15 @@ def test_the_screen_catalogue_is_readable_by_any_signed_in_user(admin):
         "hotel.rates", "hotel.guests", "hotel.housekeeping",
         "outlet.tables", "outlet.pos", "outlet.kot",
         "outlet.reservations", "outlet.menu", "outlet.inventory", "outlet.reports",
+        "property.planner",
         "admin.staff", "admin.analytics", "admin.expenses"}
     for row in catalogue:
         assert row["label"] and row["section"] and row["domains"]
-    assert {row["section"] for row in catalogue} == {"Hotel", "Restaurant", "Admin"}
+    # "Property" joins the three when the planner lands: it is neither the hotel's screen
+    # nor the restaurant's nor the admin console's, and the sidebar has had a heading of
+    # that name for the other two shared screens all along.
+    assert {row["section"] for row in catalogue} == {"Hotel", "Restaurant", "Property",
+                                                     "Admin"}
 
 
 def test_a_manager_reaches_the_screens_ticked_and_no_others(admin):

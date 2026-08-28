@@ -34,6 +34,7 @@ import Calendar from "@/pages/hotel/Calendar";
 import Rates from "@/pages/hotel/Rates";
 import Guests from "@/pages/hotel/Guests";
 import Messaging from "@/pages/Messaging";
+import Planner from "@/pages/Planner";
 import Staff from "@/pages/admin/Staff";
 import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
@@ -111,6 +112,13 @@ function AppShell() {
         {/* Sending a greeting is operational work — the front desk and the waiter
             know the guest. The endpoints behind this name the same four roles. */}
         <Route path="/messaging" element={<Protected roles={["admin", "manager", "front_desk", "waiter"]}><Messaging /></Protected>} />
+        {/* The planning calendar. No `roles` at all, which is the only route in this file
+            without one and is the point of the screen: a fire drill on Thursday is posted
+            for everybody who works here, and the API declares the domain alone on its read
+            routes for the same reason. Writing is what is restricted — admin and manager,
+            behind `property.planner` — and `require_access` is where that is enforced, not
+            here. */}
+        <Route path="/planner" element={<Planner />} />
         <Route path="/admin" element={<Protected roles={["admin"]}><Console /></Protected>} />
         <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />
         <Route path="/admin/analytics" element={<Protected roles={["admin", "manager"]}><Analytics /></Protected>} />

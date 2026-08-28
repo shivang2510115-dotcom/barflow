@@ -23,6 +23,7 @@ from services.access import (
     default_permissions, domains_for_property_type)
 from services.expenses import seed_expense_categories
 from services.password import password_problem
+from services.planner import seed_categories as seed_planner_categories
 from services.ratelimit import RateLimiter, client_ip
 from services.reference_data import seed_reference_data
 from services.registration import GSTIN_SHAPE, validate_gstin
@@ -204,6 +205,12 @@ async def signup(payload: SignupIn, request: Request):
     # Indian-hospitality defaults are a starting point it renames and adds to from its own
     # screen rather than a list it is stuck with.
     await seed_expense_categories(PropertyScopedDatabase(property_id))
+    # And the planner's categories. A property with none has a planning screen whose
+    # picker is empty and on which no event can be created at all, and Training,
+    # Meeting, Guest service, Maintenance and Event are a starting point it renames,
+    # recolours and adds to from its own screen — a category list hardcoded in our
+    # source is one the hotel cannot fix.
+    await seed_planner_categories(PropertyScopedDatabase(property_id))
 
     return {
         "property_id": property_id,

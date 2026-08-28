@@ -151,6 +151,24 @@ SCREENS: dict[str, dict] = {
     "outlet.menu":        {"label": "Menu",         "section": "Restaurant", "domains": OUTLET},
     "outlet.inventory":   {"label": "Inventory",    "section": "Restaurant", "domains": (SHARED,)},
     "outlet.reports":     {"label": "Reports",      "section": "Restaurant", "domains": OUTLET},
+    # Who may *plan* the property's week: write to the planning calendar, and add or
+    # rename the categories it files events under. Wired like `admin.analytics` below — it
+    # spans the domains and lets the role list narrow it, so a manager can hold it without
+    # being made an admin.
+    #
+    # **Reading the calendar does not require this key, deliberately.** A waiter has to be
+    # able to see that Tuesday's briefing is at 4pm, and gating the read on a tick would
+    # hide it from everybody `ROLE_SCREENS` does not hand it to — which, given that table
+    # is frozen, is every non-manager in the property, for good. `routers/planner.py`
+    # declares the domain alone on its read routes and this key on its writes, and says so
+    # at both call sites.
+    #
+    # A section of its own, because that is what it is: not the hotel's, not the
+    # restaurant's, and not the admin console's. `hotel.guests` and `outlet.inventory` are
+    # the same kind of thing and are filed under a domain heading only because there was
+    # nowhere else to put them when they were written; the sidebar has had a "Property"
+    # heading for both of them ever since.
+    "property.planner":   {"label": "Planner",      "section": "Property",   "domains": DOMAINS},
     # Grantable rather than implied by the role, so a manager can be given the analytics
     # screen without being made an admin.
     "admin.staff":        {"label": "Staff",        "section": "Admin",      "domains": (SHARED,)},

@@ -16,6 +16,7 @@ import {
   UserCheck,
   CalendarPlus,
   CalendarRange,
+  CalendarDays,
   ClipboardList,
   Tags,
   Users,
@@ -85,7 +86,20 @@ const NAV = [
   // and was tagged that way. Under section scoping the heading earns its keep twice
   // over — lib/sections.js shows this group in both the Hotel and the Restaurant
   // sidebar, so the desk keeps the store room and the bar keeps the guest list.
-  { section: "Property", roles: ["admin", "manager", "front_desk", "kitchen"] },
+  // Every role, now that the planner sits under this heading. A heading is filtered by
+  // role exactly as its links are, so leaving `waiter` and `housekeeping` out would render
+  // the planner link with no heading over it for the two roles that most need to be told
+  // which part of the app they are looking at.
+  { section: "Property", roles: ["admin", "manager", "front_desk", "kitchen", "waiter", "housekeeping"] },
+  // The planning calendar, and the only item here carrying `open`. It has no `screen` key
+  // because `property.planner` guards *writing* to the calendar, while the routes behind
+  // this link declare the domain alone (routers/planner.py::READ) — everybody who works
+  // here may read what the property has planned. `open` is what says that out loud;
+  // without it `holdsScreen` would fail closed and show the link to admins only, which is
+  // the right default and the wrong answer here. Filed under Property because that is what
+  // it is: not the hotel's and not the restaurant's, and lib/sections.js shows this heading
+  // in both sidebars, so the desk and the bar see the same fire drill.
+  { to: "/app/planner", label: "Planner", icon: CalendarDays, open: true, roles: ["admin", "manager", "front_desk", "kitchen", "waiter", "housekeeping"] },
   // guests.py declares SHARED: a bar regular and a hotel guest are the same person, and
   // splitting the records by domain would stop the desk seeing an arrival's bar history.
   { to: "/app/hotel/guests", label: "Guests", icon: Users, roles: ["admin", "manager", "front_desk"], screen: "hotel.guests" },

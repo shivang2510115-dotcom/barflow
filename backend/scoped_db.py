@@ -83,6 +83,12 @@ SCOPED_COLLECTIONS = (
     # under its own business account. A leak across tenants here is a leak of exactly the
     # kind this module exists to make impossible.
     "occasions", "message_log", "message_claims", "messaging_settings",
+    # The planning calendar: what this property has decided to do, and the vocabulary it
+    # decided it in. A fire drill on Thursday, a wedding in the banquet hall and the name
+    # a hotel gave its own category are as much its own as its guest list is — and the
+    # categories are deliberately not a shared table, because two properties calling the
+    # same thing different names is the normal case rather than a conflict to reconcile.
+    "calendar_events", "calendar_categories",
     # Housekeeping. The event log is a record of which of this hotel's staff touched
     # which of its rooms, and a job carries a guest's own words about the room they are
     # sleeping in — both as much the property's own as its guest list is. The job

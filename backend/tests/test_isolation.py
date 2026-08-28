@@ -33,6 +33,7 @@ import routers.inventory as inventory
 import routers.menu as menu
 import routers.orders as orders
 import routers.payments as payments
+import routers.planner as planner
 import routers.rates as rates
 import routers.reports as reports
 import routers.rooms as rooms
@@ -40,12 +41,14 @@ import routers.staff as staff
 import routers.tables as tables
 from mock_db import MockDatabase
 from models.folio import ChargeIn, PaymentIn, VoidIn
+from models.planner import CalendarEventIn
 from models.hotel import (
     BookingIn, BookingUpdateIn, CancelIn, GuestIn, GuestRequestIn, HousekeepingStatusIn,
     MealPlanIn, RoomAssignmentIn, RoomIn, TaxSlab)
 from scoped_db import PropertyScopedDatabase, UnscopedCollectionError, tenant_db
 from services.access import DOMAINS, LIVE, PENDING, SCREEN_KEYS, SUSPENDED
 from services.clock import today as local_today
+from services.planner import seed_categories as seed_planner_categories
 
 
 def run(coro):
@@ -641,6 +644,64 @@ def test_a_request_cannot_be_raised_against_the_other_hotels_room(world):
     a, _b = world
     assert refused(housekeeping.raise_job, payload=housekeeping.HousekeepingJobIn(
         room_id="b-room"), user=a.admin, db=a.db).status_code == 404
+
+
+# ------------------------------ the planner ------------------------------
+# Both hotels plan the same week, with the same words: a "Meeting" category and a
+# "Staff briefing" on the same day. A test that gave them different ones would pass
+# against a missing filter whenever the other hotel happened to have planned nothing.
+def _plan(hotel: Hotel, title: str, day: str) -> dict:
+    run(seed_planner_categories(hotel.db))
+    meeting = run(hotel.db.calendar_categories.find_one({"name": "Meeting"}, {"_id": 0}))
+    return call(planner.create_event, payload=CalendarEventIn(
+        title=title, date=day, start_time="16:00", category_id=meeting["id"]),
+        user=hotel.admin, db=hotel.db)
+
+
+def test_a_month_holds_none_of_the_other_hotels_events(world):
+    a, b = world
+    _plan(a, "Staff briefing", "2026-08-04")
+    b_event = _plan(b, "Staff briefing", "2026-08-04")
+
+    seen = call(planner.list_events, start="2026-08-01", end="2026-08-31",
+                user=a.admin, db=a.db)
+    assert len(seen["events"]) == 1
+    assert seen["events"][0]["id"] != b_event["id"]
+    assert b_event["id"] not in {e["id"] for e in seen["events"]}
+
+
+def test_the_other_hotels_event_cannot_be_edited_or_deleted(world):
+    a, b = world
+    b_event = _plan(b, "Fire drill", "2026-08-06")
+    a_event = _plan(a, "Fire drill", "2026-08-06")
+    meeting = run(a.db.calendar_categories.find_one({"name": "Meeting"}, {"_id": 0}))
+    assert a_event["id"] != b_event["id"]
+    # 404, not 403: a 403 would confirm that the event exists.
+    assert refused(planner.update_event, event_id=b_event["id"],
+                   payload=CalendarEventIn(title="Mine now", date="2026-08-06",
+                                           category_id=meeting["id"]),
+                   user=a.admin, db=a.db).status_code == 404
+    assert refused(planner.delete_event, event_id=b_event["id"], user=a.admin,
+                   db=a.db).status_code == 404
+    assert run(b.db.calendar_events.find_one({"id": b_event["id"]}))["title"] == "Fire drill"
+
+
+def test_a_categorys_colour_is_the_hotels_own(world):
+    a, b = world
+    _plan(a, "Staff briefing", "2026-08-04")
+    _plan(b, "Staff briefing", "2026-08-04")
+    b_meeting = run(b.db.calendar_categories.find_one({"name": "Meeting"}, {"_id": 0}))
+
+    seen = call(planner.list_categories, user=a.admin, db=a.db)
+    assert b_meeting["id"] not in {c["id"] for c in seen["categories"]}
+    # And an event cannot be filed under the other hotel's category — the scoped handle
+    # does not find it, so it reads as "no such category" rather than as a leak.
+    assert refused(planner.create_event, payload=CalendarEventIn(
+        title="Borrowed", date="2026-08-07", category_id=b_meeting["id"]),
+        user=a.admin, db=a.db).status_code == 400
+    assert refused(planner.update_category, category_id=b_meeting["id"],
+                   payload=planner.CalendarCategoryIn(name="Taken", colour="#ffffff"),
+                   user=a.admin, db=a.db).status_code == 404
 
 
 # ------------------------------ the in-room QR ------------------------------
