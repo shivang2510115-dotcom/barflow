@@ -47,7 +47,7 @@ export default function HousekeepingAlert() {
     setBusy(job.id);
     const { ok, error } = await acknowledge(job.id);
     setBusy(null);
-    if (ok) toast.success(`Room ${job.room_number || ""} picked up`.replace("  ", " "));
+    if (ok) toast.success(job.room_number ? `Room ${job.room_number} picked up` : "Picked up");
     else toast.error(formatApiErrorDetail(error?.response?.data?.detail) || "Could not acknowledge that");
   };
 
