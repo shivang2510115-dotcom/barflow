@@ -171,6 +171,29 @@ def test_an_unreadable_quantity_names_the_row_and_the_cell():
     assert report["summary"]["blocked"] == 1
 
 
+def test_an_unreadable_cell_comes_back_as_its_own_text_and_never_as_zero():
+    # The report's rows are what the review screen sends back on apply. A cell replaced
+    # with 0.0 here would re-parse perfectly on the way in and write "no stock" for a
+    # figure nobody could read — a silent zero being exactly the untrustworthy number
+    # this whole feature exists to prevent.
+    report = plan("name,unit,stock,cost_per_unit\nBourbon 750ml,bottle,about a dozen,-5\n"
+                  "Tonic Water,bottle,,60\n")
+    assert row_at(report, 2)["stock"] == "about a dozen"
+    assert row_at(report, 2)["cost_per_unit"] == "-5"
+    assert row_at(report, 3)["stock"] == ""
+
+
+def test_a_blocked_row_sent_straight_back_unfixed_is_still_refused():
+    # The round trip, with no human in the middle: whatever a browser does, a row the
+    # preview could not read cannot become a write by being echoed back.
+    report = plan("name,unit,stock\nBourbon 750ml,bottle,about a dozen\n")
+    echoed = dict(report["rows"][0])
+    echoed["action"] = "create"  # a client that ignored the errors it was handed
+    ops, refusals = imp.plan_apply([echoed], [])
+    assert ops == []
+    assert refusals[0]["row"] == 2 and "about a dozen" in refusals[0]["message"]
+
+
 def test_a_negative_quantity_is_refused_by_the_cell_that_holds_it():
     report = plan("name,unit,stock\nBourbon 750ml,bottle,-3\n")
     error = row_at(report, 2)["errors"][0]

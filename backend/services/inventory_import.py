@@ -408,26 +408,36 @@ def _read_cells(cells: dict[str, str], number: int) -> tuple[dict, list[dict]]:
 
 def _number_cell(raw: str, column: str, number: int, errors: list, *, default,
                  quantity: bool):
-    """One numeric cell. `default=None` marks the column as one that must be filled in."""
+    """One numeric cell. `default=None` marks the column as one that must be filled in.
+
+    **A cell that could not be read comes back as the text it held, not as zero.** That
+    is the whole difference between a report and a lie. The preview's rows are what the
+    review screen sends back on apply — edited, but only where a human edited them — so a
+    substituted `0.0` would re-parse perfectly the second time and write "no stock" for a
+    cell nobody could read. Returning the original text means the same row fails the same
+    way on the way back in, whatever the browser does with it, and means the admin sees
+    'about a dozen' in the box they have to correct rather than a zero they have no
+    reason to distrust.
+    """
     text = str(raw or "").strip()
     if not text:
         if default is None:
             errors.append(_error(number, column, raw, (
                 "this row has no quantity — a blank is not zero, and a stock figure "
                 "nobody entered is the problem this import exists to fix")))
-            return 0.0
+            return ""
         return float(default)
 
     value = _to_number(text)
     if value is None:
         errors.append(_error(number, column, text,
                              f"'{text}' is not a number this import can read"))
-        return 0.0
+        return text
     if value < 0:
         noun = "a quantity" if quantity else "a cost"
         errors.append(_error(number, column, text, f"'{text}' is negative, and {noun} "
                                                    f"cannot be"))
-        return 0.0
+        return text
     return value
 
 
