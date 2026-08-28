@@ -45,10 +45,14 @@ class MessagingSettingsIn(BaseModel):
     # Meta files a template under a name *and* a language, and wants both at send time.
     template_language: str = DEFAULT_TEMPLATE_LANGUAGE
 
-    # Off, deliberately, and not merely defaulted to a large number. A property that has
-    # not thought about this must not start messaging its customers because the software
-    # shipped with an opinion about how often a guest should hear from a restaurant.
-    follow_up_enabled: bool = False
+    # On, at ten days. The follow-up sends itself from a scheduled function — there is no
+    # screen anybody works through — so this default is what a property that never opens
+    # the settings screen will actually do. What keeps that safe is not the switch: it is
+    # that no message goes anywhere until the property has obtained a Meta template of its
+    # own, that an opted-out customer is never reached, and that each customer hears once
+    # per visit. The switch is still here because a property that wants none of it must be
+    # able to say so in one click, and off means the job stops before reading a guest.
+    follow_up_enabled: bool = True
     follow_up_days: int = DEFAULT_FOLLOW_UP_DAYS
 
 
@@ -80,9 +84,13 @@ class MessageLogEntry(BaseModel):
     * `failed` — it was handed to Meta, or would have been, and did not go: the real error
       text, translated where `routers/reports.py` recognises the code and passed through
       verbatim where it does not;
-    * `refused` — this property's own rules stopped it before Meta was involved at all.
-      Almost always consent. Kept distinct from `failed` because "we chose not to" and
-      "it broke" are different facts, and the first one is the one a regulator asks about.
+    * `refused` — the **customer's own opt-out** stopped it. Only that: a missing template
+      or an unusable number is `failed`, because those are things the property has to fix
+      and this is not. Kept distinct because "they asked us not to" and "it broke" are
+      different facts, and the first is the one a regulator asks about.
+
+    `sent_by` is the staff id that pressed the button, or `None` — which means the nightly
+    follow-up job sent it and nobody pressed anything.
 
     There is no `message` field and there never was one. The wording is Meta's, held
     against the template name; storing a rendered sentence here would be storing a guess

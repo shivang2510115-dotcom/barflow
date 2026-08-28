@@ -48,10 +48,13 @@ SENT = "sent"
 FAILED = "failed"
 REFUSED = "refused"
 
-# Two months is a long time not to have seen a regular and a short time to a hotel whose
-# guests come once a year. It is only the *starting* number on a screen the owner has to
-# open and switch on before anything is sent, which is why a figure can be picked at all.
-DEFAULT_FOLLOW_UP_DAYS = 60
+# Ten days, and it is a real default: the follow-up sends itself, so this is the number a
+# property that never opens the settings screen will actually message its customers on.
+# It is the owner's figure, not an invention — a bar or a restaurant whose regulars come
+# weekly has lost somebody at ten days, and a note then still reads as being noticed
+# rather than as being marketed at. A hotel whose guests come once a year sets it higher,
+# which is why it is configurable and not a constant.
+DEFAULT_FOLLOW_UP_DAYS = 10
 
 # Meta stores a template under a name *and* a language, and asks for both at send time.
 # "en" is the safe start for an Indian property writing in English; a hotel messaging in
@@ -223,13 +226,21 @@ def blocking_problem(settings, guest, kind: str, label: str = "") -> str:
 
 # ------------------------------- follow-ups --------------------------------
 def follow_up_enabled(settings) -> bool:
-    """Off unless the property has said otherwise, and `None` is not "yes".
+    """Whether this property's lapsed customers hear from it. On unless it says otherwise.
 
-    A property that has never opened the screen must not start messaging its customers
-    because the software shipped with an opinion about how often a guest should hear from
-    a restaurant.
+    On by default, which is a deliberate reversal of where this started. The argument for
+    off was that software should not form opinions about a business's relationship with
+    its customers; the argument that won is that a follow-up nobody switched on is a
+    feature nobody has, and the property owner — who carries the regulatory risk and knows
+    their own guests — asked for it on at ten days.
+
+    What makes that safe is everything around it rather than the default itself: no
+    message goes anywhere until the property has obtained a Meta template under its own
+    business account and set the WhatsApp credentials, an opted-out customer is never
+    reached, and each customer hears once per visit. A property that wants none of it
+    turns this off and the job stops before it reads a single guest.
     """
-    return bool(_settings_value(settings, "follow_up_enabled", False))
+    return bool(_settings_value(settings, "follow_up_enabled", True))
 
 
 def follow_up_days(settings) -> int:
