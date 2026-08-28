@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices, messaging, housekeeping
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices, messaging, housekeeping, planner
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -36,6 +36,7 @@ from migrations.backfill_property_type import backfill as backfill_property_type
 from migrations.backfill_tenancy import backfill as backfill_tenancy
 from migrations.backfill_reference_data import backfill as backfill_reference_data
 from migrations.backfill_housekeeping import backfill as backfill_housekeeping
+from migrations.backfill_planner import backfill as backfill_planner
 from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
 from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
 
@@ -110,7 +111,7 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices, messaging, housekeeping):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices, messaging, housekeeping, planner):
     api_router.include_router(module.router)
 
 
@@ -591,6 +592,20 @@ async def on_startup():
         "Housekeeping: screen granted to %d user(s), %d already held it; %d room(s) "
         "stamped clean, %d already current.",
         hk_granted, hk_held, rooms_stamped, rooms_current)
+    # The planner, beside the housekeeping backfill above and for the same two reasons.
+    # `property.planner` is a screen key invented after this deployment started running,
+    # so the screen backfill will never reach an existing account and this is what hands it
+    # to the admins and managers who plan; and a property that predates the feature has no
+    # categories, which is a planning screen whose picker is empty and on which no event
+    # can be created at all. Both halves are idempotent — a property that has renamed its
+    # own categories is left alone. See the module docstring for why nobody below manager
+    # is granted the key, and why nobody below manager needs it in order to *read* the
+    # calendar.
+    plan_granted, plan_held, plan_seeded, plan_current = await backfill_planner()
+    logger.info(
+        "Planner: screen granted to %d user(s), %d already held it; %d propert(ies) "
+        "seeded with categories, %d already current.",
+        plan_granted, plan_held, plan_seeded, plan_current)
     # Last of the migrations, and the only one that is allowed to do nothing: an unset
     # key means this deployment stores identity documents in plain text, which is what
     # it did yesterday and is not a reason to refuse a hotel its check-in screen. It is

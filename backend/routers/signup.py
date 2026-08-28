@@ -22,6 +22,7 @@ from services.access import (
     DEFAULT_PROPERTY_TYPE, PENDING, PROPERTY_BOTH, PROPERTY_HOTEL, PROPERTY_OUTLET,
     default_permissions, domains_for_property_type)
 from services.password import password_problem
+from services.planner import seed_categories as seed_planner_categories
 from services.ratelimit import RateLimiter, client_ip
 from services.reference_data import seed_reference_data
 from services.registration import GSTIN_SHAPE, validate_gstin
@@ -198,6 +199,12 @@ async def signup(payload: SignupIn, request: Request):
     # booking without a meal plan to book on. Seeded here, at the moment the tenant comes
     # into existence, so the owner never reaches a 500 after building rooms and rates.
     await seed_reference_data(PropertyScopedDatabase(property_id))
+    # And the planner's categories. A property with none has a planning screen whose
+    # picker is empty and on which no event can be created at all, and Training,
+    # Meeting, Guest service, Maintenance and Event are a starting point it renames,
+    # recolours and adds to from its own screen — a category list hardcoded in our
+    # source is one the hotel cannot fix.
+    await seed_planner_categories(PropertyScopedDatabase(property_id))
 
     return {
         "property_id": property_id,
