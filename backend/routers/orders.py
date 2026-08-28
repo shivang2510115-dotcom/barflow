@@ -10,6 +10,7 @@ import db as _db_module
 from scoped_db import PropertyScopedDatabase, db_for_table, optional_user, tenant_db
 from security import require_access
 from models.folio import FolioEntry
+from routers.menu import variants_of as menu_variants
 from services.access import OUTLET
 from services.folio import direction_for, folio_balance
 from services.ratelimit import RateLimiter, client_ip
@@ -59,6 +60,10 @@ class OrderItemIn(BaseModel):
     menu_item_id: str
     quantity: int = Field(1, ge=1, le=MAX_QUANTITY_PER_LINE)
     notes: str = ""
+    # Which portion, when the dish is sold in more than one. Optional because most
+    # dishes are not, and required — by `_resolve_line` below, not by this model —
+    # exactly when the dish is.
+    variant_label: Optional[str] = None
 
 
 class OrderItem(BaseModel):
@@ -68,6 +73,11 @@ class OrderItem(BaseModel):
     price: float
     quantity: int
     station: str
+    # The portion served, and it is stored rather than looked up for the same reason
+    # `price` is: it is what this guest was handed, not what the card says today. A
+    # renamed portion does not rename itself on a bill that has been paid, and a line
+    # from before this field existed reads back as `None` and prints as it always did.
+    variant_label: Optional[str] = None
     notes: str = ""
     status: Literal["pending", "preparing", "ready", "served"] = "pending"
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -252,6 +262,46 @@ async def _bill_locked(order: dict) -> bool:
                for s in sessions)
 
 
+def _resolve_line(menu_item: dict, asked: str | None) -> tuple[str | None, float]:
+    """The portion this line is for and the price to charge it at.
+
+    Three cases, and only the first is new:
+
+    * the dish is sold by portion — one has to be named, and it has to be one this
+      kitchen makes. Left to default, the line would take whatever `price` holds and
+      charge ₹379 for a full plate with nothing on the bill to show what was served;
+      that is a wrong figure a guest has already agreed to, so it is refused instead.
+    * the dish is not, and no portion was named — the line prices off `price` exactly as
+      it has since the first version of this file.
+    * the dish is not, and one was named anyway — refused rather than dropped. A client
+      that sends "Full" for Dal Tadka believes it is ordering something that does not
+      exist, and swallowing the word serves the guest a portion nobody chose.
+
+    Matched case-blind and whitespace-trimmed, because a phone keyboard capitalises;
+    what comes back is the hotel's own spelling off the menu, never the caller's, so the
+    word the kitchen reads on the ticket is the word on the card.
+    """
+    variants = menu_variants(menu_item)
+    asked = (asked or "").strip()
+
+    if not variants:
+        if asked:
+            raise HTTPException(
+                400, f"{menu_item['name']} is not sold by portion, so '{asked}' is not "
+                     f"something it comes in")
+        return None, menu_item["price"]
+
+    offered = ", ".join(str(v.get("label", "")) for v in variants)
+    if not asked:
+        raise HTTPException(
+            400, f"{menu_item['name']} is sold by portion — choose one of: {offered}")
+    for variant in variants:
+        if str(variant.get("label", "")).strip().casefold() == asked.casefold():
+            return variant["label"], variant["price"]
+    raise HTTPException(
+        400, f"{menu_item['name']} does not come in '{asked}' — it comes in: {offered}")
+
+
 def _within_guest_limits(order: dict | None, items: List[OrderItemIn]) -> bool:
     existing = (order or {}).get("items", [])
     lines = len(existing) + len(items)
@@ -302,19 +352,25 @@ async def add_items(table_id: str, payload: AddItemsIn, request: Request = None)
             raise HTTPException(
                 400, f"This bill has reached the limit for self-ordering. {ASK_STAFF}")
 
-    if order is None:
-        order = await _open_new_order(db, table, "pos" if staff else "qr")
-
+    # Every line is resolved and priced *before* the order is opened. `_resolve_line`
+    # refuses a dish sold by portion with no portion named, and a refusal after
+    # `_open_new_order` would leave a phantom bill behind and the table marked occupied
+    # by somebody who was turned away — the same reason `_open_order` is read-only.
     new_items = []
     for it in payload.items:
         m = await db.menu.find_one({"id": it.menu_item_id}, {"_id": 0})
         if not m:
             continue
-        oi = OrderItem(
-            menu_item_id=m["id"], name=m["name"], price=m["price"],
-            quantity=it.quantity, station=m.get("station", "bar"), notes=it.notes,
-        ).model_dump()
-        new_items.append(oi)
+        label, price = _resolve_line(m, it.variant_label)
+        new_items.append(OrderItem(
+            menu_item_id=m["id"], name=m["name"], price=price,
+            quantity=it.quantity, station=m.get("station", "bar"),
+            variant_label=label, notes=it.notes,
+        ).model_dump())
+
+    if order is None:
+        order = await _open_new_order(db, table, "pos" if staff else "qr")
+
     order["items"].extend(new_items)
     order = await compute_totals_for(db, order)
     await db.orders.update_one({"id": order["id"]}, {"$set": {
