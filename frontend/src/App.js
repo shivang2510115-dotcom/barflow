@@ -29,6 +29,7 @@ import Bookings from "@/pages/hotel/Bookings";
 import BookingDetail from "@/pages/hotel/BookingDetail";
 import Folio from "@/pages/hotel/Folio";
 import FrontDesk from "@/pages/hotel/FrontDesk";
+import Housekeeping from "@/pages/hotel/Housekeeping";
 import Calendar from "@/pages/hotel/Calendar";
 import Rates from "@/pages/hotel/Rates";
 import Guests from "@/pages/hotel/Guests";
@@ -98,6 +99,12 @@ function AppShell() {
         <Route path="/hotel/folios/:id" element={<Protected roles={["admin", "manager", "front_desk"]}><Folio /></Protected>} />
         <Route path="/hotel/calendar" element={<Protected roles={["admin", "manager", "front_desk"]}><Calendar /></Protected>} />
         <Route path="/hotel/rates" element={<Protected roles={["admin", "manager"]}><Rates /></Protected>} />
+        {/* The one screen a `housekeeping` account reaches, which is why that role is in
+            the list here and nowhere else in this file. The endpoints behind it name the
+            same four roles and additionally require the `hotel.housekeeping` key, so a
+            receptionist without the tick is refused by the API rather than by this line —
+            the route is the coarse check and `require_access` is the real one. */}
+        <Route path="/hotel/housekeeping" element={<Protected roles={["admin", "manager", "front_desk", "housekeeping"]}><Housekeeping /></Protected>} />
         <Route path="/hotel/guests" element={<Protected roles={["admin", "manager", "front_desk"]}><Guests /></Protected>} />
         {/* Sending a greeting is operational work — the front desk and the waiter
             know the guest. The endpoints behind this name the same four roles. */}
