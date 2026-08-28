@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from models.folio import CheckInIn, CheckOutIn, Folio
+from routers.bookings import room_for_booking_or_409
 from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.access import SHARED
@@ -155,19 +156,16 @@ async def check_in(booking_id: str, payload: CheckInIn, user: dict = Depends(DES
     if not payload.id_proof_type.strip() or not payload.id_proof_number.strip():
         raise HTTPException(400, "ID proof type and number are required at check-in")
 
-    room = await db.rooms.find_one({"id": payload.room_id}, {"_id": 0})
-    if not room:
-        raise HTTPException(404, "Room not found")
-    if room["room_type_id"] != booking["room_type_id"]:
-        raise HTTPException(409, "That room is not of the booked room type")
-    if not room.get("active", True):
-        raise HTTPException(409, "That room is inactive")
-
-    clash = await db.bookings.find_one({
-        "assigned_room_id": payload.room_id, "status": "checked_in",
-        "id": {"$ne": booking_id}})
-    if clash:
-        raise HTTPException(409, f"Room {room['number']} is occupied by {clash['reference']}")
+    # The same rule the pre-assignment endpoint applies, and deliberately the same code.
+    # This used to ask only whether another *checked-in* booking held the room, which
+    # was true enough when check-in was the only thing that could assign one. Now a
+    # confirmed booking holds a room too, and the old question would give away a room
+    # already held for tomorrow's arrival. It also now refuses a room that is out of
+    # order for part of the stay, which the old check never looked at.
+    #
+    # The booking is free to arrive with a different room than it was pre-assigned: the
+    # guest is at the desk and may need another one, and the desk decides.
+    room = await room_for_booking_or_409(db, booking, payload.room_id)
 
     now = datetime.now(timezone.utc).isoformat()
     await db.bookings.update_one({"id": booking_id}, {"$set": {

@@ -39,7 +39,8 @@ import routers.tables as tables
 from mock_db import MockDatabase
 from models.folio import ChargeIn, PaymentIn, VoidIn
 from models.hotel import (
-    BookingIn, BookingUpdateIn, CancelIn, GuestIn, MealPlanIn, RoomIn, TaxSlab)
+    BookingIn, BookingUpdateIn, CancelIn, GuestIn, MealPlanIn, RoomAssignmentIn, RoomIn,
+    TaxSlab)
 from scoped_db import PropertyScopedDatabase, UnscopedCollectionError, tenant_db
 from services.access import DOMAINS, LIVE, PENDING, SCREEN_KEYS, SUSPENDED
 from services.clock import today as local_today
@@ -261,6 +262,38 @@ def test_cancelling_bs_booking_from_as_session_is_404(world):
                    payload=CancelIn(reason="mine now"), user=a.admin,
                    db=a.db).status_code == 404
     assert run(b.db.bookings.find_one({"id": "b-booking"}))["status"] == "confirmed"
+
+
+def test_assigning_a_room_to_bs_booking_from_as_session_is_404(world):
+    a, b = world
+    assert refused(bookings.set_booking_room, booking_id="b-booking",
+                   payload=RoomAssignmentIn(room_id="b-room"), user=a.admin,
+                   db=a.db).status_code == 404
+    assert run(b.db.bookings.find_one({"id": "b-booking"})).get("assigned_room_id") is None
+
+
+def test_bs_room_cannot_be_assigned_to_as_booking(world):
+    a, _b = world
+    # 404, not 409: the room is not this hotel's to be told anything about, and a 409
+    # naming a clash would confirm both that B's room exists and who is in it.
+    assert refused(bookings.set_booking_room, booking_id="a-booking",
+                   payload=RoomAssignmentIn(room_id="b-room"), user=a.admin,
+                   db=a.db).status_code == 404
+    assert run(a.db.bookings.find_one({"id": "a-booking"})).get("assigned_room_id") is None
+
+
+def test_the_other_hotels_booking_cannot_block_this_hotels_room(world):
+    a, b = world
+    # Both hotels seeded a room "101" and a booking over the same dates. Were the clash
+    # query unscoped, B holding its own 101 would refuse A the use of A's — a hotel
+    # losing rooms to a stranger's bookings, with a 409 naming a reference it has never
+    # seen.
+    run(b.db.bookings.update_one({"id": "b-booking"},
+                                 {"$set": {"assigned_room_id": "b-room"}}))
+    assigned = call(bookings.set_booking_room, booking_id="a-booking",
+                    payload=RoomAssignmentIn(room_id="a-room"), user=a.admin, db=a.db)
+    assert assigned["assigned_room_id"] == "a-room"
+    assert assigned["room"]["number"] == "101"
 
 
 def test_availability_counts_only_this_hotels_rooms(world):

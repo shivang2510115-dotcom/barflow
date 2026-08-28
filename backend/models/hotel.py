@@ -159,6 +159,17 @@ class CancelIn(BaseModel):
     reason: Optional[str] = None
 
 
+class RoomAssignmentIn(BaseModel):
+    """Which physical room a booking holds. `None` clears it.
+
+    One payload for assign, reassign and clear, because to the desk they are one
+    action — "this booking's room is now 204", "…is now 205", "…is nothing yet" — and
+    splitting them into three endpoints would mean three places for the clash check to
+    be forgotten from.
+    """
+    room_id: Optional[str] = None
+
+
 class Booking(BookingIn):
     id: str = Field(default_factory=_uuid)
     reference: str

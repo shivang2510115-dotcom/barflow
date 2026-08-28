@@ -7,10 +7,11 @@ from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from models.hotel import Booking, BookingIn, BookingUpdateIn, CancelIn
+from models.hotel import Booking, BookingIn, BookingUpdateIn, CancelIn, RoomAssignmentIn
 from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
-from services.availability import CONSUMING_STATUSES, count_available
+from services.availability import (
+    CONSUMING_STATUSES, blocking_out_of_order, booking_holding_room, count_available)
 from services.pricing import MissingRateError, daterange, quote_stay
 
 router = APIRouter()
@@ -25,6 +26,14 @@ router = APIRouter()
 BOOK = require_access("hotel", "admin", "manager", "front_desk", permission="hotel.bookings")
 # The occupancy chart is its own screen and its own tick.
 CALENDAR = require_access("hotel", "admin", "manager", "front_desk", permission="hotel.calendar")
+# Giving a booking a room is operational, not configuration: a returning guest asking
+# for the same room, a family wanting adjacent doors, a ground-floor room held for
+# someone who cannot manage stairs — that is the receptionist's job, and require_configuration
+# would mean the desk writes it on paper instead. It is reached from the booking screen
+# and from the desk while preparing tomorrow's arrivals, so it names both screen keys
+# the way check-out does.
+ASSIGN = require_access("hotel", "admin", "manager", "front_desk",
+                        permission=("hotel.bookings", "hotel.front_desk"))
 LIVE = list(CONSUMING_STATUSES)
 
 
@@ -154,8 +163,14 @@ async def list_bookings(start: str = "", end: str = "", status: str = "", q: str
     rows = await db.bookings.find(query, {"_id": 0}).to_list(2000)
 
     guests = {g["id"]: g for g in await db.guests.find({}, {"_id": 0}).to_list(5000)}
+    # The room comes back on the list, not just on the booking, because "who still needs
+    # a room for tomorrow" is a question about the whole list and is asked every morning.
+    # Read as one lookup and joined here rather than per row, the way the front-desk
+    # board does it.
+    rooms = {r["id"]: r for r in await db.rooms.find({}, {"_id": 0}).to_list(20000)}
     for b in rows:
         b["guest"] = guests.get(b["guest_id"])
+        b["room"] = rooms.get(b.get("assigned_room_id"))
 
     if q:
         needle = q.lower()
@@ -220,6 +235,9 @@ async def get_booking(booking_id: str, user: dict = Depends(BOOK),
         {"id": booking["room_type_id"]}, {"_id": 0})
     booking["meal_plan"] = await db.meal_plans.find_one(
         {"id": booking["meal_plan_id"]}, {"_id": 0})
+    booking["room"] = await db.rooms.find_one(
+        {"id": booking.get("assigned_room_id")}, {"_id": 0}
+    ) if booking.get("assigned_room_id") else None
     return booking
 
 
@@ -286,3 +304,104 @@ async def cancel_booking(booking_id: str, payload: CancelIn,
         "cancellation_reason": payload.reason,
     }})
     return await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+
+
+# ------------------------- which room a booking holds -------------------------
+async def room_for_booking_or_409(db, booking: dict, room_id: str) -> dict:
+    """The room this booking may hold, or the refusal that says why it may not.
+
+    The one place the rule lives. `POST /bookings/{id}/check-in` imports it too, and it
+    has to: before pre-assignment only a checked-in booking could hold a room, so
+    check-in could clash-check against `status: "checked_in"` alone. Now a confirmed
+    booking holds one as well, and a check-in still asking the old question would hand
+    tomorrow's held room to today's walk-in — the same two-guests-one-door bug arrived
+    at from the other end. A second copy of this check is a second thing to forget.
+
+    Four ways it refuses, each with a 404 or a 409 the desk can act on:
+
+    * the room does not exist — 404, and property-scoped, so another hotel's room is
+      not found rather than found and refused;
+    * it is not of the booked type — a suite handed to a standard booking silently
+      changes what the guest pays for;
+    * it is inactive;
+    * something already has it for part of this stay — an out-of-order block, or
+      another live booking, which the 409 names so the receptionist can go and move it
+      rather than only being told no.
+
+    The database query narrows to rooms and statuses that could possibly clash; the
+    pure predicate in services/availability.py decides. The residual race is the one
+    `POST /bookings` documents — without transactions, two assignments issued in the
+    same instant can both pass — and it is narrowed here the same way, by checking
+    immediately before the write.
+    """
+    room = await db.rooms.find_one({"id": room_id}, {"_id": 0})
+    if not room:
+        raise HTTPException(404, "Room not found")
+    if room["room_type_id"] != booking["room_type_id"]:
+        raise HTTPException(409, "That room is not of the booked room type")
+    if not room.get("active", True):
+        raise HTTPException(409, "That room is inactive")
+
+    block = blocking_out_of_order(room, booking["check_in"], booking["check_out"])
+    if block:
+        reason = f" — {block['reason']}" if block.get("reason") else ""
+        raise HTTPException(409, {
+            "message": (f"Room {room['number']} is out of order "
+                        f"{block['from']} → {block['to']}{reason}"),
+            "from": block["from"], "to": block["to"],
+        })
+
+    held = await db.bookings.find(
+        {"assigned_room_id": room_id, "status": {"$in": LIVE}}, {"_id": 0}
+    ).to_list(5000)
+    clash = booking_holding_room(room_id, booking["check_in"], booking["check_out"],
+                                 held, exclude_booking_id=booking["id"])
+    if clash:
+        raise HTTPException(409, {
+            "message": (f"Room {room['number']} is already held by {clash['reference']} "
+                        f"({clash['check_in']} → {clash['check_out']})"),
+            "booking_id": clash["id"],
+            "reference": clash["reference"],
+            "check_in": clash["check_in"],
+            "check_out": clash["check_out"],
+        })
+    return room
+
+
+@router.put("/bookings/{booking_id}/room")
+async def set_booking_room(booking_id: str, payload: RoomAssignmentIn,
+                           user: dict = Depends(ASSIGN),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
+    """Assign, reassign or clear the physical room a booking holds.
+
+    Before check-in as well as after: hotels pre-assign routinely — a returning guest
+    who asks for the same room, a family who need adjacent doors, a group blocked
+    together — and being unable to record that until the guest is at the desk means it
+    is written on paper instead.
+
+    PUT rather than POST, and one endpoint rather than three, because this sets a single
+    field to a single value: sending the same room twice is the same booking in the same
+    room, and `room_id: null` clears it.
+    """
+    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(404, "Booking not found")
+    if booking["status"] not in CONSUMING_STATUSES:
+        raise HTTPException(409, f"A {booking['status']} booking cannot hold a room")
+
+    if payload.room_id is None:
+        # An in-house guest is physically in a room, the folio is open against it and
+        # the POS finds them by its number. Clearing that is not a room move, it is a
+        # lost guest — move them to another room, or check them out.
+        if booking["status"] == "checked_in":
+            raise HTTPException(
+                409, "Move an in-house guest to another room, or check them out")
+        await db.bookings.update_one({"id": booking_id},
+                                     {"$set": {"assigned_room_id": None}})
+        return {**await db.bookings.find_one({"id": booking_id}, {"_id": 0}),
+                "room": None}
+
+    room = await room_for_booking_or_409(db, booking, payload.room_id)
+    await db.bookings.update_one({"id": booking_id},
+                                 {"$set": {"assigned_room_id": room["id"]}})
+    return {**await db.bookings.find_one({"id": booking_id}, {"_id": 0}), "room": room}
