@@ -2,6 +2,8 @@
 import os
 import random
 import uuid
+
+from services.access import DOMAINS
 from datetime import date, timedelta
 
 import pytest
@@ -1139,7 +1141,7 @@ def test_seeded_admin_has_all_domains_and_is_active(admin):
     assert me.status_code == 200, me.text
     body = me.json()
     assert body["active"] is True
-    assert set(body["domains"]) == {"hotel", "restaurant", "bar"}
+    assert set(body["domains"]) == set(DOMAINS)
 
 
 def _staff_session(admin, email, password, role, domains, permissions=None):
@@ -1491,7 +1493,7 @@ def test_analytics_rejects_a_domain_the_user_does_not_hold(admin):
 def test_analytics_defaults_to_the_users_own_domains(admin):
     r = admin.get(f"{API}/analytics/revenue", params=ANALYTICS_WINDOW)
     assert r.status_code == 200, r.text
-    assert sorted(r.json()["domains"]) == ["bar", "hotel", "restaurant"]
+    assert sorted(r.json()["domains"]) == sorted(DOMAINS)
 
 
 def test_analytics_default_for_a_narrower_user_is_only_their_own_domains(admin):
@@ -1506,7 +1508,7 @@ def test_analytics_default_for_a_narrower_user_is_only_their_own_domains(admin):
     assert body["outlets"] is not None
     # The figure spans both outlets whichever one you asked for — one till, one set of
     # orders — and says so.
-    assert body["outlets"]["covers"] == ["restaurant", "bar"]
+    assert body["outlets"]["covers"] == ["restaurant", "bar", "services"]
 
 
 def test_analytics_hotel_only_omits_outlets(admin):
@@ -1556,8 +1558,8 @@ def test_selecting_both_outlet_domains_does_not_double_count(admin):
     assert both["total"] == one["total"]
     # Ticking one box or two changes nothing about what the figure contains, and the
     # response reports the contents rather than the ticks.
-    assert one["outlets"]["covers"] == ["restaurant", "bar"]
-    assert both["outlets"]["covers"] == ["restaurant", "bar"]
+    assert one["outlets"]["covers"] == ["restaurant", "bar", "services"]
+    assert both["outlets"]["covers"] == ["restaurant", "bar", "services"]
 
 
 def test_a_bar_only_manager_is_told_the_figure_covers_the_restaurant_too(admin):
@@ -1576,7 +1578,7 @@ def test_a_bar_only_manager_is_told_the_figure_covers_the_restaurant_too(admin):
     body = r.json()
     assert body["domains"] == ["bar"]
     assert body["hotel"] is None
-    assert body["outlets"]["covers"] == ["restaurant", "bar"]
+    assert body["outlets"]["covers"] == ["restaurant", "bar", "services"]
     assert "outlets_combined" not in body
 
     # And it really is the whole till: the same figure an admin sees for both outlets.
@@ -1759,7 +1761,7 @@ def test_a_bar_bill_charged_to_a_room_is_outlet_revenue_and_not_hotel_revenue(ad
                      params={**window, "domains": "hotel,restaurant,bar"}).json()
     assert both["total"] == after["total"]
     assert both["outlets"]["total"] == after["outlets"]["total"]
-    assert both["outlets"]["covers"] == ["restaurant", "bar"]
+    assert both["outlets"]["covers"] == ["restaurant", "bar", "services"]
 
 
 def test_analytics_posts_due_nights_for_an_open_folio_nobody_has_opened(admin):
@@ -1829,11 +1831,11 @@ def test_an_admin_created_with_no_domains_is_given_all_of_them(admin):
         "name": "Domainless Admin", "email": email, "password": "admin12345",
         "role": "admin", "domains": []})
     assert r.status_code == 200, r.text
-    assert set(r.json()["domains"]) == {"hotel", "restaurant", "bar"}, r.text
+    assert set(r.json()["domains"]) == set(DOMAINS), r.text
 
     # And it survives the round trip, so the roster does not have to special-case it.
     listed = next(u for u in admin.get(f"{API}/staff").json() if u["email"] == email)
-    assert set(listed["domains"]) == {"hotel", "restaurant", "bar"}
+    assert set(listed["domains"]) == set(DOMAINS)
 
 
 def test_you_can_rename_yourself_but_not_change_your_own_role_or_domains(admin):
@@ -1891,7 +1893,7 @@ def test_the_screen_catalogue_is_readable_by_any_signed_in_user(admin):
         "outlet.tables", "outlet.pos", "outlet.kot",
         "outlet.reservations", "outlet.menu", "outlet.inventory", "outlet.reports",
         "property.planner",
-        "admin.staff", "admin.analytics", "admin.expenses"}
+        "admin.staff", "admin.outlets", "admin.analytics", "admin.expenses"}
     for row in catalogue:
         assert row["label"] and row["section"] and row["domains"]
     # "Property" joins the three when the planner lands: it is neither the hotel's screen
@@ -2494,3 +2496,80 @@ def test_a_stay_cannot_be_stretched_over_a_room_someone_else_holds(admin, ep_pla
     unchanged = admin.get(f"{API}/bookings/{early['id']}").json()
     assert unchanged["check_out"] == "2031-03-05"
     assert unchanged["assigned_room_id"] == rooms[0]["id"]
+
+
+def test_an_admin_creates_an_outlet_and_it_comes_back_with_its_domain(admin):
+    r = admin.post(f"{API}/outlets", json={
+        "name": f"Serenity Salon {uuid.uuid4().hex[:6]}", "kind": "salon",
+        "charges_to_folio": True, "takes_direct_payment": True})
+    assert r.status_code == 200, r.text
+    made = r.json()
+    assert made["name"].startswith("Serenity Salon")
+    assert made["kind"] == "salon"
+    # The domain is derived, never sent: a client that could choose it could create a
+    # salon nobody on staff is able to reach.
+    assert made["domain"] == "services"
+    assert made["active"] is True
+    assert any(o["id"] == made["id"] for o in admin.get(f"{API}/outlets").json())
+
+
+def test_an_outlet_that_takes_money_no_way_at_all_is_refused(admin):
+    r = admin.post(f"{API}/outlets", json={
+        "name": f"Reading Room {uuid.uuid4().hex[:6]}", "kind": "other",
+        "charges_to_folio": False, "takes_direct_payment": False})
+    assert r.status_code == 400
+    assert "money" in r.json()["detail"].lower()
+
+
+def test_an_unknown_outlet_kind_is_refused(admin):
+    r = admin.post(f"{API}/outlets", json={
+        "name": f"Helipad {uuid.uuid4().hex[:6]}", "kind": "helipad",
+        "charges_to_folio": True, "takes_direct_payment": True})
+    assert r.status_code == 400
+
+
+def test_a_client_cannot_choose_an_outlets_domain_or_id(admin):
+    r = admin.post(f"{API}/outlets", json={
+        "name": f"Iron Gym {uuid.uuid4().hex[:6]}", "kind": "gym", "charges_to_folio": True,
+        "takes_direct_payment": False,
+        "domain": "hotel", "id": "chosen-by-the-client", "property_id": "somebody-else"})
+    assert r.status_code == 200
+    made = r.json()
+    assert made["domain"] == "services"
+    assert made["id"] != "chosen-by-the-client"
+
+
+def test_switching_an_outlet_off_leaves_it_readable(admin):
+    made = admin.post(f"{API}/outlets", json={
+        "name": f"Old Bar {uuid.uuid4().hex[:6]}", "kind": "bar", "charges_to_folio": True,
+        "takes_direct_payment": True}).json()
+    r = admin.patch(f"{API}/outlets/{made['id']}", json={"active": False})
+    assert r.status_code == 200
+    assert r.json()["active"] is False
+    # Deactivated, not deleted: its past orders still name it, and a row that vanishes
+    # takes the label off every one of them.
+    assert any(o["id"] == made["id"] for o in admin.get(f"{API}/outlets").json())
+
+
+def test_an_edit_cannot_remove_the_last_way_an_outlet_takes_money(admin):
+    made = admin.post(f"{API}/outlets", json={
+        "name": f"Quiet Laundry {uuid.uuid4().hex[:6]}", "kind": "laundry", "charges_to_folio": True,
+        "takes_direct_payment": False}).json()
+    # Only one field is mentioned, but it is the only one left that was true.
+    r = admin.patch(f"{API}/outlets/{made['id']}", json={"charges_to_folio": False})
+    assert r.status_code == 400
+
+
+def test_a_waiter_cannot_create_an_outlet(waiter):
+    # A waiter holds an outlet domain, so this proves the admin.outlets key is what
+    # refuses them rather than the domain check.
+    r = waiter.post(f"{API}/outlets", json={
+        "name": f"Sneaky Spa {uuid.uuid4().hex[:6]}", "kind": "salon",
+        "charges_to_folio": True, "takes_direct_payment": True})
+    assert r.status_code == 403
+
+
+def test_an_outlet_from_another_property_is_a_404_not_a_403(admin):
+    r = admin.patch(f"{API}/outlets/00000000-0000-0000-0000-000000000000",
+                    json={"active": False})
+    assert r.status_code == 404
