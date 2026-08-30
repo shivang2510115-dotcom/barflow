@@ -3198,3 +3198,45 @@ def test_a_package_set_on_the_room_type_reaches_the_guest(admin, ep_plan):
     assert got["package"] is not None, "a room type's package must reach the stay"
     assert got["package"]["id"] == pkg["id"]
     assert got["inclusions"][0]["remaining"] == 2
+
+
+def test_a_staff_member_carries_employment_details(admin):
+    email = f"emp-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Meena", "email": email, "password": "Wildflower-9012",
+        "role": "housekeeping", "domains": ["hotel"],
+        "joined_on": "2024-03-15", "designation": "Housekeeping Supervisor",
+        "salary_monthly": 18000, "paid_leave_days": 2,
+        "emergency_contact": "Ravi 9876500011", "document_number": "ABCDE1234F"})
+    assert r.status_code == 200, r.text
+    made = r.json()
+    assert made["joined_on"] == "2024-03-15"
+    assert made["designation"] == "Housekeeping Supervisor"
+    assert made["salary_monthly"] == 18000
+    assert made["paid_leave_days"] == 2
+
+
+def test_a_staff_member_created_without_employment_details_still_works(admin):
+    # Eighty-eight records predate these fields. An account missing a joining date has
+    # to keep working exactly as it did.
+    email = f"old-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Anil", "email": email, "password": "Wildflower-9013",
+        "role": "waiter", "domains": ["restaurant"]})
+    assert r.status_code == 200, r.text
+    assert r.json()["joined_on"] is None
+    assert r.json()["paid_leave_days"] == 0
+
+
+def test_employment_details_survive_an_edit_that_does_not_mention_them(admin):
+    email = f"edit-{uuid.uuid4().hex[:6]}@barflow.io"
+    made = admin.post(f"{API}/staff", json={
+        "name": "Sunita", "email": email, "password": "Wildflower-9014",
+        "role": "front_desk", "domains": ["hotel"],
+        "designation": "Front Office Executive", "salary_monthly": 22000}).json()
+    # A rename must not wipe what somebody is paid.
+    after = admin.put(f"{API}/staff/{made['id']}", json={
+        "name": "Sunita Rao", "role": "front_desk", "domains": ["hotel"],
+        "designation": "Front Office Executive", "salary_monthly": 22000}).json()
+    assert after["name"] == "Sunita Rao"
+    assert after["salary_monthly"] == 22000

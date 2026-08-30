@@ -14,7 +14,7 @@ because two hotels cannot share a login.
 """
 import uuid
 from datetime import datetime, timezone
-from typing import List, Literal, get_args
+from typing import List, Literal, Optional, get_args
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
@@ -95,6 +95,20 @@ class StaffIn(BaseModel):
     # None is not the empty list. Omitted means "the screens this role has always had"
     # (see _stored_permissions); an explicit `[]` is somebody deliberately ticking
     # nothing, which is an account that reaches nothing, and is refused.
+    # ---- employment ----
+    # All optional and all defaulted: eighty-eight staff records already exist without
+    # them, and an account missing a joining date has to keep working exactly as it does.
+    #
+    # `document_number` is a number as typed — Aadhaar or PAN — and never a scan. A
+    # document vault is a different product with different obligations.
+    joined_on: Optional[str] = None
+    designation: Optional[str] = None
+    salary_monthly: Optional[float] = None
+    # How many days a month are paid without being worked. Used by the salary run; a
+    # property that does not give paid leave leaves it at zero.
+    paid_leave_days: int = 0
+    emergency_contact: Optional[str] = None
+    document_number: Optional[str] = None
     permissions: List[str] | None = None
 
 
@@ -108,6 +122,20 @@ class StaffUpdateIn(BaseModel):
     outlet_ids: List[str] = []
     # Omitted means "leave their screens alone" here rather than "reset to the role's",
     # so that an edit which only renames somebody cannot quietly widen them back out.
+    # ---- employment ----
+    # All optional and all defaulted: eighty-eight staff records already exist without
+    # them, and an account missing a joining date has to keep working exactly as it does.
+    #
+    # `document_number` is a number as typed — Aadhaar or PAN — and never a scan. A
+    # document vault is a different product with different obligations.
+    joined_on: Optional[str] = None
+    designation: Optional[str] = None
+    salary_monthly: Optional[float] = None
+    # How many days a month are paid without being worked. Used by the salary run; a
+    # property that does not give paid leave leaves it at zero.
+    paid_leave_days: int = 0
+    emergency_contact: Optional[str] = None
+    document_number: Optional[str] = None
     permissions: List[str] | None = None
 
 
@@ -191,7 +219,7 @@ async def identifier_taken(email: str | None, phone: str | None, *,
             raise HTTPException(409, message)
 
 
-def _public(user: dict) -> dict:
+def _public(user: dict, *, with_salary: bool = False) -> dict:
     """Never return password_hash. Building the response explicitly rather than
     deleting keys means a new sensitive field cannot leak by being forgotten."""
     return {
@@ -204,11 +232,21 @@ def _public(user: dict) -> dict:
         "role": user.get("role"),
         "domains": user.get("domains") or [],
         "outlet_ids": user.get("outlet_ids") or [],
+        "joined_on": user.get("joined_on"),
+        "designation": user.get("designation"),
+        "paid_leave_days": user.get("paid_leave_days") or 0,
+        "emergency_contact": user.get("emergency_contact"),
+        "document_number": user.get("document_number"),
         # Filtered to the catalogue on the way out: a key retired from the code is
         # ignored on read rather than shown as a tick for a screen that no longer exists.
         "permissions": [k for k in (user.get("permissions") or []) if k in SCREENS],
         "active": user.get("active", True),
         "created_at": user.get("created_at"),
+        # Money, and therefore opt-in. The roster is already admin-only, so this rides on
+        # the same gate rather than inventing a screen key — but a route that ever widens
+        # who may read the roster must not accidentally widen who may read what everybody
+        # earns. Absent by default is the safe direction.
+        **({"salary_monthly": user.get("salary_monthly")} if with_salary else {}),
     }
 
 
@@ -356,7 +394,11 @@ def _stored_permissions(submitted: List[str] | None, role: str, domains: List[st
 @router.get("/staff")
 async def list_staff(user: dict = Depends(ADMIN)):
     users = await unscoped_db.users.find(_mine(user), {"_id": 0}).to_list(10000)
-    return [_public(u) for u in sorted(users, key=lambda x: x.get("name") or "")]
+    # Every route in this router is admin-only, so salary is included at all four call
+    # sites. The parameter defaults to False anyway, so a route added later that reuses
+    # this projection on a wider gate does not leak what everybody earns by omission.
+    return [_public(u, with_salary=True)
+            for u in sorted(users, key=lambda x: x.get("name") or "")]
 
 
 @router.post("/staff")
@@ -396,6 +438,12 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN),
         "role": payload.role,
         "domains": domains,
         "outlet_ids": outlet_ids,
+        "joined_on": payload.joined_on,
+        "designation": payload.designation,
+        "salary_monthly": payload.salary_monthly,
+        "paid_leave_days": payload.paid_leave_days,
+        "emergency_contact": payload.emergency_contact,
+        "document_number": payload.document_number,
         "permissions": _stored_permissions(payload.permissions, payload.role, domains),
         # The hotel doing the hiring, taken from the admin's own record and never from
         # the request: a staff list is the one place where "which hotel" could otherwise
@@ -417,7 +465,7 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN),
         # the two fields to change rather than being told "email" about a number.
         raise HTTPException(
             409, DUPLICATE_PHONE if "phone" in str(exc) else DUPLICATE_EMAIL)
-    return _public(doc)
+    return _public(doc, with_salary=True)
 
 
 @router.put("/staff/{staff_id}")
@@ -467,6 +515,12 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn,
         "role": payload.role,
         "domains": domains,
         "outlet_ids": outlet_ids,
+        "joined_on": payload.joined_on,
+        "designation": payload.designation,
+        "salary_monthly": payload.salary_monthly,
+        "paid_leave_days": payload.paid_leave_days,
+        "emergency_contact": payload.emergency_contact,
+        "document_number": payload.document_number,
         "permissions": permissions,
     }})
 
@@ -485,7 +539,8 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn,
                                            {"$set": previous})
         raise HTTPException(409, "This would leave the property with no active admin")
 
-    return _public(await unscoped_db.users.find_one({"id": staff_id}, {"_id": 0}))
+    return _public(await unscoped_db.users.find_one({"id": staff_id}, {"_id": 0}),
+                   with_salary=True)
 
 
 @router.post("/staff/{staff_id}/active")
@@ -519,7 +574,8 @@ async def set_active(staff_id: str, payload: ActiveIn, user: dict = Depends(ADMI
                                            {"$set": {"active": previous_active}})
         raise HTTPException(409, "This would leave the property with no active admin")
 
-    return _public(await unscoped_db.users.find_one({"id": staff_id}, {"_id": 0}))
+    return _public(await unscoped_db.users.find_one({"id": staff_id}, {"_id": 0}),
+                   with_salary=True)
 
 
 @router.post("/staff/{staff_id}/password")
