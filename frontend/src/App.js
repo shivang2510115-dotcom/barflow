@@ -39,6 +39,7 @@ import Staff from "@/pages/admin/Staff";
 import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
 import Expenses from "@/pages/admin/Expenses";
+import Outlets from "@/pages/admin/Outlets";
 import Notifications from "@/pages/admin/Notifications";
 import Account from "@/pages/Account";
 import Settings from "@/pages/admin/Settings";
@@ -131,6 +132,7 @@ function AppShell() {
             is still admin and manager only — the API says so, and the screen hides the
             form rather than offering a button that 403s. */}
         <Route path="/admin/expenses" element={<Expenses />} />
+        <Route path="/admin/outlets" element={<Protected roles={["admin"]}><Outlets /></Protected>} />
         <Route path="/admin/notifications" element={<Protected roles={["admin"]}><Notifications /></Protected>} />
         {/* Admin only, twice: this route names the role, and `PUT /api/property` behind
             it names "admin" as well. A waiter who types the address gets the screen's
