@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+// The chart palette is read from the CSS tokens at runtime rather than pinned here.
+// These used to be hex literals, which meant the whole stylesheet could flip from dark
+// to light and the charts would keep drawing the dark palette — a near-black gridline
+// over porcelain, and a bar in the old orange beside a brass button. See lib/theme.js.
 import { api, currency } from "@/lib/api";
 import { toast } from "sonner";
+import { useChartColours } from "@/lib/theme";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -46,10 +51,6 @@ const PRESETS = [
   { key: "custom", label: "Custom", get: null },
 ];
 
-const PAY_COLORS = { cash: "#f97316", card: "#38bdf8", online: "#a78bfa", unknown: "#78716c" };
-const ORANGE = "#f97316";
-const GRID = "#292524";
-const AXIS = "#78716c";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 function bucketLabel(bucket, granularity) {
@@ -79,6 +80,9 @@ function ChartTooltip({ active, payload, label, granularity, moneyKeys = ["reven
 }
 
 export default function Reports() {
+  const C = useChartColours();
+  const ORANGE = C.accent, STONE = C.neutral, GRID = C.grid, AXIS = C.axis;
+  const PAY_COLORS = C.pay;
   const [preset, setPreset] = useState("month");
   const [range, setRange] = useState(PRESETS.find((p) => p.key === "month").get());
   const [data, setData] = useState(null);
@@ -198,9 +202,14 @@ export default function Reports() {
               {sending ? "Sending…" : "Send now"}
             </button>
           </div>
-          {/* WhatsApp-style preview bubble */}
+          {/* A preview of what the owner will actually receive, so these two colours are
+              WhatsApp's and not ours — they are deliberately NOT tokens, and they do not
+              follow the theme, because the point is to look like the app the message
+              lands in. The text is white for the same reason: it sits on WhatsApp's
+              green in both of our themes, and `text-ink` would have turned it near-black
+              on that green the moment the palette went light. */}
           <div className="bg-[#0b141a] border border-hairline p-4 rounded-md max-w-md">
-            <div className="bg-[#005c4b] text-ink rounded-lg rounded-tr-none p-3 text-sm whitespace-pre-wrap font-sans leading-relaxed">
+            <div className="bg-[#005c4b] text-white rounded-lg rounded-tr-none p-3 text-sm whitespace-pre-wrap font-sans leading-relaxed">
               {brief?.message || "Loading brief…"}
             </div>
             <div className="text-[9px] font-mono text-faint mt-2 text-right">preview · WhatsApp</div>

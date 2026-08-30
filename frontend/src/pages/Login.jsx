@@ -57,35 +57,43 @@ export default function Login() {
     <div className="min-h-screen grid md:grid-cols-2 bg-ground text-ink relative z-[2]">
       {/* Left panel */}
       <div className="hidden md:flex flex-col justify-between p-12 border-r border-hairline relative overflow-hidden">
-        <div className="absolute inset-0 opacity-30">
+        {/* The photo carries the panel, so it is no longer dimmed to 30% — that opacity
+            existed to stop it fighting a black page, and on porcelain it simply bleached
+            the image out. */}
+        <div className="absolute inset-0 opacity-90 dark:opacity-30">
           <img
             src="https://images.unsplash.com/photo-1636144924623-b3aea3c5f16c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2MzR8MHwxfHNlYXJjaHwxfHxtb29keSUyMGNvY2t0YWlsJTIwZGFyayUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzg0MjE3OTY2fDA&ixlib=rb-4.1.0&q=85"
             alt=""
             className="w-full h-full object-cover"
           />
         </div>
-        <div className="absolute inset-0 bg-gradient-to-br from-ground/70 via-ground/50 to-ground/90" />
+        {/* A scrim, not a wash. This was a near-black gradient sinking the photo into a
+            dark page; retinted to the ground it became a near-white one that bleached it
+            instead. It is now always dark, at the strength the text needs to stay
+            readable over a photograph — the panel's type is light in both themes because
+            it sits on an image, not on the page. */}
+        <div className="absolute inset-0 bg-gradient-to-br from-black/70 via-black/45 to-black/80" />
 
         <Link to="/" className="relative flex items-center gap-2">
           <Wine className="text-brass" size={22} />
-          <span className="font-display uppercase text-lg">BarFlow</span>
+          <span className="font-display uppercase text-lg text-white">BarFlow</span>
         </Link>
 
         <div className="relative">
-          <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-brass mb-4">
+          <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-300 mb-4">
             Ops console
           </div>
-          <h2 className="font-display uppercase text-4xl leading-[0.95] tracking-tight">
+          <h2 className="font-display uppercase text-4xl leading-[0.95] tracking-tight text-white">
             Pour faster.
             <br />
             Bill smarter.
             <br />
-            <span className="text-brass">Never run dry.</span>
+            <span className="text-orange-300">Never run dry.</span>
           </h2>
         </div>
 
-        <div className="relative text-xs font-mono uppercase tracking-widest text-faint">
-          After-dark edition
+        <div className="relative text-xs font-mono uppercase tracking-widest text-white/50">
+          Hotel & restaurant operations
         </div>
       </div>
 

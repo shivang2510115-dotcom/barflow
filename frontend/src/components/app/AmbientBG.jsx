@@ -24,7 +24,7 @@ export default function AmbientBG() {
         className="absolute inset-0 opacity-[0.08]"
         style={{
           background:
-            "radial-gradient(600px 400px at 20% 20%, #ea580c, transparent 60%), radial-gradient(500px 400px at 80% 80%, #f59e0b, transparent 60%)",
+            "radial-gradient(600px 400px at 20% 20%, rgb(var(--brass) / 0.5), transparent 60%), radial-gradient(500px 400px at 80% 80%, rgb(var(--brass) / 0.35), transparent 60%)",
         }}
         animate={{ backgroundPosition: ["0% 0%", "10% 20%", "0% 0%"] }}
         transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}

@@ -17,19 +17,19 @@ export default function CocktailLoader({ label = "Mixing…", size = "md", overl
         transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
       >
           {/* Shaker cap */}
-          <rect x="18" y="6" width="24" height="8" fill="#f5f5f4" />
-          <rect x="20" y="14" width="20" height="4" fill="#a8a29e" />
+          <rect x="18" y="6" width="24" height="8" fill="rgb(var(--ink))" />
+          <rect x="20" y="14" width="20" height="4" fill="rgb(var(--faint))" />
           {/* Body */}
           <path
             d="M 16 20 L 22 70 Q 22 76 28 76 L 32 76 Q 38 76 38 70 L 44 20 Z"
             fill="url(#g)"
-            stroke="#f5f5f4"
+            stroke="rgb(var(--ink))"
             strokeWidth="1"
           />
           <defs>
             <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0" stopColor="#fb923c" />
-              <stop offset="1" stopColor="#c2410c" />
+              <stop offset="0" stopColor="rgb(var(--brass))" />
+              <stop offset="1" stopColor="rgb(var(--brass-deep))" />
             </linearGradient>
           </defs>
           {/* Highlight */}

@@ -1,6 +1,11 @@
+// The chart palette is read from the CSS tokens at runtime rather than pinned here.
+// These used to be hex literals, which meant the whole stylesheet could flip from dark
+// to light and the charts would keep drawing the dark palette — a near-black gridline
+// over porcelain, and a bar in the old orange beside a brass button. See lib/theme.js.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useChartColours } from "@/lib/theme";
 import { toast } from "sonner";
 // One definition of "this month" across the two money screens. It is computed from local
 // Date parts on purpose — slicing an ISO UTC timestamp puts the property a day out for
@@ -18,18 +23,15 @@ import {
 } from "recharts";
 
 // The same palette Analytics.jsx and Reports.jsx draw with, so the three money screens
-// read as one product. Orange is the accented series and this screen's subject is
+// read as one product. The accent is the emphasised series and this screen's subject is
 // expenditure, so expenditure wears it; income is the recessive neutral beside it.
 //
-// The pair was run through the categorical-palette checks against this surface: adjacent
-// separation ΔE 14.0 under deuteranopia and 17.8 in normal vision, both comfortably over
-// the floors, and both clear 3:1 against #0c0a09. Stone is deliberately near-neutral —
-// that is what makes it read as the background series rather than a second accent — and a
-// legend plus direct labels carry identity anyway, so colour is never doing the job alone.
-const ORANGE = "#f97316";
-const STONE = "#a8a29e";
-const GRID = "#292524";
-const AXIS = "#78716c";
+// Both come from lib/theme.js and therefore from the CSS tokens, which is what lets one
+// pair serve both themes: the accent is brass on porcelain and the brighter orange on
+// near-black, each chosen for the ground it sits on. The neutral is deliberately
+// near-neutral — that is what makes it read as the background series rather than as a
+// second accent — and a legend plus direct labels carry identity anyway, so colour is
+// never doing the job alone.
 
 // How the money left, and how each is written for a person. Mirrors PAYMENT_METHODS in
 // backend/services/expenses.py — the API refuses anything else with a 422, so a value
@@ -95,6 +97,8 @@ function ChartTooltip({ active, payload, label }) {
 }
 
 export default function Expenses() {
+  const C = useChartColours();
+  const ORANGE = C.accent, STONE = C.neutral, GRID = C.grid, AXIS = C.axis;
   const { user } = useAuth();
   const mayRecord = user?.role === "admin" || user?.role === "manager";
   const mayNameCategories = user?.role === "admin";

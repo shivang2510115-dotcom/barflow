@@ -1,6 +1,11 @@
+// The chart palette is read from the CSS tokens at runtime rather than pinned here.
+// These used to be hex literals, which meant the whole stylesheet could flip from dark
+// to light and the charts would keep drawing the dark palette — a near-black gridline
+// over porcelain, and a bar in the old orange beside a brass button. See lib/theme.js.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import { useChartColours } from "@/lib/theme";
 import { useProperty } from "@/contexts/PropertyContext";
 import { toast } from "sonner";
 import { DOMAINS, DOMAIN_LABELS, heldDomains } from "@/lib/domains";
@@ -21,10 +26,6 @@ const DOMAIN_ORDER = DOMAINS;
 
 // Same palette Reports.jsx draws its charts with, so the two revenue screens read as one
 // product: orange for the accented series, stone for the grid and axes.
-const ORANGE = "#f97316";
-const STONE = "#78716c";
-const GRID = "#292524";
-const AXIS = "#78716c";
 
 // "2026-03-05" → "03/05", matching the day buckets on Reports.jsx.
 function dayLabel(date) {
@@ -100,6 +101,8 @@ export function monthRange(now = new Date()) {
 }
 
 export default function Analytics() {
+  const C = useChartColours();
+  const ORANGE = C.accent, STONE = C.neutral, GRID = C.grid, AXIS = C.axis;
   const { user } = useAuth();
   const property = useProperty();
   const held = heldDomains(user, property);

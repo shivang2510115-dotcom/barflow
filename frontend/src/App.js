@@ -171,15 +171,18 @@ function App() {
       {showSplash && <Splash onDone={done} />}
       <AuthProvider>
         <Router>
+          {/* Toasts follow the palette rather than pinning it. `theme="system"` lets
+              sonner track the viewer's preference, and the tokens do the rest — a hard
+              "dark" here put a black box in the corner of a porcelain page. */}
           <Toaster
             position="top-right"
-            theme="dark"
+            theme="system"
             toastOptions={{
               style: {
-                background: "#1c1917",
-                border: "1px solid #292524",
+                background: "rgb(var(--surface))",
+                border: "1px solid rgb(var(--hairline))",
                 borderRadius: 0,
-                color: "#f5f5f4",
+                color: "rgb(var(--ink))",
                 fontFamily: "Manrope, sans-serif",
               },
             }}
