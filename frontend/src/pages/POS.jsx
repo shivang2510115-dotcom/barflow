@@ -50,6 +50,9 @@ export default function POS() {
   // charge-to-room, because that is the only moment it can matter: a walk-in paying
   // cash has no package, and asking for one would be a request per sale for nothing.
   const [included, setIncluded] = useState(null);
+  // line id -> inclusion id, for the lines a waiter has marked as covered. Cleared
+  // whenever the guest changes, because an allowance belongs to one booking.
+  const [comped, setComped] = useState({});
 
   useEffect(() => {
     api.get("/tables").then((r) => setTables(r.data));
@@ -61,6 +64,7 @@ export default function POS() {
   // appear, and the waiter charges as they always did.
   useEffect(() => {
     const bookingId = chosenFolio?.booking?.id;
+    setComped({});
     if (!bookingId) { setIncluded(null); return; }
     let cancelled = false;
     api.get(`/bookings/${bookingId}/entitlements`)
@@ -176,6 +180,31 @@ export default function POS() {
       .catch(() => {});
   };
 
+  /** An inclusion this guest still has that covers this line, or null.
+   *
+   * Outlet scope only for now: matching a category or a single item needs the menu
+   * item's own category, which the cart line does not carry. Offering a control that
+   * the server would then refuse is worse than not offering it, so the narrower rule
+   * is the honest one until the line carries what the wider one needs.
+   */
+  const availableInclusion = (line) => {
+    const list = included?.inclusions || [];
+    const already = new Set(Object.values(comped));
+    return list.find((i) =>
+      i.scope === "outlet" &&
+      (i.remaining - (already.has(i.id) && comped[line.id] !== i.id ? 1 : 0)) > 0
+    ) || null;
+  };
+
+  const toggleComp = (line, inclusion) => {
+    setComped((c) => {
+      const next = { ...c };
+      if (next[line.id]) delete next[line.id];
+      else next[line.id] = inclusion.id;
+      return next;
+    });
+  };
+
   const settle = async () => {
     if (!order) return;
     // The server 400s on payment_method "room" without a folio_id, but that error
@@ -192,6 +221,12 @@ export default function POS() {
         customer_name: custName.trim() || null,
         customer_phone: custPhone.trim() || null,
         folio_id: pay === "room" ? chosenFolio.folio.id : undefined,
+        // Only when charging to a room: an entitlement belongs to a booking, and a
+        // walk-in paying cash has none. The server recomputes what each line is worth
+        // from the order it holds, so nothing here can name an amount.
+        included: pay === "room"
+          ? Object.entries(comped).map(([line_id, inclusion_id]) => ({ line_id, inclusion_id }))
+          : [],
       });
       toast.success(`Bill settled · ${pay.toUpperCase()}`);
 
@@ -373,6 +408,20 @@ export default function POS() {
                   <div className="text-[10px] font-mono uppercase text-faint mt-0.5">
                     {currency(it.price)} · {it.station} · {it.status}
                   </div>
+                  {/* Only offered when this guest actually has something left. The
+                      server checks the same thing again — this is so a waiter is not
+                      shown a control that will refuse them mid-service. */}
+                  {pay === "room" && availableInclusion(it) && (
+                    <button
+                      onClick={() => toggleComp(it, availableInclusion(it))}
+                      className={`mt-1.5 text-[10px] font-mono uppercase tracking-widest px-2 py-1 border transition-colors
+                        ${comped[it.id]
+                          ? "border-state-free bg-state-free/10 text-state-free"
+                          : "border-hairline-strong text-faint hover:border-state-free hover:text-state-free"}`}
+                    >
+                      {comped[it.id] ? "✓ Included" : "Use included"}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
