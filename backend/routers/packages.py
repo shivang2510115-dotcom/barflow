@@ -25,7 +25,8 @@ from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
 from services.access import SHARED
 from services.clock import today as local_today
-from services.packages import PERIODS, SCOPES, covers, remaining
+from services.packages import (
+    PERIODS, SCOPES, covers, package_for_stay, remaining)
 
 router = APIRouter()
 
@@ -118,8 +119,13 @@ async def entitlements(booking_id: str, outlet_id: str = "",
     if not booking:
         raise HTTPException(404, "No such booking")
 
-    rate = await db.rates.find_one({"id": booking.get("rate_id")}, {"_id": 0}) or {}
-    package_id = rate.get("package_id") or booking.get("package_id")
+    # The booking's own snapshot first: what it was sold with is fixed at the moment of
+    # sale, and a room type re-pointed next month must not change what a guest already
+    # staying is entitled to. The room type is only consulted for a booking taken before
+    # packages existed.
+    room_type = await db.room_types.find_one(
+        {"id": booking.get("room_type_id")}, {"_id": 0}) or {}
+    package_id = (booking.get("package_id") or "").strip() or package_for_stay(None, room_type)
     if not package_id:
         return {"package": None, "inclusions": []}
 

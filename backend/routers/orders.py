@@ -22,7 +22,7 @@ router = APIRouter()
 # by the entitlements route must be the same row, so both derive ids from this namespace.
 from routers.packages import _USE_NAMESPACE, _nights as _stay_nights
 from services.clock import today as _clock_today
-from services.packages import comp_value, remaining
+from services.packages import comp_value, package_for_stay, remaining
 
 # ----------------- What a guest at the table may do -----------------
 # Everything in this block exists because `POST /orders/table/{id}/items` takes no token.
@@ -518,8 +518,13 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(PO
         # id in the property would comp a line — a waiter could hand out the elite
         # package's massages to a guest on the cheapest rate, and the ledger would look
         # entirely correct afterwards.
-        rate = await db.rates.find_one({"id": booking.get("rate_id")}, {"_id": 0}) or {}
-        guest_package_id = rate.get("package_id") or booking.get("package_id")
+        # The booking's own snapshot first — what it was sold with is fixed at the
+        # moment of sale. The room type is consulted only for a booking taken before
+        # packages existed, so an old stay is not left holding nothing.
+        room_type = await db.room_types.find_one(
+            {"id": booking.get("room_type_id")}, {"_id": 0}) or {}
+        guest_package_id = ((booking.get("package_id") or "").strip()
+                            or package_for_stay(None, room_type))
         uses = await db.entitlement_uses.find(
             {"booking_id": booking.get("id")}, {"_id": 0}).to_list(5000)
         day = _clock_today()

@@ -132,3 +132,24 @@ def comp_value(items: list[dict], line_ids: list[str]) -> float:
         float(i.get("price") or 0) * int(i.get("quantity") or 0)
         for i in items if i.get("id") in wanted
     ), 2)
+
+
+def package_for_stay(rate: dict | None, room_type: dict | None) -> str | None:
+    """Which package a stay is sold with: the rate's, else the room type's.
+
+    Two places, one rule, resolved here so no caller has to remember the order.
+
+    **The room type is where an owner is asked**, because it matches how a small hotel
+    actually sells: a Suite includes breakfast and two spa treatments, and that is a fact
+    about the room rather than about a price. The rate may override it, which is how a
+    larger hotel sells one room as Room Only and as Bed & Breakfast at two prices — rare
+    enough that it is the exception rather than the question.
+
+    A blank string is not an id. It is what a form submits when the picker is cleared, and
+    reading it as a package would send every lookup after an id that resolves to nothing.
+    """
+    for source in (rate, room_type):
+        value = ((source or {}).get("package_id") or "").strip()
+        if value:
+            return value
+    return None

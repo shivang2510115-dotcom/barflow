@@ -179,3 +179,33 @@ def test_the_same_line_named_twice_is_comped_once():
     # difference. Same reasoning as the deterministic use id.
     items = [{"id": "l1", "menu_item_id": "m1", "name": "Massage", "price": 1800, "quantity": 1}]
     assert comp_value(items, ["l1", "l1"]) == 1800.0
+
+
+# --- where a stay's package comes from -------------------------------------------------
+
+from services.packages import package_for_stay
+
+
+def test_a_room_types_package_is_what_a_stay_gets():
+    """The owner's model: a Suite includes breakfast and spa, and says so once."""
+    assert package_for_stay(rate={}, room_type={"package_id": "suite-pkg"}) == "suite-pkg"
+
+
+def test_a_rate_can_override_the_room_types_package():
+    # How a hotel sells the same Deluxe as Room Only and as Bed & Breakfast: two rates,
+    # one room type. Rare, but the reason the rate is consulted first.
+    assert package_for_stay(rate={"package_id": "bnb"},
+                            room_type={"package_id": "room-only"}) == "bnb"
+
+
+def test_neither_carrying_one_means_the_room_alone():
+    assert package_for_stay(rate={}, room_type={}) is None
+    assert package_for_stay(rate=None, room_type=None) is None
+
+
+def test_a_blank_package_id_is_not_a_package():
+    # An empty string is what a form submits when the picker is cleared, and it must
+    # read as "none" rather than as an id that resolves to nothing.
+    assert package_for_stay(rate={"package_id": ""},
+                            room_type={"package_id": "suite-pkg"}) == "suite-pkg"
+    assert package_for_stay(rate={"package_id": "  "}, room_type={}) is None

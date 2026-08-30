@@ -14,6 +14,9 @@ const BLANK_TYPE = {
   base_occupancy: "2",
   max_occupancy: "3",
   max_extra_beds: "1",
+  // What comes with this kind of room. Empty is "the room alone", which is what every
+  // room type had before packages existed and what most of them will keep.
+  package_id: "",
 };
 
 // What the "add rooms" panel holds. `mode` is which of the two ways is open: one room
@@ -105,6 +108,37 @@ function typeProblem(draft) {
 // The three occupancy fields, drawn identically wherever they appear. Both the create
 // card and the edit panel use this: two copies of five inputs is how the two forms end
 // up disagreeing about which of them is required.
+
+/** What this kind of room includes, beyond the room.
+ *
+ * Asked here because this is where an owner thinks about it: a Suite includes breakfast
+ * and two spa treatments, and that is a fact about the room rather than about a price.
+ * A rate can still override it — see services/packages.py::package_for_stay — but most
+ * properties never need to, so the rate screen does not ask.
+ */
+function PackageField({ value, packages, onChange }) {
+  return (
+    <label className="text-xs tracking-widest uppercase text-faint">
+      Includes
+      <select
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        className="block mt-2 w-56 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
+      >
+        <option value="">Just the room</option>
+        {packages.map((p) => (
+          <option key={p.id} value={p.id}>{p.name}</option>
+        ))}
+      </select>
+      <span className="block mt-1 normal-case tracking-normal text-[11px] text-faint">
+        {packages.length === 0
+          ? "No packages yet — build one under Packages"
+          : "Every stay in this room gets it"}
+      </span>
+    </label>
+  );
+}
+
 function OccupancyFields({ value, onChange, prefix }) {
   return (
     <>
@@ -502,6 +536,7 @@ export default function Rooms() {
   const isAdmin = user?.role === "admin";
 
   const [types, setTypes] = useState([]);
+  const [packages, setPackages] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -527,10 +562,14 @@ export default function Rooms() {
 
   const load = useCallback(
     () =>
-      Promise.all([api.get("/room-types"), api.get("/rooms")])
-        .then(([t, r]) => {
+      // Packages alongside: the picker needs them, and a failure to load them must not
+      // stop the rooms screen — an owner who cannot see the list can still add rooms.
+      Promise.all([api.get("/room-types"), api.get("/rooms"),
+                   api.get("/packages").catch(() => ({ data: [] }))])
+        .then(([t, r, p]) => {
           setTypes(t.data);
           setRooms(r.data);
+          setPackages(p.data);
         })
         .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
         .finally(() => setLoading(false)),
@@ -569,6 +608,7 @@ export default function Rooms() {
         base_occupancy: Number(creating.base_occupancy),
         max_occupancy: Number(creating.max_occupancy),
         max_extra_beds: Number(creating.max_extra_beds),
+        package_id: creating.package_id || null,
       });
       setCreating(BLANK_TYPE);
       toast.success("Room type added — now give it some rooms");
@@ -872,6 +912,11 @@ export default function Rooms() {
               />
             </label>
             <OccupancyFields value={creating} onChange={setCreating} prefix="room-type" />
+            <PackageField
+              value={creating.package_id}
+              packages={packages}
+              onChange={(v) => setCreating({ ...creating, package_id: v })}
+            />
             <button
               onClick={createType}
               disabled={busy}
@@ -1043,6 +1088,11 @@ export default function Rooms() {
               value={editingType}
               onChange={setEditingType}
               prefix="room-type-edit"
+            />
+            <PackageField
+              value={editingType.package_id}
+              packages={packages}
+              onChange={(v) => setEditingType({ ...editingType, package_id: v || null })}
             />
             {/* Deactivating a type takes it out of availability without touching the
                 rooms in it — the way to stop selling a floor being refurbished without

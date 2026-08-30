@@ -112,6 +112,13 @@ class RoomTypeIn(BaseModel):
     max_extra_beds: int = 1
     amenities: List[str] = []
     images: List[str] = []
+    # What comes with this kind of room. A Suite that includes breakfast and two spa
+    # treatments says so here, once, and every rate for it inherits that.
+    #
+    # A rate may still name its own package, and it wins — that is how a hotel sells the
+    # same Deluxe as Room Only and as Bed & Breakfast at two prices. Most properties never
+    # need it, which is why the room type is the place the owner is asked.
+    package_id: Optional[str] = None
     active: bool = True
 
 

@@ -3164,3 +3164,37 @@ def test_a_hotel_admin_cannot_set_its_own_whatsapp_credentials(admin):
     r = admin.put(f"{API}/platform/properties/anything/whatsapp",
                   json={"phone_id": "1", "token": "t"})
     assert r.status_code == 403
+
+
+def test_a_package_set_on_the_room_type_reaches_the_guest(admin, ep_plan):
+    """The owner's model: a Suite includes breakfast, said once on the room type.
+
+    No rate names a package here. Setting it on the room type alone must be enough, or
+    the feature only works for a hotel that also understands rate plans.
+    """
+    outlet = _an_outlet(admin, "restaurant")
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Suite comforts {uuid.uuid4().hex[:6]}"}).json()
+    admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": outlet["id"], "scope": "outlet", "quantity": 2,
+        "period": "per_stay"})
+
+    rt = admin.post(f"{API}/room-types", json={
+        "name": f"Suite {uuid.uuid4().hex[:5]}", "code": f"S{uuid.uuid4().hex[:4].upper()}",
+        "base_occupancy": 2, "max_occupancy": 3, "package_id": pkg["id"]})
+    assert rt.status_code == 200, rt.text
+    assert rt.json()["package_id"] == pkg["id"], "the room type keeps what it includes"
+    rt = rt.json()
+
+    _add_rooms(admin, rt["id"], 1)
+    _add_default_rate(admin, rt["id"])   # a plain rate, naming no package
+    guest = _new_guest(admin)
+    booking = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-07-01",
+        "check_out": "2027-07-03", "adults": 2, "children": 0}).json()
+
+    got = admin.get(f"{API}/bookings/{booking['id']}/entitlements").json()
+    assert got["package"] is not None, "a room type's package must reach the stay"
+    assert got["package"]["id"] == pkg["id"]
+    assert got["inclusions"][0]["remaining"] == 2

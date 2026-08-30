@@ -16,6 +16,7 @@ from models.hotel import (
     Booking, BookingIn, BookingUpdateIn, CancelIn, ExtendStayIn, RoomAssignmentIn)
 from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
+from services.packages import package_for_stay
 from services.timeline import merge_events
 from services.availability import (
     CONSUMING_STATUSES, blocking_out_of_order, booking_holding_room, count_available)
@@ -299,7 +300,7 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK),
     # guest already staying was entitled to.
     priced_on = await db.rates.find_one(
         {"room_type_id": room_type["id"], "package_id": {"$ne": None}}, {"_id": 0})
-    package_id = (priced_on or {}).get("package_id")
+    package_id = package_for_stay(priced_on, room_type)
 
     booking = Booking(
         **{**payload.model_dump(),
