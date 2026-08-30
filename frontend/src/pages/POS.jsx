@@ -46,11 +46,28 @@ export default function POS() {
   const [roomQuery, setRoomQuery] = useState("");
   const [debouncedRoomQuery, setDebouncedRoomQuery] = useState("");
   const [chosenFolio, setChosenFolio] = useState(null);
+  // What this guest's package still covers. Fetched when a guest is chosen for
+  // charge-to-room, because that is the only moment it can matter: a walk-in paying
+  // cash has no package, and asking for one would be a request per sale for nothing.
+  const [included, setIncluded] = useState(null);
 
   useEffect(() => {
     api.get("/tables").then((r) => setTables(r.data));
     api.get("/menu").then((r) => setMenu(r.data));
   }, []);
+
+  // A guest with no package answers an empty list rather than an error, so a failure
+  // here is a real one — and it must not block a sale. The strip simply does not
+  // appear, and the waiter charges as they always did.
+  useEffect(() => {
+    const bookingId = chosenFolio?.booking?.id;
+    if (!bookingId) { setIncluded(null); return; }
+    let cancelled = false;
+    api.get(`/bookings/${bookingId}/entitlements`)
+      .then((r) => { if (!cancelled) setIncluded(r.data); })
+      .catch(() => { if (!cancelled) setIncluded(null); });
+    return () => { cancelled = true; };
+  }, [chosenFolio]);
 
   // Debounce the in-house search input, mirroring Bookings.jsx.
   useEffect(() => {
@@ -504,6 +521,7 @@ export default function POS() {
           {pay === "room" && (
             <div className="mt-3">
               {chosenFolio ? (
+                <>
                 <div className="flex items-center justify-between border border-brass/50 bg-brass/10 rounded px-3 py-2">
                   <div>
                     <div className="text-sm text-brass">
@@ -513,11 +531,37 @@ export default function POS() {
                   </div>
                   <button
                     onClick={() => setChosenFolio(null)}
-                    className="text-[10px] font-mono uppercase tracking-widest text-faint hover:text-red-400"
+                    className="text-[10px] font-mono uppercase tracking-widest text-faint hover:text-state-alert"
                   >
                     Change
                   </button>
                 </div>
+
+                {/* What this guest's package still covers. Shown before anything is
+                    rung up, because the decision it informs — charge or comp — is made
+                    while the guest is standing there. An exhausted allowance is shown
+                    struck through rather than hidden: "you have used both" is a
+                    different and more useful answer than silence. */}
+                {included?.inclusions?.length > 0 && (
+                  <div className="mt-2 border border-state-free/40 bg-state-free/5 rounded px-3 py-2">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-state-free mb-1.5">
+                      {included.package?.name || "Included"}
+                    </div>
+                    <ul className="space-y-1">
+                      {included.inclusions.map((i) => (
+                        <li key={i.id} className="flex items-center gap-2 text-[12px]">
+                          <span className={`tabular-nums ${i.remaining > 0 ? "text-state-free" : "text-faint line-through"}`}>
+                            {i.remaining}
+                          </span>
+                          <span className={i.remaining > 0 ? "text-ink" : "text-faint line-through"}>
+                            left{i.scope === "outlet" ? "" : ` · ${i.ref_id}`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                </>
               ) : (
                 <>
                   <div className="flex items-center border border-hairline px-3">

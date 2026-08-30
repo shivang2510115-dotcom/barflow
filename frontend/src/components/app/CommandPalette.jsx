@@ -34,6 +34,7 @@ const SCREENS = [
   { to: "/app/hotel/calendar", label: "Occupancy", keywords: "availability calendar" },
   { to: "/app/hotel/rooms", label: "Rooms", keywords: "inventory room list" },
   { to: "/app/hotel/rates", label: "Rates", keywords: "pricing tariff" },
+  { to: "/app/hotel/packages", label: "Packages", keywords: "inclusions included elite breakfast entitlement" },
   { to: "/app/hotel/guests", label: "Guests", keywords: "customers people" },
   { to: "/app/hotel/bills", label: "Bills", keywords: "invoice bill checkout receipt" },
   { to: "/app/hotel/housekeeping", label: "Housekeeping", keywords: "cleaning dirty turn" },

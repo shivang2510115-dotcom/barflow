@@ -42,6 +42,7 @@ import Expenses from "@/pages/admin/Expenses";
 import Outlets from "@/pages/admin/Outlets";
 import Today from "@/pages/Today";
 import Bills from "@/pages/hotel/Bills";
+import Packages from "@/pages/hotel/Packages";
 import Notifications from "@/pages/admin/Notifications";
 import Account from "@/pages/Account";
 import Settings from "@/pages/admin/Settings";
@@ -131,6 +132,7 @@ function AppShell() {
             answer before the software will. */}
         <Route path="/today" element={<Today />} />
         <Route path="/hotel/bills" element={<Bills />} />
+        <Route path="/hotel/packages" element={<Packages />} />
         <Route path="/planner" element={<Planner />} />
         <Route path="/admin" element={<Protected roles={["admin"]}><Console /></Protected>} />
         <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />

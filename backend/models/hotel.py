@@ -295,6 +295,12 @@ class RateIn(BaseModel):
     base_rate: float
     extra_adult_rate: float = 0.0
     extra_child_rate: float = 0.0
+    # What this rate includes beyond the room, if anything. Optional and defaulted to
+    # None, because that is what every rate that existed before packages did has: a
+    # rate with no package sells a room and nothing else, which is what they have all
+    # been doing. This one field is the entire mechanism by which an elite room differs
+    # from a normal one — see services/packages.py.
+    package_id: Optional[str] = None
 
 
 class Rate(RateIn):

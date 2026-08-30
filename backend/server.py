@@ -39,6 +39,7 @@ from migrations.backfill_housekeeping import backfill as backfill_housekeeping
 from migrations.backfill_expenses import backfill as backfill_expenses
 from migrations.backfill_planner import backfill as backfill_planner
 from migrations.backfill_outlets import backfill as backfill_outlets
+from migrations.backfill_bills import backfill as backfill_bills
 from migrations.encrypt_guest_ids import backfill as encrypt_guest_ids
 from services.crypto import ENV_VAR as GUEST_ID_KEY_VAR, encryption_configured
 
@@ -631,6 +632,13 @@ async def on_startup():
     logger.info(
         "Outlets: %s outlet(s) created, %s user(s) pointed at them, "
         "%s propert(ies) already current.", out_created, out_pointed, out_current)
+
+    # The Bills screen, for the same reason housekeeping, expenses and the planner each
+    # needed one: backfill_permissions fills a *missing* permissions field and never
+    # touches a present one, so a key invented today reaches nobody already hired.
+    bills_granted, bills_held = await backfill_bills()
+    logger.info("Bills: screen granted to %s user(s), %s already held it.",
+                bills_granted, bills_held)
     # Last of the migrations, and the only one that is allowed to do nothing: an unset
     # key means this deployment stores identity documents in plain text, which is what
     # it did yesterday and is not a reason to refuse a hotel its check-in screen. It is

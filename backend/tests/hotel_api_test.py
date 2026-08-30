@@ -2843,3 +2843,30 @@ def test_an_exhausted_allowance_is_refused_rather_than_going_negative(admin, ep_
                       params={"folio_entry_id": "line-2"})
     # 409, so the POS can charge full price and say "beyond package" with a reason.
     assert over.status_code == 409
+
+
+def test_a_rate_can_point_at_a_package_and_a_missing_one_is_refused(admin):
+    rt = _new_room_type(admin)
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Bed and breakfast {uuid.uuid4().hex[:6]}"}).json()
+
+    ok = admin.post(f"{API}/rates", json={
+        "room_type_id": rt["id"], "base_rate": 4000, "package_id": pkg["id"]})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["package_id"] == pkg["id"]
+
+    bad = admin.post(f"{API}/rates", json={
+        "room_type_id": rt["id"], "base_rate": 4000,
+        "package_id": "00000000-0000-0000-0000-000000000000"})
+    # A rate pointing at nothing would sell an elite room that includes nothing, and the
+    # guest would find that out at the salon counter.
+    assert bad.status_code == 400
+
+
+def test_a_rate_without_a_package_still_works_exactly_as_before(admin):
+    rt = _new_room_type(admin)
+    r = admin.post(f"{API}/rates", json={"room_type_id": rt["id"], "base_rate": 3000})
+    assert r.status_code == 200, r.text
+    # Every rate that predates packages has this, and a rate with no package sells a
+    # room and nothing else — which is what they have all been doing.
+    assert r.json().get("package_id") is None

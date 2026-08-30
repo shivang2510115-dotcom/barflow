@@ -110,6 +110,10 @@ async def create_rate(payload: RateIn, user: dict = Depends(CONFIG),
         raise HTTPException(400, "Unknown room_type_id")
     if payload.period_id and not await db.rate_periods.find_one({"id": payload.period_id}):
         raise HTTPException(400, "Unknown period_id")
+    # A rate pointing at a package that does not exist would sell an elite room that
+    # includes nothing, and the guest would find out at the salon counter.
+    if payload.package_id and not await db.packages.find_one({"id": payload.package_id}):
+        raise HTTPException(400, "Unknown package_id")
 
     # A (room_type_id, period_id) pair must resolve to exactly one rate, or pricing
     # becomes non-deterministic — replace any existing row instead of inserting another.

@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import CommandPalette from "@/components/app/CommandPalette";
 import { applyTheme, currentTheme } from "@/lib/theme-choice";
 import {
+  Gift,
   Sun,
   Moon,
   ReceiptText,
@@ -86,6 +87,13 @@ const NAV = [
   // would refuse, and `holdsScreen` is what decides that.
   { to: "/app/hotel/housekeeping", label: "Housekeeping", icon: Sparkles, roles: ["admin", "manager", "front_desk", "housekeeping"], domains: ["hotel"], screen: "hotel.housekeeping" },
   { to: "/app/hotel/rates", label: "Rates", icon: Tags, roles: ["admin", "manager"], domains: ["hotel"], screen: "hotel.rates" },
+  // What a rate includes beyond the room. Behind hotel.rates rather than a key of its
+  // own: deciding what a rate includes is the same job as deciding what it costs, and a
+  // new key would reach nobody already hired.
+  { to: "/app/hotel/packages", label: "Packages", icon: Gift, roles: ["admin", "manager"], domains: ["hotel"], screen: "hotel.rates" },
+  // Every bill the property has issued. This one DOES carry a new key, so it reaches
+  // only accounts created since — see the note below about backfill_permissions.
+  { to: "/app/hotel/bills", label: "Bills", icon: ReceiptText, roles: ["admin", "manager"], domains: ["hotel"], screen: "hotel.bills" },
   // Endpoints the server declares SHARED, so they carry no `domains` here either — the
   // nav must not hide a route that answers the caller 200. They keep a heading of their
   // own rather than sitting under Restaurant or Hotel, because a shared item filed under
