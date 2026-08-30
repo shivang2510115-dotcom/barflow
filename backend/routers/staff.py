@@ -21,6 +21,7 @@ from pydantic import BaseModel, EmailStr
 from pymongo.errors import DuplicateKeyError
 
 from db import unscoped_db
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import Role, hash_password, require_access, resolve_property
 from services.access import (
     DOMAINS, SCREENS, SHARED, default_permissions, permission_in_domains,
@@ -83,6 +84,10 @@ class StaffIn(BaseModel):
     # security.Role is the one list of roles; duplicating it here would let the two drift.
     role: Role
     domains: List[Domain] = []
+    # Which outlets this person works in. Empty means "not narrowed" — they work
+    # wherever their domains reach, which is what every account predating outlets has.
+    # Enforced in exactly one place: scoped_db.py::require_outlet.
+    outlet_ids: List[str] = []
     # Not a Literal, so an unknown key reaches the handler and is refused with a 422 that
     # names it — "screen key 'hotel.spa' does not exist" is what an owner can act on,
     # where pydantic's enum error would recite all fifteen valid keys instead.
@@ -97,6 +102,10 @@ class StaffUpdateIn(BaseModel):
     name: str
     role: Role
     domains: List[Domain] = []
+    # Which outlets this person works in. Empty means "not narrowed" — they work
+    # wherever their domains reach, which is what every account predating outlets has.
+    # Enforced in exactly one place: scoped_db.py::require_outlet.
+    outlet_ids: List[str] = []
     # Omitted means "leave their screens alone" here rather than "reset to the role's",
     # so that an edit which only renames somebody cannot quietly widen them back out.
     permissions: List[str] | None = None
@@ -194,12 +203,32 @@ def _public(user: dict) -> dict:
         "phone": user.get("phone"),
         "role": user.get("role"),
         "domains": user.get("domains") or [],
+        "outlet_ids": user.get("outlet_ids") or [],
         # Filtered to the catalogue on the way out: a key retired from the code is
         # ignored on read rather than shown as a tick for a screen that no longer exists.
         "permissions": [k for k in (user.get("permissions") or []) if k in SCREENS],
         "active": user.get("active", True),
         "created_at": user.get("created_at"),
     }
+
+
+async def _checked_outlet_ids(db, outlet_ids: list[str]) -> list[str]:
+    """Every id must name an outlet of *this* property.
+
+    The scoped handle means an id belonging to another hotel simply is not found, so
+    this one check covers both a typo and a caller reaching across tenants — and it
+    answers 400 rather than 404, because the request is about a staff member who does
+    exist and it is the body that is wrong.
+    """
+    wanted = [o for o in dict.fromkeys(outlet_ids) if o]
+    if not wanted:
+        return []
+    rows = await db.outlets.find({"id": {"$in": wanted}}, {"_id": 0, "id": 1}).to_list(200)
+    found = {r["id"] for r in rows}
+    missing = [o for o in wanted if o not in found]
+    if missing:
+        raise HTTPException(400, f"No such outlet in this property: {missing[0]}")
+    return wanted
 
 
 def _mine(user: dict) -> dict:
@@ -331,7 +360,8 @@ async def list_staff(user: dict = Depends(ADMIN)):
 
 
 @router.post("/staff")
-async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
+async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     # An account that can reach nothing is a mistake, not a state worth storing.
     if payload.role != "admin" and not payload.domains:
         raise HTTPException(400, "A non-admin needs at least one work domain")
@@ -354,6 +384,7 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
     allowed = await _property_domains(user)
     _within_the_property(payload.domains, allowed)
     domains = _stored_domains(payload.role, payload.domains, allowed)
+    outlet_ids = await _checked_outlet_ids(db, payload.outlet_ids)
     doc = {
         "id": str(uuid.uuid4()),
         "name": payload.name.strip(),
@@ -364,6 +395,7 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
         "phone": phone,
         "role": payload.role,
         "domains": domains,
+        "outlet_ids": outlet_ids,
         "permissions": _stored_permissions(payload.permissions, payload.role, domains),
         # The hotel doing the hiring, taken from the admin's own record and never from
         # the request: a staff list is the one place where "which hotel" could otherwise
@@ -389,7 +421,9 @@ async def create_staff(payload: StaffIn, user: dict = Depends(ADMIN)):
 
 
 @router.put("/staff/{staff_id}")
-async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depends(ADMIN)):
+async def update_staff(staff_id: str, payload: StaffUpdateIn,
+                       user: dict = Depends(ADMIN),
+                       db: PropertyScopedDatabase = Depends(tenant_db)):
     target = await unscoped_db.users.find_one({"id": staff_id, **_mine(user)}, {"_id": 0})
     if not target:
         raise HTTPException(404, "Staff member not found")
@@ -400,6 +434,7 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
     allowed = await _property_domains(user)
     _within_the_property(payload.domains, allowed)
     domains = _stored_domains(payload.role, payload.domains, allowed)
+    outlet_ids = await _checked_outlet_ids(db, payload.outlet_ids)
     permissions = _stored_permissions(payload.permissions, payload.role, domains,
                                       existing=list(target.get("permissions") or []))
 
@@ -431,6 +466,7 @@ async def update_staff(staff_id: str, payload: StaffUpdateIn, user: dict = Depen
         "name": payload.name.strip(),
         "role": payload.role,
         "domains": domains,
+        "outlet_ids": outlet_ids,
         "permissions": permissions,
     }})
 

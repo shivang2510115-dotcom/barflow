@@ -508,3 +508,44 @@ async def public_db(request: Request, table_id: str | None = None) -> PropertySc
     if not property_id:
         raise HTTPException(404, "No property is set up yet")
     return PropertyScopedDatabase(property_id)
+
+
+async def require_outlet(
+    outlet_id: str,
+    user: dict = Depends(get_current_user),
+    db: "PropertyScopedDatabase" = Depends(tenant_db),
+) -> dict:
+    """Resolve the outlet named in the path, refusing one the caller may not reach.
+
+    Deliberately separate from `require_access` rather than folded into it. That
+    dependency answers "may this person work in outlets at all", which every existing
+    call site already asks and none of them should have to change. This answers the
+    narrower "which one", and only the handful of routes naming an outlet in their URL
+    ask it.
+
+    It lives here rather than in security.py because it needs `tenant_db`, and
+    scoped_db already imports security — putting it there would close the cycle.
+
+    **An empty `outlet_ids` means "not narrowed", not "none".** Every account created
+    before outlets existed has no list, and reading that as "no outlets" would lock
+    every waiter in production out of the POS on the morning this deploys. Narrowing is
+    something an admin does on purpose; the absence of it is not a denial.
+
+    An admin passes regardless, the way they bypass domains everywhere else.
+    """
+    outlet = await db.outlets.find_one({"id": outlet_id}, {"_id": 0})
+    if not outlet:
+        # 404, not 403 — the scoped handle already filtered another property's outlets
+        # out, so from here it genuinely does not exist. A 403 would confirm that the id
+        # belongs to somebody.
+        raise HTTPException(404, "No such outlet")
+    if not outlet.get("active", True):
+        raise HTTPException(409, f"{outlet.get('name')} is switched off")
+
+    if user.get("role") == "admin":
+        return outlet
+
+    assigned = user.get("outlet_ids") or []
+    if assigned and outlet_id not in assigned:
+        raise HTTPException(403, "Not permitted in this outlet")
+    return outlet

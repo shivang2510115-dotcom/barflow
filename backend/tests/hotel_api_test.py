@@ -2573,3 +2573,40 @@ def test_an_outlet_from_another_property_is_a_404_not_a_403(admin):
     r = admin.patch(f"{API}/outlets/00000000-0000-0000-0000-000000000000",
                     json={"active": False})
     assert r.status_code == 404
+
+
+def test_a_staff_member_is_assigned_to_specific_outlets(admin):
+    salon = admin.post(f"{API}/outlets", json={
+        "name": f"Calm Salon {uuid.uuid4().hex[:6]}", "kind": "salon",
+        "charges_to_folio": True, "takes_direct_payment": True}).json()
+
+    email = f"spa-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Priya", "email": email, "password": "Wildflower-8821",
+        "role": "waiter", "domains": ["services"], "outlet_ids": [salon["id"]]})
+    assert r.status_code == 200, r.text
+    assert r.json()["outlet_ids"] == [salon["id"]]
+
+
+def test_a_staff_member_cannot_be_assigned_to_another_propertys_outlet(admin):
+    # A fabricated id stands in for one belonging to a different hotel: the scoped
+    # handle cannot see it either way, which is exactly the point.
+    email = f"spb-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Ravi", "email": email, "password": "Wildflower-8822",
+        "role": "waiter", "domains": ["services"],
+        "outlet_ids": ["00000000-0000-0000-0000-000000000000"]})
+    assert r.status_code == 400
+    assert "outlet" in r.json()["detail"].lower()
+
+
+def test_outlet_ids_defaults_to_empty_rather_than_to_everything(admin):
+    email = f"spc-{uuid.uuid4().hex[:6]}@barflow.io"
+    r = admin.post(f"{API}/staff", json={
+        "name": "Anil", "email": email, "password": "Wildflower-8823",
+        "role": "waiter", "domains": ["restaurant"]})
+    assert r.status_code == 200, r.text
+    # Empty means "not narrowed", handled by require_outlet. It must not be stored as
+    # "every outlet", or adding a salon later would silently staff it with everyone who
+    # already worked anywhere.
+    assert r.json()["outlet_ids"] == []
