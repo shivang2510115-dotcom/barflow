@@ -35,6 +35,7 @@ const SCREENS = [
   { to: "/app/hotel/rooms", label: "Rooms", keywords: "inventory room list" },
   { to: "/app/hotel/rates", label: "Rates", keywords: "pricing tariff" },
   { to: "/app/hotel/guests", label: "Guests", keywords: "customers people" },
+  { to: "/app/hotel/bills", label: "Bills", keywords: "invoice bill checkout receipt" },
   { to: "/app/hotel/housekeeping", label: "Housekeeping", keywords: "cleaning dirty turn" },
   { to: "/app/pos", label: "POS", keywords: "bill order till sell" },
   { to: "/app/tables", label: "Tables", keywords: "floor covers" },

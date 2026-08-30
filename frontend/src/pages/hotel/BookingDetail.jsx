@@ -125,7 +125,20 @@ export default function BookingDetail() {
     setCheckingOut(true);
     try {
       await api.post(`/bookings/${id}/check-out`, {});
-      toast.success("Checked out");
+      // The bill is drawn immediately after, in the same action, because a checkout
+      // without a document is the half of the job the guest actually walks away with.
+      // It is a separate request rather than part of check-out: a bill that failed to
+      // write must not roll back a checkout that succeeded, and a guest already at the
+      // door is better served by "checked out, bill did not print" than by neither.
+      let billed = null;
+      if (folioId) {
+        try {
+          billed = await api.post(`/folios/${folioId}/bill`, {}).then((r) => r.data);
+        } catch {
+          toast.error("Checked out, but the bill could not be drawn. Open Bills to retry.");
+        }
+      }
+      toast.success(billed ? `Checked out — bill ${billed.number}` : "Checked out");
       load();
     } catch (e) {
       const detail = e.response?.data?.detail;

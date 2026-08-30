@@ -367,7 +367,7 @@ def test_the_catalogue_is_well_formed():
 def test_the_catalogue_covers_the_keys_the_design_named():
     assert set(SCREENS) == {
         "hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.rooms",
-        "hotel.rates", "hotel.guests", "hotel.housekeeping",
+        "hotel.rates", "hotel.guests", "hotel.housekeeping", "hotel.bills",
         "outlet.tables", "outlet.pos", "outlet.kot", "outlet.reservations",
         "outlet.menu", "outlet.inventory", "outlet.reports",
         "property.planner",

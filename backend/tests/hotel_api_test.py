@@ -1889,7 +1889,7 @@ def test_the_screen_catalogue_is_readable_by_any_signed_in_user(admin):
     keys = {row["key"] for row in catalogue}
     assert keys == {
         "hotel.front_desk", "hotel.bookings", "hotel.calendar", "hotel.rooms",
-        "hotel.rates", "hotel.guests", "hotel.housekeeping",
+        "hotel.rates", "hotel.guests", "hotel.housekeeping", "hotel.bills",
         "outlet.tables", "outlet.pos", "outlet.kot",
         "outlet.reservations", "outlet.menu", "outlet.inventory", "outlet.reports",
         "property.planner",

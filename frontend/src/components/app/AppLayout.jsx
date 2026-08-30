@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import CommandPalette from "@/components/app/CommandPalette";
 import {
+  ReceiptText,
   Store,
   Grid3x3,
   CalendarClock,

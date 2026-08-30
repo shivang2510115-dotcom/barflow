@@ -150,6 +150,10 @@ SCREENS: dict[str, dict] = {
     "hotel.rooms":        {"label": "Rooms",        "section": "Hotel",      "domains": ("hotel",)},
     "hotel.rates":        {"label": "Rates",        "section": "Hotel",      "domains": ("hotel",)},
     "hotel.guests":       {"label": "Guests",       "section": "Hotel",      "domains": (SHARED,)},
+    # Every bill the property has issued. Separate from `hotel.front_desk`, which is what
+    # lets a receptionist *draw* a bill for the guest in front of them: reading everybody's
+    # spend across the property is a manager's question, not a receptionist's.
+    "hotel.bills":        {"label": "Bills",        "section": "Hotel",      "domains": ("hotel",)},
     # The attendant's phone screen: room statuses and the requests raised against them.
     # Declared `hotel` like the rest of this section — an outlet has no rooms to clean.
     "hotel.housekeeping": {"label": "Housekeeping", "section": "Hotel",      "domains": ("hotel",)},
