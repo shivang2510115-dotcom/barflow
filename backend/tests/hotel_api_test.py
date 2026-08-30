@@ -2610,3 +2610,40 @@ def test_outlet_ids_defaults_to_empty_rather_than_to_everything(admin):
     # "every outlet", or adding a salon later would silently staff it with everyone who
     # already worked anywhere.
     assert r.json()["outlet_ids"] == []
+
+
+def test_the_today_board_answers_the_mornings_questions_in_one_request(admin):
+    r = admin.get(f"{API}/today")
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert b["date"]
+    for key in ("arrivals", "departures", "in_house_count", "rooms"):
+        assert key in b, key
+    assert {"total", "not_ready", "not_ready_numbers"} <= set(b["rooms"])
+
+
+def test_an_admin_sees_the_rooms_metrics_on_the_board(admin):
+    m = admin.get(f"{API}/today").json().get("metrics")
+    assert m is not None, "an admin must see ADR, RevPAR and occupancy"
+    assert {"adr", "revpar", "occupancy", "nights_sold", "nights_available"} <= set(m)
+    # A property with rooms has a denominator, so occupancy is a number even when
+    # nothing sold today. ADR may legitimately be None — see services/metrics.py.
+    if m["nights_available"]:
+        assert isinstance(m["occupancy"], (int, float))
+
+
+def test_a_waiter_gets_the_board_without_the_money(waiter):
+    r = waiter.get(f"{API}/today")
+    assert r.status_code == 200, r.text
+    b = r.json()
+    # The board is the landing screen for everybody, so a waiter must reach it...
+    assert "arrivals" in b
+    # ...but revenue is narrowed to whoever may see it on /analytics.
+    assert "metrics" not in b
+
+
+def test_the_board_never_leaks_a_guests_contact_details(waiter):
+    b = waiter.get(f"{API}/today").json()
+    for row in b["arrivals"] + b["departures"]:
+        assert set(row) == {"booking_id", "guest_name", "room_number",
+                            "check_in", "check_out", "status"}, row

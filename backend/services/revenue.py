@@ -92,6 +92,11 @@ def hotel_revenue(entries: list[dict], start: str, end: str) -> dict:
     by_day = {d: 0.0 for d in days}
     room_nights = 0.0
     extras = 0.0
+    # How many nights were sold, counted in the same pass over the same entries that
+    # sums their value. A second pass with its own filter is how the numerator and the
+    # denominator of ADR end up disagreeing about which nights count — the void rule in
+    # particular has to apply identically to both.
+    nights_sold = 0
 
     for e in entries:
         sign = REVENUE_SIGN.get(e.get("kind"))
@@ -104,12 +109,15 @@ def hotel_revenue(entries: list[dict], start: str, end: str) -> dict:
         by_day[day] += amount
         if e.get("kind") == "room_night":
             room_nights += amount
+            nights_sold += 1
         else:
             extras += amount
 
     return {
         "total": round(room_nights + extras, 2),
         "room_nights": round(room_nights, 2),
+        # The count, beside the value. `room_nights` is money; `nights_sold` is how many.
+        "nights_sold": nights_sold,
         "extras": round(extras, 2),
         "by_day": [{"date": d, "revenue": round(by_day[d], 2)} for d in days],
     }
