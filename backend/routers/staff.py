@@ -48,7 +48,7 @@ ADMIN = require_access(SHARED, "admin", permission="admin.staff", setup_time=Tru
 # `_within_the_property` still refuses the ones the caller's own property does not have:
 # a well-formed request for something that does not apply to this business is a 400, not
 # a 422, so the two checks are deliberately in different places.
-Domain = Literal["hotel", "restaurant", "bar"]
+Domain = Literal["hotel", "restaurant", "bar", "services"]
 
 # Import-time check, so adding a domain to services.access.DOMAINS without updating the
 # line above breaks startup loudly instead of silently 422-ing input that is now valid.

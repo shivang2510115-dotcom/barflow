@@ -1,7 +1,8 @@
 """Pure authorization tests — no server, no database."""
 import pytest
 from services.access import (
-    DOMAINS, LIVE, PENDING, PLATFORM_ADMIN, SCREENS, SCREEN_KEYS, SHARED, SUSPENDED,
+    DOMAINS, LIVE, OUTLET, PENDING, PLATFORM_ADMIN, SCREENS, SCREEN_KEYS, SHARED,
+    SUSPENDED,
     AccessError, can_access, normalise_domains, normalise_permissions,
     permission_in_domains,
 )
@@ -370,7 +371,7 @@ def test_the_catalogue_covers_the_keys_the_design_named():
         "outlet.tables", "outlet.pos", "outlet.kot", "outlet.reservations",
         "outlet.menu", "outlet.inventory", "outlet.reports",
         "property.planner",
-        "admin.staff", "admin.analytics", "admin.expenses",
+        "admin.staff", "admin.outlets", "admin.analytics", "admin.expenses",
     }
 
 
@@ -389,3 +390,25 @@ def test_a_screen_is_within_a_users_domains_only_when_they_hold_one_of_them():
 def test_permission_in_domains_rejects_an_unknown_key():
     with pytest.raises(AccessError):
         permission_in_domains("hotel.spa", ["hotel"])
+
+
+def test_the_services_domain_exists_and_counts_as_an_outlet_domain():
+    from services.outlets import SERVICES
+    assert SERVICES in DOMAINS
+    # Widening OUTLET is the point: a salon's staff reach the POS, the menu and the
+    # tables screens through the same keys a waiter does, because those screens are
+    # about selling from a catalogue and a salon sells from a catalogue.
+    assert SERVICES in OUTLET
+
+
+def test_the_food_domains_survive_the_widening():
+    # Production data holds these strings on user records. Reordering is harmless;
+    # renaming or dropping either would strand every waiter and bartender.
+    assert "restaurant" in DOMAINS
+    assert "bar" in DOMAINS
+    assert "hotel" in DOMAINS
+
+
+def test_managing_outlets_is_an_admin_screen():
+    assert "admin.outlets" in SCREENS
+    assert SCREENS["admin.outlets"]["section"] == "Admin"

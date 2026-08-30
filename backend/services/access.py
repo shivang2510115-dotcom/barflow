@@ -13,18 +13,27 @@ in it, its owner included. Both live in this one function rather than in a secon
 that the next endpoint forgets to apply.
 """
 
+from services.outlets import SERVICES
+
 # The areas a staff member can be assigned to.
-DOMAINS = ("hotel", "restaurant", "bar")
+#
+# `services` covers the non-food outlets — salon, gym, laundry — as one domain rather
+# than one each. See services/outlets.py::SERVICES for why one is enough: `outlet_ids`
+# on the user record already answers the narrower "which salon", which is the question
+# a property that needs the distinction is actually asking.
+DOMAINS = ("hotel", "restaurant", "bar", SERVICES)
 
 # Endpoints serving more than one area declare this instead. A bar regular and a hotel
 # guest are the same person, so splitting guest records by domain would stop the desk
 # seeing an arrival's bar history — which is the product's whole claim.
 SHARED = "shared"
 
-# This property's restaurant and bar share the order, menu, table and reservation
-# screens, so those endpoints declare both domains: holding either one grants access.
-# Declaring "restaurant" alone would lock a bar-only waiter out of the POS.
-OUTLET = ("restaurant", "bar")
+# Every outlet domain. This property's restaurant, bar and service outlets share the
+# order, menu, table and reservation screens, so those endpoints declare all of them:
+# holding any one grants access. Declaring "restaurant" alone would lock a bar-only
+# waiter out of the POS — and now a salon's staff out of it too, since a salon sells
+# from a catalogue exactly as a kitchen does.
+OUTLET = ("restaurant", "bar", SERVICES)
 
 
 # What kind of business a tenant is. Chosen at signup and stored on the property record,
@@ -172,6 +181,10 @@ SCREENS: dict[str, dict] = {
     # Grantable rather than implied by the role, so a manager can be given the analytics
     # screen without being made an admin.
     "admin.staff":        {"label": "Staff",        "section": "Admin",      "domains": (SHARED,)},
+    # Who may add a salon, a gym or a second restaurant, and who may switch one off.
+    # Admin-only: an outlet decides which screens exist for a whole group of staff, and
+    # that is a decision about how the business is arranged rather than a daily task.
+    "admin.outlets":      {"label": "Outlets",      "section": "Admin",      "domains": (SHARED,)},
     "admin.analytics":    {"label": "Analytics",    "section": "Admin",      "domains": DOMAINS},
     # What the property spends, and the profit that falls out of it. `DOMAINS` for the
     # same reason analytics has it: expenditure spans the business — salaries belong to
