@@ -80,6 +80,10 @@ export default function Login() {
         </Link>
 
         <div className="relative">
+          {/* orange-300, not brass, and not a token — this panel is a photograph under a
+              dark scrim in BOTH themes, so it is one of the two fixed-dark surfaces in
+              the app (the other is the WhatsApp preview in Reports). Brass is tuned to
+              carry text on porcelain; on a dark photo it sinks. */}
           <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-300 mb-4">
             Ops console
           </div>
