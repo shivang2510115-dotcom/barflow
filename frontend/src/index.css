@@ -129,8 +129,13 @@
 html,
 body {
     margin: 0;
-    background: var(--ground);
-    color: var(--ink);
+    /* rgb(), not a bare var(). The tokens hold RGB *channels* — "12 10 9" — so that
+       Tailwind's opacity modifiers work; `background: var(--ground)` produces the
+       invalid `background: 12 10 9`, the declaration is dropped, and the page behind
+       the app paints white. That is exactly what happened when these were converted
+       from hex, and it only showed on a screen long enough to scroll. */
+    background: rgb(var(--ground));
+    color: rgb(var(--ink));
     font-family: "Manrope", ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -225,10 +230,10 @@ body {
     * {
         border-color: hsl(var(--border));
     }
-    body {
-        background-color: hsl(var(--background));
-        color: hsl(var(--foreground));
-    }
+    /* Deliberately NOT setting body here. These shadcn tokens are pinned dark and do
+       not follow the theme, so this rule fought the themed one above and would have
+       painted a light page near-black. The palette has one owner: the tokens at the
+       top of this file. */
 }
 
 /* Utility scroll */
