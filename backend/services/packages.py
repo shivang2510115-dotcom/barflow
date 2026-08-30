@@ -111,3 +111,24 @@ def covers(inclusion: dict, outlet_id: str, item: dict | None) -> bool:
         return inclusion.get("ref_id") == item.get("category")
     # An unrecognised scope covers nothing, for the reason `allowance` returns zero.
     return False
+
+
+def comp_value(items: list[dict], line_ids: list[str]) -> float:
+    """What the named order lines are worth, so an entitlement can be applied as a
+    discount rather than through a second pricing path.
+
+    Computed from the order the server already holds and never from anything the client
+    sends: a POS that could name an amount could name a different one from the menu.
+
+    A line id that names nothing on the order is worth zero rather than raising. A stale
+    screen — a line removed by somebody else between rendering and settling — must not
+    be able to refuse a sale with a guest standing there.
+
+    The same line named twice is comped once, for the same reason the use id is
+    deterministic: a double tap must not hand the guest the difference.
+    """
+    wanted = set(line_ids or ())
+    return round(sum(
+        float(i.get("price") or 0) * int(i.get("quantity") or 0)
+        for i in items if i.get("id") in wanted
+    ), 2)

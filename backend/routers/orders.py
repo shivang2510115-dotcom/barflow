@@ -18,6 +18,12 @@ from services.tax import outlet_gst_settings, outlet_totals
 
 router = APIRouter()
 
+# Shared with routers/packages.py: a use recorded by settling an order and one recorded
+# by the entitlements route must be the same row, so both derive ids from this namespace.
+from routers.packages import _USE_NAMESPACE, _nights as _stay_nights
+from services.clock import today as _clock_today
+from services.packages import comp_value, remaining
+
 # ----------------- What a guest at the table may do -----------------
 # Everything in this block exists because `POST /orders/table/{id}/items` takes no token.
 # The numbers are all far above what a real table does in an evening and far below what
@@ -123,6 +129,17 @@ class AddItemsIn(BaseModel):
     # declare.
 
 
+class CompIn(BaseModel):
+    """One line covered by the guest's package.
+
+    The line and the inclusion, and no amount: what it is worth is computed from the
+    order the server already holds. A client that could send an amount could send a
+    different one from the menu.
+    """
+    line_id: str
+    inclusion_id: str
+
+
 class SettleIn(BaseModel):
     payment_method: Literal["cash", "card", "online", "room"] = "cash"
     discount: float = 0.0
@@ -130,6 +147,9 @@ class SettleIn(BaseModel):
     customer_phone: Optional[str] = None
     # Required when payment_method is "room".
     folio_id: Optional[str] = None
+    # Lines the guest's package covers. Only meaningful when charging to a room — an
+    # entitlement belongs to a booking, and a walk-in paying cash has none.
+    included: list[CompIn] = []
 
 
 # ----------------- Helpers -----------------
@@ -471,9 +491,6 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(PO
         raise HTTPException(404, "Order not found")
     if order["status"] != "open":
         raise HTTPException(409, f"This order is already {order['status']} and cannot be settled again")
-    order["discount"] = payload.discount
-    order = await compute_totals_for(db, order)
-
     # --- validation, before anything is written ---
     folio = None
     if payload.payment_method == "room":
@@ -484,6 +501,48 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(PO
             raise HTTPException(404, "Folio not found")
         if folio["status"] != "open":
             raise HTTPException(409, f"That folio is {folio['status']} and cannot be charged")
+
+    # What the guest's package covers, applied as a discount rather than through a
+    # second pricing path. The existing discount already does exactly this job, and the
+    # bill renders it beside the charge — so the guest sees both what was rung up and
+    # what they were given, which is most of the value of selling a package.
+    #
+    # An entitlement belongs to a booking, so it is only honoured against a room charge.
+    # Everything is validated here, before a single write: a comp that turns out to be
+    # exhausted must not leave a settled order behind it.
+    comps: list[tuple[dict, dict]] = []
+    if payload.included and folio is not None:
+        booking = await db.bookings.find_one(
+            {"id": folio.get("booking_id")}, {"_id": 0}) or {}
+        # Which package this guest actually bought. Without this, naming any inclusion
+        # id in the property would comp a line — a waiter could hand out the elite
+        # package's massages to a guest on the cheapest rate, and the ledger would look
+        # entirely correct afterwards.
+        rate = await db.rates.find_one({"id": booking.get("rate_id")}, {"_id": 0}) or {}
+        guest_package_id = rate.get("package_id") or booking.get("package_id")
+        uses = await db.entitlement_uses.find(
+            {"booking_id": booking.get("id")}, {"_id": 0}).to_list(5000)
+        day = _clock_today()
+        nights = _stay_nights(booking)
+        for want in payload.included:
+            inclusion = await db.inclusions.find_one(
+                {"id": want.inclusion_id}, {"_id": 0})
+            if not inclusion:
+                raise HTTPException(400, "No such inclusion in this property")
+            if not guest_package_id or inclusion.get("package_id") != guest_package_id:
+                raise HTTPException(
+                    403, "That is not included in this guest's package")
+            left = remaining(inclusion, uses, nights, day)
+            # Counting the comps already accepted in this same request, or two lines
+            # against a one-of allowance would both be honoured.
+            left -= sum(1 for i, _ in comps if i["id"] == inclusion["id"])
+            if left < 1:
+                raise HTTPException(409, "That allowance is used up")
+            comps.append((inclusion, {"line_id": want.line_id}))
+
+    comp_total = comp_value(order.get("items", []), [c["line_id"] for _, c in comps])
+    order["discount"] = round(payload.discount + comp_total, 2)
+    order = await compute_totals_for(db, order)
 
     order["status"] = "settled"
     order["payment_method"] = payload.payment_method
@@ -501,6 +560,25 @@ async def settle_order(order_id: str, payload: SettleIn, user: dict = Depends(PO
             description=f"{order['table_label']} · bill {order['id'][:8]}",
             ref_order_id=order["id"], posted_by=user.get("id")).model_dump()
         await db.folio_entries.insert_one(entry)
+
+        # Spend the allowances, now that there is a folio entry for them to name. The id
+        # is derived from booking, inclusion and entry, so a retried settle records the
+        # same rows and spends each allowance once — the same rule room nights follow in
+        # routers/folios.py, and for the same reason.
+        for inclusion, comp in comps:
+            key = f"{folio.get('booking_id')}|{inclusion['id']}|{entry['id']}|{comp['line_id']}"
+            use = {
+                "id": str(uuid.uuid5(_USE_NAMESPACE, key)),
+                "booking_id": folio.get("booking_id"),
+                "inclusion_id": inclusion["id"],
+                "folio_entry_id": entry["id"],
+                "used_on": _clock_today(),
+                "used_at": datetime.now(timezone.utc).isoformat(),
+                "used_by": user.get("name") or user.get("id") or "staff",
+            }
+            await db.entitlement_uses.update_one(
+                {"id": use["id"]}, {"$set": use}, upsert=True)
+
         entries = await db.folio_entries.find(
             {"folio_id": folio["id"]}, {"_id": 0}).to_list(5000)
         await db.folios.update_one({"id": folio["id"]}, {"$set": {

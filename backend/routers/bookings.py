@@ -292,9 +292,18 @@ async def create_booking(payload: BookingIn, user: dict = Depends(BOOK),
             "check_in": payload.check_in, "check_out": payload.check_out,
         })
 
+    # The package this stay was sold with, taken from the rate that priced it and
+    # copied onto the booking. A booking stores no rate_id on purpose: a rate is
+    # editable, and a price change next month must not retroactively change what a
+    # guest already staying was entitled to.
+    priced_on = await db.rates.find_one(
+        {"room_type_id": room_type["id"], "package_id": {"$ne": None}}, {"_id": 0})
+    package_id = (priced_on or {}).get("package_id")
+
     booking = Booking(
         **{**payload.model_dump(),
            "meal_plan_id": meal_plan["id"] if meal_plan else None},
+        package_id=package_id,
         reference=await _reference(db),
         quote=quote,
         created_by=user.get("id"),

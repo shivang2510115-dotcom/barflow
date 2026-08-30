@@ -378,6 +378,11 @@ class RoomAssignmentIn(BaseModel):
 
 
 class Booking(BookingIn):
+    # What this stay was sold with, copied from the rate that priced it at the moment
+    # of sale. NOT a reference to the rate: a rate is editable, and a price change next
+    # month must not retroactively change what a guest was entitled to. Same reasoning
+    # as the bill being a snapshot — what was bought is fixed when it is bought.
+    package_id: Optional[str] = None
     id: str = Field(default_factory=_uuid)
     reference: str
     assigned_room_id: Optional[str] = None

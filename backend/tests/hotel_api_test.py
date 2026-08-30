@@ -2725,7 +2725,26 @@ def test_a_waiter_cannot_issue_or_list_bills(waiter):
 
 
 
-def _booking_for_entitlements(admin, ep_plan):
+
+def _new_table(admin):
+    return admin.post(f"{API}/tables", json={
+        "label": f"T{uuid.uuid4().hex[:5].upper()}", "capacity": 4,
+        "zone": "Test"}).json()
+
+
+def _new_menu_item(admin, price=450.0):
+    """A plain item, never one priced by portion.
+
+    A dish with variants refuses an order that does not name one, which is right — the
+    alternative is charging a guess — so these tests use an item of their own rather
+    than whatever the seed happens to sort first.
+    """
+    return admin.post(f"{API}/menu", json={
+        "name": f"Test dish {uuid.uuid4().hex[:6]}", "category": "Mains",
+        "price": price, "station": "kitchen", "description": ""}).json()
+
+
+def _booking_for_entitlements(admin, ep_plan, package_id=None):
     """A booking of our own, so the entitlement tests never depend on seeded data.
 
     They were skipping whenever the demo seed happened to have nobody in house, and a
@@ -2735,6 +2754,11 @@ def _booking_for_entitlements(admin, ep_plan):
     rt = _new_room_type(admin)
     _add_rooms(admin, rt["id"], 1)
     _add_default_rate(admin, rt["id"])
+    if package_id:
+        # A rate points at a package: that is the whole mechanism by which a guest holds
+        # one, so a test about entitlements has to set it up the way a hotel would.
+        admin.post(f"{API}/rates", json={
+            "room_type_id": rt["id"], "base_rate": 5000.0, "package_id": package_id})
     guest = _new_guest(admin)
     made = admin.post(f"{API}/bookings", json={
         "guest_id": guest["id"], "room_type_id": rt["id"],
@@ -2743,6 +2767,23 @@ def _booking_for_entitlements(admin, ep_plan):
     })
     assert made.status_code == 200, made.text
     return made.json()["id"]
+
+
+def _checked_in_folio(admin, ep_plan, package_id=None):
+    """A booking checked into a room, and the id of the folio that opened with it.
+
+    Check-in is what creates a folio, and it needs a room and an ID proof — so this does
+    the whole thing rather than leaving each test to rediscover it.
+    """
+    booking_id = _booking_for_entitlements(admin, ep_plan, package_id)
+    rooms = admin.get(f"{API}/rooms").json()
+    booking = admin.get(f"{API}/bookings/{booking_id}").json()
+    room = next(r for r in rooms if r["room_type_id"] == booking["room_type_id"])
+    r = admin.post(f"{API}/bookings/{booking_id}/check-in", json={
+        "room_id": room["id"], "id_proof_type": "Aadhaar",
+        "id_proof_number": f"9090-{uuid.uuid4().hex[:4]}"})
+    assert r.status_code == 200, r.text
+    return booking_id, r.json()["folio"]["id"]
 
 
 def _an_outlet(admin, kind="salon"):
@@ -2870,3 +2911,119 @@ def test_a_rate_without_a_package_still_works_exactly_as_before(admin):
     # Every rate that predates packages has this, and a rate with no package sells a
     # room and nothing else — which is what they have all been doing.
     assert r.json().get("package_id") is None
+
+
+def test_settling_to_a_room_honours_the_guests_package(admin, ep_plan):
+    """A comped line reduces what the folio is charged, and spends one allowance."""
+    outlet = _an_outlet(admin, "restaurant")
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"BB {uuid.uuid4().hex[:6]}"}).json()
+    inc = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": outlet["id"], "scope": "outlet", "quantity": 1,
+        "period": "per_stay"}).json()
+    booking_id, folio_id = _checked_in_folio(admin, ep_plan, pkg["id"])
+
+    table = _new_table(admin)
+    item = _new_menu_item(admin, price=450)
+    admin.post(f"{API}/orders/table/{table['id']}/items",
+               json={"items": [{"menu_item_id": item["id"], "quantity": 1}]})
+    order = admin.get(f"{API}/orders/table/{table['id']}/current").json()
+    line_id = order["items"][0]["id"]
+    full_total = order["total"]
+
+    settled = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": folio_id,
+        "included": [{"line_id": line_id, "inclusion_id": inc["id"]}]})
+    assert settled.status_code == 200, settled.text
+    # The comp is applied as a discount, so the bill shows what was rung up and what
+    # was given — which is most of the value of selling a package.
+    assert settled.json()["discount"] == 450.0
+    assert settled.json()["total"] < full_total
+
+    left = admin.get(f"{API}/bookings/{booking_id}/entitlements").json()
+    used = next(i for i in left["inclusions"] if i["id"] == inc["id"])
+    assert used["remaining"] == 0, "settling must spend the allowance"
+
+
+def test_an_exhausted_allowance_refuses_the_settle_before_anything_is_written(admin, ep_plan):
+    outlet = _an_outlet(admin, "restaurant")
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"None {uuid.uuid4().hex[:6]}"}).json()
+    inc = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": outlet["id"], "scope": "outlet", "quantity": 1,
+        "period": "per_stay"}).json()
+    booking_id, folio_id = _checked_in_folio(admin, ep_plan, pkg["id"])
+    # Spend it directly, so the order below has nothing left to claim.
+    admin.post(f"{API}/bookings/{booking_id}/entitlements/{inc['id']}/use",
+               params={"folio_entry_id": "elsewhere"})
+
+    table = _new_table(admin)
+    item = _new_menu_item(admin, price=300)
+    admin.post(f"{API}/orders/table/{table['id']}/items",
+               json={"items": [{"menu_item_id": item["id"], "quantity": 1}]})
+    order = admin.get(f"{API}/orders/table/{table['id']}/current").json()
+
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": folio_id,
+        "included": [{"line_id": order["items"][0]["id"], "inclusion_id": inc["id"]}]})
+    assert r.status_code == 409
+    # Nothing was written: the order is still open and can be settled properly.
+    still = admin.get(f"{API}/orders/{order['id']}").json()
+    assert still["status"] == "open", "a refused comp must not leave a settled order"
+
+
+def test_two_lines_cannot_both_claim_a_one_of_allowance(admin, ep_plan):
+    outlet = _an_outlet(admin, "restaurant")
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Solo {uuid.uuid4().hex[:6]}"}).json()
+    inc = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": outlet["id"], "scope": "outlet", "quantity": 1,
+        "period": "per_stay"}).json()
+    booking_id, folio_id = _checked_in_folio(admin, ep_plan, pkg["id"])
+
+    table = _new_table(admin)
+    item = _new_menu_item(admin, price=200)
+    admin.post(f"{API}/orders/table/{table['id']}/items",
+               json={"items": [{"menu_item_id": item["id"], "quantity": 1},
+                               {"menu_item_id": item["id"], "quantity": 1}]})
+    order = admin.get(f"{API}/orders/table/{table['id']}/current").json()
+
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": folio_id,
+        "included": [
+            {"line_id": order["items"][0]["id"], "inclusion_id": inc["id"]},
+            {"line_id": order["items"][1]["id"], "inclusion_id": inc["id"]},
+        ]})
+    # One allowance, two claims in one request. Without counting the comps already
+    # accepted in this same settle, both would be honoured.
+    assert r.status_code == 409
+
+
+def test_a_line_cannot_be_comped_against_another_guests_package(admin, ep_plan):
+    """The check that was missing: an inclusion must belong to this guest's package.
+
+    Without it a waiter could name any inclusion id in the property and hand out the
+    elite package's massages to a guest on the cheapest rate — and the ledger would look
+    entirely correct afterwards.
+    """
+    outlet = _an_outlet(admin, "restaurant")
+    theirs = admin.post(f"{API}/packages",
+                        json={"name": f"Elite {uuid.uuid4().hex[:6]}"}).json()
+    inc = admin.post(f"{API}/packages/{theirs['id']}/inclusions", json={
+        "outlet_id": outlet["id"], "scope": "outlet", "quantity": 5,
+        "period": "per_stay"}).json()
+
+    # This guest holds no package at all.
+    booking_id, folio_id = _checked_in_folio(admin, ep_plan)
+
+    table = _new_table(admin)
+    item = _new_menu_item(admin, price=1800)
+    admin.post(f"{API}/orders/table/{table['id']}/items",
+               json={"items": [{"menu_item_id": item["id"], "quantity": 1}]})
+    order = admin.get(f"{API}/orders/table/{table['id']}/current").json()
+
+    r = admin.post(f"{API}/orders/{order['id']}/settle", json={
+        "payment_method": "room", "folio_id": folio_id,
+        "included": [{"line_id": order["items"][0]["id"], "inclusion_id": inc["id"]}]})
+    assert r.status_code == 403
+    assert admin.get(f"{API}/orders/{order['id']}").json()["status"] == "open"

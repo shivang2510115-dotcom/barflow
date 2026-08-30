@@ -142,3 +142,40 @@ def test_uses_without_an_id_are_still_counted():
     # ask "what if" must not have it silently ignored.
     u = {"inclusion_id": "i1", "used_on": "2026-08-30"}
     assert remaining(inc(PER_STAY, 2), [u], nights=3, day="2026-08-30") == 1
+
+
+# --- what an entitlement is worth against an actual order -----------------------------
+
+from services.packages import comp_value
+
+
+def test_comping_a_line_is_worth_its_own_price():
+    items = [{"id": "l1", "menu_item_id": "m1", "name": "Massage", "price": 1800, "quantity": 1}]
+    assert comp_value(items, ["l1"]) == 1800.0
+
+
+def test_comping_a_line_covers_every_unit_of_it():
+    # Two breakfasts on one line is two breakfasts. Comping the line and charging for
+    # the second is the kind of half-measure a guest notices.
+    items = [{"id": "l1", "menu_item_id": "m1", "name": "Breakfast", "price": 450, "quantity": 2}]
+    assert comp_value(items, ["l1"]) == 900.0
+
+
+def test_a_line_that_is_not_on_the_order_is_worth_nothing():
+    # The value is computed from the order the server holds, never from anything the
+    # client sends. An id that names no line comps nothing rather than raising, so a
+    # stale screen cannot refuse a sale.
+    items = [{"id": "l1", "menu_item_id": "m1", "name": "Tea", "price": 60, "quantity": 1}]
+    assert comp_value(items, ["nonsense"]) == 0.0
+
+
+def test_comping_nothing_is_worth_nothing():
+    items = [{"id": "l1", "menu_item_id": "m1", "name": "Tea", "price": 60, "quantity": 1}]
+    assert comp_value(items, []) == 0.0
+
+
+def test_the_same_line_named_twice_is_comped_once():
+    # A double-tap on the screen must not comp a line twice and hand the guest the
+    # difference. Same reasoning as the deterministic use id.
+    items = [{"id": "l1", "menu_item_id": "m1", "name": "Massage", "price": 1800, "quantity": 1}]
+    assert comp_value(items, ["l1", "l1"]) == 1800.0
