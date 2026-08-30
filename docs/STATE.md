@@ -4,7 +4,7 @@ Written so a new session — or a new person — can pick this up without the co
 that built it. The specs in `docs/superpowers/specs/` hold the *reasoning* behind each
 decision; this is the map.
 
-**Last updated:** 2026-08-30
+**Last updated:** 2026-08-30 (second pass — 23 commits later)
 
 ---
 
@@ -64,33 +64,79 @@ permissions · a planning calendar · expenses with graphical reports · analyti
 hotel and outlet revenue · the operator console: approve, suspend, price, record payments,
 issue GST invoices.
 
-**Test baselines** (keep these green): pure `1127 passed` · `hotel_api_test.py` `143
+**Added in the second pass, and each worth knowing about:**
+
+**Outlets are data.** `OUTLET = ("restaurant", "bar")` used to be a hardcoded tuple. A
+hotel's own admin now adds a salon, gym or laundry from Settings. The domain stayed the
+*category* and `outlet_ids` on the user answers *which one* — so `require_access` never
+changed and neither did its 244 call sites.
+
+**Packages and entitlements.** A rate points at a package; a package holds inclusions
+scoped to an item, a category or a whole outlet, refilling per stay, per night or per
+day. **That is the entire difference between an elite room and a normal one** — no code
+branches on room class. A booking snapshots its `package_id` at creation, deliberately
+not a `rate_id`: a rate is editable and a price change must not retroactively alter what
+a guest already staying was sold. The POS shows what is left and can comp a line.
+
+**Bills.** Drawn at checkout, listed and printable. **A bill is a snapshot, not a view** —
+written once, never changed. A folio keeps accruing, so a bill that re-derived itself
+would quietly disagree with the paper the guest is holding. A late charge produces a
+second bill. Numbers are gapless per Indian financial year.
+
+**The stay timeline.** Everything that happened during one stay, merged from the folio,
+entitlement uses, the room's housekeeping log and the booking itself. Deliberately *not*
+the bill: a bill drops a voided charge, a timeline keeps it, because a mis-keyed charge
+that was voided is what happened.
+
+**The Today board** replaced the section chooser as the landing screen, and carries ADR,
+RevPAR and occupancy. **⌘K** reaches any screen, room or guest. The sidebar shows
+everything reachable when no section is picked — before, a deep link gave you one link
+and no way to navigate.
+
+**One palette, both themes.** Colour is chosen by role (`ground`, `surface`, `ink`,
+`hairline`, `brass`) not by shade, defined once in `index.css`. Light is the default with
+a toggle; the old dark palette is preserved exactly. Room state left the brand hue
+entirely — orange used to mean both "brand" and "occupied". Charts read the tokens at
+runtime via `lib/theme.js`; hex literals in JS were how the first repaint half-failed.
+
+**Every control is 44px.** No button in this app used to be tappable — the commonest was
+29px against a floor WCAG, Apple and Material all agree on.
+
+**Test baselines** (keep these green): pure `1199 passed` · `hotel_api_test.py` `183
 passed` · `backend_test.py` **exactly** `1 failed, 9 passed, 1 skipped` — that failure is
 `TestStripeCheckout::test_create_checkout_session_returns_stripe_url`, environmental, and
 must stay failing.
 
 Run the API suites against a local server: `REACT_APP_BACKEND_URL=http://127.0.0.1:8000`.
-
----
+The operator tests need `PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_PASSWORD` set on the
+server too, or they skip.
 
 ## What is not done
 
-**WhatsApp does not send.** The machinery is complete and refuses honestly, naming what is
-missing. It needs a Meta WhatsApp Business account, an approved template per message type,
-and credentials. The owner is registering one, going direct to Meta rather than a BSP.
-
-**Credentials are still global env vars.** `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_ID` /
-`OWNER_PHONE` are per-deployment, so every hotel would message from the same number. The
-owner's decision is that messages go from **the restaurant's own number only, with no
-platform fallback**. The design is written up in
-`specs/2026-08-28-per-property-whatsapp-design.md` and is the next thing to build.
+**WhatsApp has no credentials yet.** The machinery is complete and per-property: a hotel
+messages from its own number, entered by the operator, token encrypted and never
+returned. There is no platform fallback and it is enforced structurally —
+`services/whatsapp.py` does not import `os`, and a test asserts that. What is missing is
+a Meta WhatsApp Business Account, a dedicated number, an approved display name, business
+verification, and approved templates. None of that is code.
 
 **Razorpay** — specced in `specs/2026-08-27-gst-invoicing-and-razorpay-design.md`, not
 built. Guest online payment, per-property credentials, enabled by the operator.
 
-**Guest registration and Form C** — specced, folded into tenancy, not built.
+**HR and payroll** — Piece 5 of the outlets spec, not started. The largest remaining
+piece. It touches money leaving the business, so it needs the append-only discipline the
+folio and expense ledgers already have.
 
----
+**Guest registration and Form C** — specced, folded into tenancy, not built. Form C is a
+legal requirement for foreign guests in India.
+
+**Menu cost** — one field on a menu item would give profit-per-item across the menu.
+**Checkout feedback** — one control would give satisfaction scores and catch a complaint
+before it becomes a public review. Both small, both unbuilt.
+
+**The POS comps only outlet-scoped inclusions.** Category and item scopes work in the
+engine but the cart line does not carry the menu item's category, so the button cannot
+be offered honestly for them yet.
 
 ## Things that will bite
 
@@ -105,6 +151,18 @@ built. Guest online payment, per-property credentials, enabled by the operator.
 - **The alert polls every 15 seconds** per visible tab per hotel user. That is 98% of all
   function invocations and most Firestore reads. Comfortable at ~4 staff; crosses the free
   tier at ~8. Widening to 30s halves it.
+- **A new screen key reaches nobody already hired.** `backfill_permissions` fills a
+  *missing* permissions field and deliberately never touches a present one, which is what
+  stops an account an owner narrowed being widened back. So every new key needs its own
+  migration — `backfill_housekeeping`, `backfill_expenses`, `backfill_planner` and
+  `backfill_bills` are four instances of the same lesson, and `hotel.bills` would have
+  been invisible at every live property without the fourth.
+- **A string replace that does not match fails silently.** Two sidebar entries were
+  written and never landed because the target line differed by one character. Assert on
+  every scripted edit, and look at the screen afterwards.
+- **Colour lives in JS too.** The first repaint rewrote Tailwind classes and missed every
+  hex literal, so charts kept drawing the dark palette on porcelain. `lib/theme.js` reads
+  the tokens at runtime; grep for `#[0-9a-f]{6}` before believing a repaint is done.
 
 ## Running it locally
 

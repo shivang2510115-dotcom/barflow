@@ -31,7 +31,9 @@ TARGET="${1:-all}"
 # go to Secret Manager rather than into functions/.env: functions/.env is read from disk
 # on the machine that deploys and its contents end up in the function's plain
 # configuration, while a secret is versioned, access-controlled and mounted at runtime.
-# Anything else — WHATSAPP_TOKEN, STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET — is added later
+# Anything else — STRIPE_API_KEY, STRIPE_WEBHOOK_SECRET — is added later
+# (WhatsApp credentials are NOT here: they belong to each hotel and are entered in
+# the operator console, encrypted per property — see services/whatsapp.py)
 # with `firebase functions:secrets:set NAME` plus its name in BARFLOW_SECRETS below; the
 # deploy refuses any name listed there that does not yet exist, which is the right way
 # round.
