@@ -49,7 +49,9 @@ const SCREENS = [
   { to: "/app/reports", label: "Reports", keywords: "daily brief" },
   { to: "/app/admin/analytics", label: "Analytics", keywords: "revenue money numbers" },
   { to: "/app/admin/expenses", label: "Expenses", keywords: "spending costs" },
-  { to: "/app/admin/staff", label: "Staff", keywords: "team people permissions" },
+  { to: "/app/admin/staff", label: "Staff", keywords: "team people permissions employment salary" },
+  { to: "/app/admin/attendance", label: "Attendance", keywords: "present absent leave marking" },
+  { to: "/app/admin/payroll", label: "Payroll", keywords: "salary payslip wages advance pay" },
   { to: "/app/admin/outlets", label: "Outlets", keywords: "salon gym laundry bar restaurant" },
 ];
 

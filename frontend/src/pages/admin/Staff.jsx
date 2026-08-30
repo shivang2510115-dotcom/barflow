@@ -22,7 +22,75 @@ const BLANK = {
   role: "waiter",
   domains: ["restaurant"],
   permissions: [],
+  // Employment, as opposed to access. Everything above says what somebody may do; these
+  // say what they are owed. All optional — an account can be a login and nothing more,
+  // and payroll simply leaves it out and says so.
+  joined_on: "",
+  designation: "",
+  salary_monthly: "",
+  paid_leave_days: "",
+  emergency_contact: "",
+  document_number: "",
 };
+
+// The employment fields, shared by the add form and the edit panel so the two cannot
+// drift into asking different questions.
+const EMPLOYMENT_FIELDS = [
+  ["designation", "Designation", "text", "Front Office Executive"],
+  ["joined_on", "Joined on", "date", ""],
+  ["salary_monthly", "Monthly salary", "number", "18000"],
+  ["paid_leave_days", "Paid leave days", "number", "2"],
+  ["emergency_contact", "Emergency contact", "text", "Name and number"],
+  ["document_number", "Aadhaar / PAN", "text", "As printed"],
+];
+
+/** What somebody is owed, as opposed to what they may open.
+ *
+ * Salary sits here rather than on a screen of its own because it is answered at the same
+ * moment as everything else about a new hire, and a second screen is a second thing to
+ * forget. The whole roster is admin-only, so nothing here needs its own gate.
+ */
+function EmploymentFields({ value, onChange }) {
+  return (
+    <fieldset className="mt-6 pt-5 border-t border-hairline">
+      <legend className="text-[11px] uppercase tracking-[0.2em] text-faint mb-1">
+        Employment
+      </legend>
+      <p className="text-[12px] text-faint mb-4">
+        Optional. Somebody with no salary recorded is a login, not an employee, and
+        payroll leaves them out and names them.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {EMPLOYMENT_FIELDS.map(([key, label, type, placeholder]) => (
+          <label key={key} className="block">
+            <span className="block text-[11px] uppercase tracking-[0.2em] text-faint mb-1.5">
+              {label}
+            </span>
+            <input
+              type={type}
+              min={type === "number" ? "0" : undefined}
+              value={value[key] ?? ""}
+              placeholder={placeholder}
+              onChange={(e) => onChange({ ...value, [key]: e.target.value })}
+              className="w-full bg-ground border border-hairline rounded px-3 text-[15px] text-ink"
+            />
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+/** Employment fields as the API wants them: numbers as numbers, blanks as absent. */
+function employmentPayload(form) {
+  const out = {};
+  for (const [key, , type] of EMPLOYMENT_FIELDS) {
+    const raw = (form[key] ?? "").toString().trim();
+    if (!raw) continue;
+    out[key] = type === "number" ? Number(raw) : raw;
+  }
+  return out;
+}
 
 // "hotel" → "hotel", ["restaurant","bar"] → "restaurant or bar". What a screen needs, said
 // the way the domain picker above says it.
@@ -293,6 +361,10 @@ export default function Staff() {
         // normaliser here is a second answer to a question that must have exactly one.
         ...(phone.trim() ? { phone: phone.trim() } : {}),
         ...(creating.role !== "admin" && screens.length ? { permissions: screens } : {}),
+        // Blanks omitted rather than sent as "": the API types these optional, and an
+        // empty string for a date is a 422 about a malformed date for somebody who
+        // simply did not answer.
+        ...employmentPayload(creating),
       });
       setCreating(BLANK);
       toast.success("Staff member added");
@@ -321,6 +393,10 @@ export default function Staff() {
         // Omitted for an admin, so their stored screens are carried over untouched rather
         // than being rewritten from boxes that decide nothing.
         ...(editing.role === "admin" ? {} : { permissions: screens }),
+        // PUT /staff/{id} takes a whole record and $sets it, so a field left out is
+        // reset to its default. Employment is sent every time for exactly that reason:
+        // renaming somebody must not wipe what they are paid.
+        ...employmentPayload(editing),
       });
       setEditing(null);
       toast.success("Saved");
@@ -455,6 +531,8 @@ export default function Staff() {
           />
         </div>
 
+        <EmploymentFields value={creating} onChange={setCreating} />
+
         <p className="text-xs text-faint mt-6 max-w-3xl">
           <span className="text-muted2">
             An email address or a phone number — one is enough, and either one works at the
@@ -560,6 +638,16 @@ export default function Staff() {
                           role: u.role,
                           domains: u.domains || [],
                           permissions: u.permissions || [],
+                          // Seeded from the record so the panel opens showing what is
+                          // stored. Nulls become "" because an input cannot hold null
+                          // without React warning about a controlled field going
+                          // uncontrolled.
+                          joined_on: u.joined_on || "",
+                          designation: u.designation || "",
+                          salary_monthly: u.salary_monthly ?? "",
+                          paid_leave_days: u.paid_leave_days ?? "",
+                          emergency_contact: u.emergency_contact || "",
+                          document_number: u.document_number || "",
                         })
                       }
                       disabled={busy || isSelf}
@@ -650,6 +738,9 @@ export default function Staff() {
               domains={editing.domains}
             />
           </div>
+
+          <EmploymentFields value={editing} onChange={setEditing} />
+
           <div className="flex gap-3 mt-5">
             <button
               onClick={saveEdit}

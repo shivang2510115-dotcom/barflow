@@ -40,6 +40,8 @@ import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
 import Expenses from "@/pages/admin/Expenses";
 import Outlets from "@/pages/admin/Outlets";
+import Attendance from "@/pages/admin/Attendance";
+import Payroll from "@/pages/admin/Payroll";
 import Today from "@/pages/Today";
 import Bills from "@/pages/hotel/Bills";
 import Packages from "@/pages/hotel/Packages";
@@ -147,6 +149,8 @@ function AppShell() {
             form rather than offering a button that 403s. */}
         <Route path="/admin/expenses" element={<Expenses />} />
         <Route path="/admin/outlets" element={<Protected roles={["admin"]}><Outlets /></Protected>} />
+        <Route path="/admin/attendance" element={<Protected roles={["admin", "manager"]}><Attendance /></Protected>} />
+        <Route path="/admin/payroll" element={<Protected roles={["admin"]}><Payroll /></Protected>} />
         <Route path="/admin/notifications" element={<Protected roles={["admin"]}><Notifications /></Protected>} />
         {/* Admin only, twice: this route names the role, and `PUT /api/property` behind
             it names "admin" as well. A waiter who types the address gets the screen's
