@@ -201,6 +201,36 @@ export function navForSection(nav, user, sectionKey, property = null) {
   return dropEmptySections(kept);
 }
 
+/**
+ * Everything this user can reach, in one list, across every section.
+ *
+ * The sidebar used to be empty until somebody picked a section, which was defensible
+ * while the chooser was the landing screen and indefensible the moment it was not: a
+ * bookmark, a shared link, or cleared session storage all landed a person on a working
+ * page with no navigation at all and no way out but the top bar.
+ *
+ * Every filter is the one `navForSection` applies — same roles, same domains, same
+ * screen keys, same property gating — run over all sections rather than one. So this
+ * cannot show a link that section-scoped navigation would have hidden; it is the union
+ * of what the sections would each have offered, not a wider grant.
+ */
+export function navAcrossSections(nav, user, property = null) {
+  if (!user || !property) return [];
+  const runs = propertyDomains(property);
+
+  let heading = null;
+  const kept = [];
+  for (const item of nav) {
+    if (item.section) heading = item.section;
+    if (!propertyRuns(item, runs)) continue;
+    if (item.roles && !item.roles.includes(user.role)) continue;
+    if (!visibleFor(item, user)) continue;
+    if (!holdsScreen(item, user)) continue;
+    kept.push(item);
+  }
+  return dropEmptySections(kept);
+}
+
 /** Every section this user has at least one reachable screen in, in SECTIONS order. */
 export function availableSections(nav, user, property = null) {
   return SECTIONS.filter((s) => navForSection(nav, user, s.key, property).some((i) => i.to));

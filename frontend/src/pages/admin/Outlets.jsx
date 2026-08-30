@@ -99,7 +99,7 @@ export default function Outlets() {
   };
 
   return (
-    <div className="max-w-4xl">
+    <div className="p-6 md:p-10 max-w-4xl">
       <header className="mb-8">
         <h1 className="font-display text-2xl text-ink">Outlets</h1>
         <p className="text-sm text-muted2 mt-1 max-w-prose">

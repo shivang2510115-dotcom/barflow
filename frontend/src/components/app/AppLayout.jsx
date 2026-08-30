@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import CommandPalette from "@/components/app/CommandPalette";
 import {
   Store,
   Grid3x3,
@@ -40,6 +41,7 @@ import HousekeepingAlert from "@/components/app/HousekeepingAlert";
 import {
   availableSections,
   firstPathIn,
+  navAcrossSections,
   navForSection,
   resolveSection,
   sectionByKey,
@@ -166,7 +168,13 @@ export { NAV };
 // an outlet has no Hotel heading and no hotel link at all, for its owner as much as for
 // its waiters, because the endpoints behind them refuse everybody there.
 export function visibleNavFor(user, section, property) {
-  return section ? navForSection(NAV, user, section, property) : [];
+  // No section chosen is no longer "no navigation". It means "show me everything I can
+  // reach" — which is what somebody landing on the board, following a link, or opening
+  // a bookmark actually wants. Picking a section still narrows to it, for a person who
+  // works in one place and wants the shorter list.
+  return section
+    ? navForSection(NAV, user, section, property)
+    : navAcrossSections(NAV, user, property);
 }
 
 function isNavItemActive(item, pathname) {
@@ -458,6 +466,11 @@ export default function AppLayout({ children }) {
               happen to be standing. It renders nothing at all for a browser that does not
               hold the hotel domain, and makes no request either. */}
           <HousekeepingAlert />
+          {/* Cmd-K, over every screen. It is mounted here rather than per-page because
+              the whole point is that it works wherever somebody happens to be — and it
+              is what keeps the sidebar from having to grow an entry for every outlet a
+              property adds. Renders nothing until it is opened. */}
+          <CommandPalette />
         </main>
       </div>
     </SectionProvider>

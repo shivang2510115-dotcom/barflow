@@ -40,6 +40,7 @@ import Console from "@/pages/admin/Console";
 import Analytics from "@/pages/admin/Analytics";
 import Expenses from "@/pages/admin/Expenses";
 import Outlets from "@/pages/admin/Outlets";
+import Today from "@/pages/Today";
 import Notifications from "@/pages/admin/Notifications";
 import Account from "@/pages/Account";
 import Settings from "@/pages/admin/Settings";
@@ -85,7 +86,12 @@ function AppShell() {
       <Routes>
         {/* /app is the section chooser, not a dashboard: a property running both halves
             of the business asks which one you are in before it shows a menu. */}
-        <Route path="/" element={<SectionChooser />} />
+        {/* The board, not the question. "Where are you working?" made every person
+            answer something the software could have told them, and left the sidebar
+            empty until they did. The chooser is still reachable at /app/sections for
+            somebody who works across two and wants to switch deliberately. */}
+        <Route path="/" element={<Today />} />
+        <Route path="/sections" element={<SectionChooser />} />
         <Route path="/tables" element={<Tables />} />
         <Route path="/reservations" element={<Reservations />} />
         <Route path="/pos/:tableId?" element={<POS />} />
@@ -119,6 +125,10 @@ function AppShell() {
             routes for the same reason. Writing is what is restricted — admin and manager,
             behind `property.planner` — and `require_access` is where that is enforced, not
             here. */}
+        {/* The morning screen, and the landing screen. It replaced the section
+            chooser: a board that tells you something beats a question you have to
+            answer before the software will. */}
+        <Route path="/today" element={<Today />} />
         <Route path="/planner" element={<Planner />} />
         <Route path="/admin" element={<Protected roles={["admin"]}><Console /></Protected>} />
         <Route path="/admin/staff" element={<Protected roles={["admin"]}><Staff /></Protected>} />
