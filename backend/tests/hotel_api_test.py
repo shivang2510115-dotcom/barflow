@@ -3240,3 +3240,195 @@ def test_employment_details_survive_an_edit_that_does_not_mention_them(admin):
         "designation": "Front Office Executive", "salary_monthly": 22000}).json()
     assert after["name"] == "Sunita Rao"
     assert after["salary_monthly"] == 22000
+
+
+
+def _a_month() -> str:
+    """A month no other test has used.
+
+    Payroll refuses a second draft for a month that already has one, which is right —
+    but it means a test pinning a fixed month passes once and 409s on every run after.
+    The same lesson the outlet tests learned about fixed names.
+    """
+    n = uuid.uuid4().int
+    return f"{2040 + n % 900}-{1 + n % 12:02d}"
+
+
+def _a_staff_member(admin, role="waiter", **extra):
+    email = f"att-{uuid.uuid4().hex[:6]}@barflow.io"
+    body = {"name": f"Att {uuid.uuid4().hex[:4]}", "email": email,
+            "password": "Wildflower-9101", "role": role,
+            "domains": ["restaurant"] if role == "waiter" else ["hotel"]}
+    body.update(extra)
+    return admin.post(f"{API}/staff", json=body).json()
+
+
+def test_marking_the_same_day_twice_corrects_rather_than_duplicates(admin):
+    """The room-night rule again: a double tap must not produce two answers to
+    'was Priya in on Tuesday'."""
+    who = _a_staff_member(admin)
+    first = admin.put(f"{API}/attendance", json={
+        "user_id": who["id"], "on": "2026-08-04", "status": "absent"})
+    assert first.status_code == 200, first.text
+    second = admin.put(f"{API}/attendance", json={
+        "user_id": who["id"], "on": "2026-08-04", "status": "present"})
+    assert second.json()["id"] == first.json()["id"], "same person, same day, same row"
+
+    board = admin.get(f"{API}/attendance", params={"month": "2026-08"}).json()
+    mine = [m for m in board["marks"] if m["user_id"] == who["id"]
+            and m["on"] == "2026-08-04"]
+    assert len(mine) == 1
+    assert mine[0]["status"] == "present", "the correction is what stands"
+
+
+def test_the_board_lists_people_nobody_has_marked(admin):
+    # The whole point of opening the screen. A roster that only showed people already
+    # marked would make the first mark of the month impossible.
+    who = _a_staff_member(admin)
+    board = admin.get(f"{API}/attendance", params={"month": "2026-09"}).json()
+    assert any(p["id"] == who["id"] for p in board["staff"])
+
+
+def test_an_unknown_status_is_refused_and_named(admin):
+    who = _a_staff_member(admin)
+    r = admin.put(f"{API}/attendance", json={
+        "user_id": who["id"], "on": "2026-08-05", "status": "hungover"})
+    assert r.status_code == 400
+    assert "hungover" in r.json()["detail"]
+
+
+def test_another_propertys_staff_cannot_be_marked(admin):
+    r = admin.put(f"{API}/attendance", json={
+        "user_id": "00000000-0000-0000-0000-000000000000",
+        "on": "2026-08-05", "status": "present"})
+    assert r.status_code == 404
+
+
+def test_a_waiter_cannot_mark_attendance(waiter):
+    r = waiter.put(f"{API}/attendance", json={
+        "user_id": "anyone", "on": "2026-08-05", "status": "present"})
+    assert r.status_code == 403
+
+
+def test_somebody_with_no_salary_recorded_is_named_rather_than_given_a_blank_payslip(admin):
+    """Not every login is an employee. A shared tablet account with no salary must not
+    produce a zero-rupee payslip that buries the people who are actually paid."""
+    nobody = _a_staff_member(admin)          # no salary_monthly
+    somebody = _a_staff_member(admin, salary_monthly=12000)
+    run = admin.post(f"{API}/payroll/runs", json={"month": _a_month()}).json()
+    detail = admin.get(f"{API}/payroll/runs/{run['id']}").json()
+
+    paid = {s["user_id"] for s in detail["payslips"]}
+    assert somebody["id"] in paid
+    assert nobody["id"] not in paid
+    # ...and the gap is visible rather than silent.
+    assert any(x["id"] == nobody["id"] for x in detail["not_on_payroll"])
+
+
+def test_an_unmarked_month_pays_everybody_in_full(admin):
+    """The bug that would be discovered on payday: a manager who never opened the
+    attendance screen must produce full salaries, not zero ones."""
+    who = _a_staff_member(admin, salary_monthly=18000)
+    month = _a_month()
+    run = admin.post(f"{API}/payroll/runs", json={"month": month})
+    assert run.status_code == 200, run.text
+    detail = admin.get(f"{API}/payroll/runs/{run.json()['id']}").json()
+    slip = next(s for s in detail["payslips"] if s["user_id"] == who["id"])
+    # Every day of whatever month came back, not a literal — `_a_month` varies.
+    assert slip["unmarked"] == slip["days_in_month"]
+    assert slip["gross"] == 18000.0, "an unmarked day is not an absence"
+
+
+def test_absences_come_off_the_month(admin):
+    who = _a_staff_member(admin, salary_monthly=31000)
+    # February, so the 28-day arithmetic below is the one being checked.
+    month = f"{2040 + uuid.uuid4().int % 900}-02"
+    for day in (f"{month}-03", f"{month}-04"):
+        admin.put(f"{API}/attendance",
+                  json={"user_id": who["id"], "on": day, "status": "absent"})
+    run = admin.post(f"{API}/payroll/runs", json={"month": month}).json()
+    slip = next(s for s in admin.get(f"{API}/payroll/runs/{run['id']}").json()["payslips"]
+                if s["user_id"] == who["id"])
+    assert slip["absent"] == 2
+    # 31,000 over 28 days, two days unpaid.
+    assert slip["unpaid_absence"] == 2
+    assert slip["days_in_month"] == 28
+    assert slip["gross"] == round(31000 - 2 * (31000 / 28), 2)
+
+
+def test_an_advance_is_recovered_and_only_once(admin):
+    who = _a_staff_member(admin, salary_monthly=20000)
+    admin.post(f"{API}/advances",
+               json={"user_id": who["id"], "amount": 5000, "reason": "family"})
+
+    first = admin.post(f"{API}/payroll/runs", json={"month": _a_month()}).json()
+    slip = next(s for s in admin.get(f"{API}/payroll/runs/{first['id']}").json()["payslips"]
+                if s["user_id"] == who["id"])
+    assert slip["advance_recovered"] == 5000
+    assert slip["net"] == round(slip["gross"] - 5000, 2)
+
+    admin.post(f"{API}/payroll/runs/{first['id']}/pay")
+
+    # A second run must not take the same five thousand back again.
+    second = admin.post(f"{API}/payroll/runs", json={"month": _a_month()}).json()
+    later = next(s for s in admin.get(f"{API}/payroll/runs/{second['id']}").json()["payslips"]
+                 if s["user_id"] == who["id"])
+    assert later["advance_recovered"] == 0, "an advance is recovered exactly once"
+
+
+def test_a_paid_run_does_not_move_when_attendance_changes(admin):
+    """The bill's snapshot rule in a second costume."""
+    who = _a_staff_member(admin, salary_monthly=30000)
+    month = _a_month()
+    run = admin.post(f"{API}/payroll/runs", json={"month": month}).json()
+    before = next(s for s in admin.get(f"{API}/payroll/runs/{run['id']}").json()["payslips"]
+                  if s["user_id"] == who["id"])
+    admin.post(f"{API}/payroll/runs/{run['id']}/pay")
+
+    for day in (f"{month}-10", f"{month}-11", f"{month}-12"):
+        admin.put(f"{API}/attendance",
+                  json={"user_id": who["id"], "on": day, "status": "absent"})
+
+    after = next(s for s in admin.get(f"{API}/payroll/runs/{run['id']}").json()["payslips"]
+                 if s["user_id"] == who["id"])
+    assert after["gross"] == before["gross"], "a paid payslip must not move"
+
+
+def test_a_paid_run_cannot_be_edited_only_reversed(admin):
+    who = _a_staff_member(admin, salary_monthly=15000)
+    month = _a_month()
+    run = admin.post(f"{API}/payroll/runs", json={"month": month}).json()
+    slip = next(s for s in admin.get(f"{API}/payroll/runs/{run['id']}").json()["payslips"]
+                if s["user_id"] == who["id"])
+    admin.post(f"{API}/payroll/runs/{run['id']}/pay")
+
+    refused = admin.patch(f"{API}/payroll/runs/{run['id']}/payslips/{slip['id']}",
+                          json={"additions": [{"label": "Overtime", "amount": 500}]})
+    assert refused.status_code == 409
+
+    reversal = admin.post(f"{API}/payroll/runs/{run['id']}/reverse")
+    assert reversal.status_code == 200, reversal.text
+    assert reversal.json()["reversal_of"] == run["id"]
+    # Both survive. A run that could be deleted would take the answer with it.
+    months = admin.get(f"{API}/payroll/runs").json()
+    assert sum(1 for r in months if r["month"] == month) == 2
+
+
+def test_an_addition_and_a_deduction_move_the_net(admin):
+    who = _a_staff_member(admin, salary_monthly=25000)
+    run = admin.post(f"{API}/payroll/runs", json={"month": _a_month()}).json()
+    slip = next(s for s in admin.get(f"{API}/payroll/runs/{run['id']}").json()["payslips"]
+                if s["user_id"] == who["id"])
+    r = admin.patch(f"{API}/payroll/runs/{run['id']}/payslips/{slip['id']}", json={
+        "additions": [{"label": "Overtime", "amount": 1200}],
+        "deductions": [{"label": "PF", "amount": 1800}]})
+    assert r.status_code == 200, r.text
+    assert r.json()["gross"] == slip["gross"], "a deduction is not a pay cut to gross"
+    assert r.json()["net"] == round(slip["gross"] + 1200 - 1800, 2)
+
+
+def test_a_manager_cannot_run_payroll(admin):
+    email = f"mgr-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "payroll12345", "manager", ["hotel"])
+    assert s.post(f"{API}/payroll/runs", json={"month": _a_month()}).status_code == 403
+    assert s.get(f"{API}/advances").status_code == 403
