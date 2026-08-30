@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import CommandPalette from "@/components/app/CommandPalette";
+import { applyTheme, currentTheme } from "@/lib/theme-choice";
 import {
+  Sun,
+  Moon,
   ReceiptText,
   Store,
   Grid3x3,
@@ -277,6 +280,12 @@ function SectionSwitch({ value, sections, onPick, className = "" }) {
 
 export default function AppLayout({ children }) {
   const { user, logout } = useAuth();
+  const [theme, setTheme] = useState(currentTheme);
+  const toggleTheme = () => {
+    const next = theme === "dark" ? "light" : "dark";
+    applyTheme(next);
+    setTheme(next);
+  };
   const nav = useNavigate();
   const loc = useLocation();
   // Read once, here, and handed to everything below: the sidebar, the section chooser,
@@ -370,6 +379,17 @@ export default function AppLayout({ children }) {
             >
               <KeyRound size={14} /> Password
             </NavLink>
+            {/* Light is the default this product chose. Dark is one click away because
+                it is genuinely better on a restaurant floor at 9pm — a waiter's tablet
+                and a receptionist's can differ, and the choice is per browser. */}
+            <button
+              onClick={toggleTheme}
+              className="mt-2 w-full flex items-center justify-center gap-2 border border-hairline-strong hover:border-brass hover:text-brass px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+            >
+              {theme === "dark"
+                ? <><Sun size={14} /> Light</>
+                : <><Moon size={14} /> Dark</>}
+            </button>
             <button
               data-testid="logout-button"
               onClick={signOut}

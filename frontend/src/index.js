@@ -6,7 +6,11 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import "@/index.css";
+// Before the first paint, so no screen flashes the wrong palette on load.
+import { initTheme } from "@/lib/theme-choice";
 import App from "@/App";
+
+initTheme();
 
 const queryClient = new QueryClient({
   defaultOptions: {
