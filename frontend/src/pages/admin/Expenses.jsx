@@ -82,8 +82,8 @@ export function axisMoney(v) {
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="bg-stone-950 border border-stone-700 px-3 py-2 text-xs font-mono">
-      {label != null && <div className="text-stone-400 mb-1">{label}</div>}
+    <div className="bg-ground border border-hairline-strong px-3 py-2 text-xs font-mono">
+      {label != null && <div className="text-muted2 mb-1">{label}</div>}
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2" style={{ color: p.color || p.fill }}>
           <span className="uppercase tracking-widest">{p.name}:</span>
@@ -173,11 +173,11 @@ export default function Expenses() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Admin</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         Expenses
       </h1>
-      <p className="text-stone-500 font-mono text-xs mb-8">
+      <p className="text-faint font-mono text-xs mb-8">
         {report ? `${report.start} → ${report.end}` : "—"}
       </p>
 
@@ -186,7 +186,7 @@ export default function Expenses() {
           ["start", "From"],
           ["end", "To"],
         ].map(([k, text]) => (
-          <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+          <label key={k} className="text-xs tracking-widest uppercase text-faint">
             {text}
             <input
               type="date"
@@ -195,7 +195,7 @@ export default function Expenses() {
               max={k === "start" ? range.end : undefined}
               min={k === "end" ? range.start : undefined}
               onChange={(e) => setRange((r) => ({ ...r, [k]: e.target.value }))}
-              className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+              className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
             />
           </label>
         ))}
@@ -222,7 +222,7 @@ export default function Expenses() {
 
       {report && (
         <>
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
             Income against expenditure
           </h2>
           {/* Grouped, not stacked: these are two measures of the same thing, not parts of
@@ -257,7 +257,7 @@ export default function Expenses() {
           </div>
           {/* Hand-rolled, as Analytics.jsx does, because it also carries the worst day —
               the one an owner scrolls the chart looking for. */}
-          <div className="flex flex-wrap gap-5 mt-3 text-[10px] tracking-widest uppercase text-stone-500">
+          <div className="flex flex-wrap gap-5 mt-3 text-[10px] tracking-widest uppercase text-faint">
             <span>
               <span className="inline-block w-3 h-2 mr-2" style={{ background: STONE }} />
               Income
@@ -269,11 +269,11 @@ export default function Expenses() {
             <WorstDay days={report.by_day} />
           </div>
 
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mt-12 mb-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mt-12 mb-4">
             Where it goes
           </h2>
           {breakdown.length === 0 ? (
-            <p className="text-stone-500 text-sm">Nothing recorded in this range.</p>
+            <p className="text-faint text-sm">Nothing recorded in this range.</p>
           ) : (
             <>
               {/* Ranked horizontal bars rather than a pie: the question is "where does the
@@ -324,21 +324,21 @@ export default function Expenses() {
               <table className="mt-4 w-full max-w-2xl text-sm" data-testid="category-table">
                 <tbody>
                   {breakdown.map((c) => (
-                    <tr key={c.category_id || "none"} className="border-t border-stone-800">
-                      <td className="py-2 pr-4 text-stone-300">{c.name}</td>
-                      <td className="py-2 pr-4 text-right tabular-nums text-stone-100">
+                    <tr key={c.category_id || "none"} className="border-t border-hairline">
+                      <td className="py-2 pr-4 text-muted2">{c.name}</td>
+                      <td className="py-2 pr-4 text-right tabular-nums text-ink">
                         {currency(c.amount)}
                       </td>
-                      <td className="py-2 text-right tabular-nums text-stone-500 w-16">
+                      <td className="py-2 text-right tabular-nums text-faint w-16">
                         {c.share}%
                       </td>
                     </tr>
                   ))}
-                  <tr className="border-t border-stone-700">
-                    <td className="py-2 pr-4 text-[10px] tracking-widest uppercase text-stone-500">
+                  <tr className="border-t border-hairline-strong">
+                    <td className="py-2 pr-4 text-[10px] tracking-widest uppercase text-faint">
                       Total
                     </td>
-                    <td className="py-2 pr-4 text-right tabular-nums text-orange-400 font-bold">
+                    <td className="py-2 pr-4 text-right tabular-nums text-brass font-bold">
                       {currency(spent.total)}
                     </td>
                     <td />
@@ -374,7 +374,7 @@ export default function Expenses() {
         <CategoryManager categories={categories} onChanged={() => { loadCategories(); load(); }} onError={fail} />
       )}
 
-      {loading && <p className="text-stone-500 text-sm mt-6">Loading…</p>}
+      {loading && <p className="text-faint text-sm mt-6">Loading…</p>}
     </div>
   );
 }
@@ -387,21 +387,21 @@ function Figure({ label, value, sub, accent, negative }) {
         accent
           ? negative
             ? "border-red-500/40 bg-red-500/5"
-            : "border-orange-500/40 bg-orange-500/5"
-          : "border-stone-800 bg-stone-900"
+            : "border-brass/40 bg-brass/5"
+          : "border-hairline bg-surface"
       }`}
     >
-      <div className="text-[10px] tracking-[0.2em] uppercase text-stone-500 mb-2">{label}</div>
+      <div className="text-[10px] tracking-[0.2em] uppercase text-faint mb-2">{label}</div>
       {/* Nothing loaded yet reads "—". Rendering it as ₹0.00 would claim the property
           spent nothing, which is a different statement from not knowing yet. */}
       <div
         className={`text-2xl font-bold tabular-nums ${
-          negative ? "text-red-400" : "text-stone-100"
+          negative ? "text-red-400" : "text-ink"
         }`}
       >
         {value == null ? "—" : currency(value)}
       </div>
-      {sub && <div className="text-xs text-stone-500 mt-2 tabular-nums">{sub}</div>}
+      {sub && <div className="text-xs text-faint mt-2 tabular-nums">{sub}</div>}
     </div>
   );
 }
@@ -456,8 +456,8 @@ function RecordExpense({ categories, onDone, onError }) {
       .finally(() => setSaving(false));
   };
 
-  const field = "bg-stone-950 border border-stone-700 text-stone-100 py-2 px-3 rounded w-full";
-  const legend = "block text-[10px] tracking-widest uppercase text-stone-500 mb-2";
+  const field = "bg-ground border border-hairline-strong text-ink py-2 px-3 rounded w-full";
+  const legend = "block text-[10px] tracking-widest uppercase text-faint mb-2";
 
   return (
     <section className="mt-12">
@@ -465,7 +465,7 @@ function RecordExpense({ categories, onDone, onError }) {
         type="button"
         data-testid="record-expense-toggle"
         onClick={() => setOpen((o) => !o)}
-        className="border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+        className="border border-hairline-strong hover:border-brass hover:text-brass px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
       >
         {open ? "Close" : "Record an expense"}
       </button>
@@ -561,11 +561,11 @@ function RecordExpense({ categories, onDone, onError }) {
               type="submit"
               disabled={saving}
               data-testid="expense-save"
-              className="border border-orange-500 text-orange-400 hover:bg-orange-500/10 px-5 py-2 text-xs font-mono uppercase tracking-widest transition-colors disabled:opacity-40"
+              className="border border-brass text-brass hover:bg-brass-deep/10 px-5 py-2 text-xs font-mono uppercase tracking-widest transition-colors disabled:opacity-40"
             >
               {saving ? "Saving…" : "Record"}
             </button>
-            <p className="text-xs text-stone-500 max-w-sm">
+            <p className="text-xs text-faint max-w-sm">
               Recorded expenses are not edited or deleted. A mistake is reversed and the
               right one recorded beside it, so the books read the same today as they did
               when somebody last looked at them.
@@ -595,7 +595,7 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
   const by = (key) =>
     setSort((s) => ({ key, direction: s.key === key ? -s.direction : -1 }));
 
-  const control = "bg-stone-950 border border-stone-700 text-stone-100 py-1.5 px-2 rounded text-sm";
+  const control = "bg-ground border border-hairline-strong text-ink py-1.5 px-2 rounded text-sm";
 
   // An inline two-step, not window.prompt: the rest of this app confirms a destructive
   // action in place — cancelling a booking, voiding a folio line, removing a dish — and a
@@ -616,7 +616,7 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
 
   return (
     <section className="mt-14">
-      <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+      <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
         Transactions
       </h2>
 
@@ -650,7 +650,7 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[900px]" data-testid="transactions">
           <thead>
-            <tr className="text-[10px] tracking-widest uppercase text-stone-500">
+            <tr className="text-[10px] tracking-widest uppercase text-faint">
               {COLUMNS.map(([key, text]) => (
                 <th
                   key={text}
@@ -661,8 +661,8 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
                       type="button"
                       data-testid={`sort-${key}`}
                       onClick={() => by(key)}
-                      className={`uppercase tracking-widest hover:text-orange-400 ${
-                        sort.key === key ? "text-orange-400" : ""
+                      className={`uppercase tracking-widest hover:text-brass ${
+                        sort.key === key ? "text-brass" : ""
                       }`}
                     >
                       {text}
@@ -679,7 +679,7 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-6 text-stone-500">
+                <td colSpan={9} className="py-6 text-faint">
                   Nothing recorded in this range.
                 </td>
               </tr>
@@ -688,7 +688,7 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
               <tr
                 key={r.id}
                 data-testid={`expense-${r.id}`}
-                className={`border-t border-stone-800 ${r.voided_at ? "text-stone-600" : "text-stone-300"}`}
+                className={`border-t border-hairline ${r.voided_at ? "text-faint" : "text-muted2"}`}
               >
                 <td className="py-2 pr-4 font-mono text-xs whitespace-nowrap">{r.spent_on}</td>
                 <td className="py-2 pr-4">{r.category_name}</td>
@@ -706,8 +706,8 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
                 <td className="py-2 pr-4">{r.payee || "—"}</td>
                 <td className="py-2 pr-4 font-mono text-xs">{r.reference || "—"}</td>
                 <td className="py-2 pr-4">{methodLabel(r.payment_method)}</td>
-                <td className="py-2 pr-4 text-stone-500">{r.recorded_by_name || "—"}</td>
-                <td className={`py-2 pr-4 text-right tabular-nums ${r.voided_at ? "line-through" : "text-stone-100"}`}>
+                <td className="py-2 pr-4 text-faint">{r.recorded_by_name || "—"}</td>
+                <td className={`py-2 pr-4 text-right tabular-nums ${r.voided_at ? "line-through" : "text-ink"}`}>
                   {currency(r.amount)}
                 </td>
                 {mayRecord && (
@@ -717,14 +717,14 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
                         type="button"
                         data-testid={`reverse-${r.id}`}
                         onClick={() => setReversing({ id: r.id, amount: r.amount, reason: "" })}
-                        className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400"
+                        className="text-[10px] tracking-widest uppercase text-faint hover:text-red-400"
                       >
                         Reverse
                       </button>
                     )}
                     {reversing?.id === r.id && (
                       <div className="text-left border border-red-500/30 bg-red-950/20 rounded p-3 w-72 ml-auto">
-                        <p className="text-xs text-stone-300">
+                        <p className="text-xs text-muted2">
                           Reverse {currency(reversing.amount)}? The original line stays and a
                           reversal is added beside it — nothing is deleted.
                         </p>
@@ -735,7 +735,7 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
                           onChange={(e) => setReversing({ ...reversing, reason: e.target.value })}
                           onKeyDown={(e) => e.key === "Enter" && confirmReverse()}
                           placeholder="Why?"
-                          className="mt-2 w-full bg-transparent border-b border-stone-700 py-1 text-sm focus:border-orange-500 outline-none"
+                          className="mt-2 w-full bg-transparent border-b border-hairline-strong py-1 text-sm focus:border-brass outline-none"
                         />
                         <div className="mt-3 flex items-center gap-3">
                           <button
@@ -749,7 +749,7 @@ function Transactions({ rows, categories, filters, setFilters, sort, setSort, ma
                           <button
                             type="button"
                             onClick={() => setReversing(null)}
-                            className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-stone-300"
+                            className="text-[10px] tracking-widest uppercase text-faint hover:text-muted2"
                           >
                             Keep it
                           </button>
@@ -809,8 +809,8 @@ function CategoryManager({ categories, onChanged, onError }) {
   const remove = (c) =>
     api.delete(`/expense-categories/${c.id}`).then(onChanged).catch(onError);
 
-  const control = "bg-stone-950 border border-stone-700 text-stone-100 py-1.5 px-2 rounded text-sm";
-  const action = "text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400";
+  const control = "bg-ground border border-hairline-strong text-ink py-1.5 px-2 rounded text-sm";
+  const action = "text-[10px] tracking-widest uppercase text-faint hover:text-brass";
 
   return (
     <section className="mt-14">
@@ -818,14 +818,14 @@ function CategoryManager({ categories, onChanged, onError }) {
         type="button"
         data-testid="categories-toggle"
         onClick={() => setOpen((o) => !o)}
-        className="text-[11px] tracking-[0.2em] uppercase text-stone-500 hover:text-orange-400"
+        className="text-[11px] tracking-[0.2em] uppercase text-faint hover:text-brass"
       >
         Categories {open ? "▾" : "▸"}
       </button>
 
       {open && (
         <div className="mt-4 max-w-2xl">
-          <p className="text-xs text-stone-500 mb-4">
+          <p className="text-xs text-faint mb-4">
             These are your names, not ours. Renaming one renames it on every report you
             have already read. A category something has been spent against cannot be
             deleted — retire it instead and it stops being offered without changing the
@@ -842,7 +842,7 @@ function CategoryManager({ categories, onChanged, onError }) {
             <button
               type="submit"
               data-testid="category-add"
-              className="border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-4 text-xs font-mono uppercase tracking-widest transition-colors"
+              className="border border-hairline-strong hover:border-brass hover:text-brass px-4 text-xs font-mono uppercase tracking-widest transition-colors"
             >
               Add
             </button>
@@ -850,8 +850,8 @@ function CategoryManager({ categories, onChanged, onError }) {
           <table className="w-full text-sm" data-testid="categories">
             <tbody>
               {categories.map((c) => (
-                <tr key={c.id} className="border-t border-stone-800">
-                  <td className={`py-2 pr-4 ${c.active === false ? "text-stone-600" : "text-stone-300"}`}>
+                <tr key={c.id} className="border-t border-hairline">
+                  <td className={`py-2 pr-4 ${c.active === false ? "text-faint" : "text-muted2"}`}>
                     {renaming?.id === c.id ? (
                       <input
                         autoFocus
@@ -863,13 +863,13 @@ function CategoryManager({ categories, onChanged, onError }) {
                           if (e.key === "Escape") setRenaming(null);
                         }}
                         onBlur={() => saveRename(c)}
-                        className="bg-transparent border-b border-orange-500 py-0.5 text-sm outline-none w-48"
+                        className="bg-transparent border-b border-brass py-0.5 text-sm outline-none w-48"
                       />
                     ) : (
                       <>
                         {c.name}
                         {c.active === false && (
-                          <span className="ml-2 text-[10px] tracking-widest uppercase text-stone-600">
+                          <span className="ml-2 text-[10px] tracking-widest uppercase text-faint">
                             Retired
                           </span>
                         )}

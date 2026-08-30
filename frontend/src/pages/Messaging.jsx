@@ -81,7 +81,7 @@ export default function Messaging() {
 
   return (
     <div className="p-4 md:p-10">
-      <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-500 mb-3">
+      <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-brass mb-3">
         Customers
       </div>
       <h1 className="font-display text-4xl md:text-5xl uppercase tracking-tight leading-none mb-8">
@@ -90,11 +90,11 @@ export default function Messaging() {
 
       {whatsapp && !whatsapp.configured && (
         <div className="border border-red-500/30 bg-red-950/20 p-5 mb-10 max-w-3xl">
-          <div className="text-[10px] tracking-[0.2em] uppercase font-mono text-stone-500 mb-2">
+          <div className="text-[10px] tracking-[0.2em] uppercase font-mono text-faint mb-2">
             WhatsApp is not connected
           </div>
-          <p className="text-sm text-stone-300">{whatsapp.problem}</p>
-          <p className="text-xs text-stone-500 mt-3">
+          <p className="text-sm text-muted2">{whatsapp.problem}</p>
+          <p className="text-xs text-faint mt-3">
             Nothing will send until these are set on the server. Pressing send below will
             tell you the same thing rather than pretending it worked.
           </p>
@@ -108,30 +108,30 @@ export default function Messaging() {
         subtitle={today?.date ? `Falling on ${today.date}` : "Loading…"}
       >
         {today && today.occasions.length === 0 && (
-          <p className="text-sm text-stone-500 font-mono uppercase tracking-widest py-6">
+          <p className="text-sm text-faint font-mono uppercase tracking-widest py-6">
             Nobody's occasion falls today.
           </p>
         )}
-        <div className="divide-y divide-stone-800">
+        <div className="divide-y divide-hairline">
           {today?.occasions.map((row) => {
             const result = outcome[row.occasion_id];
             return (
               <div key={row.occasion_id} className="py-4" data-testid={`occasion-${row.occasion_id}`}>
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="text-lg text-stone-100">{row.name}</div>
-                    <div className="text-[11px] font-mono text-stone-500 mt-1">
+                    <div className="text-lg text-ink">{row.name}</div>
+                    <div className="text-[11px] font-mono text-faint mt-1">
                       {row.phone} · {row.label}
                       {row.template ? ` · template ${row.template}` : ""}
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
                     {row.already_sent ? (
-                      <span className="text-[10px] font-mono uppercase tracking-widest border border-orange-500/50 text-orange-400 px-3 py-1.5">
+                      <span className="text-[10px] font-mono uppercase tracking-widest border border-brass/50 text-brass px-3 py-1.5">
                         Sent
                       </span>
                     ) : row.claimed ? (
-                      <span className="text-[10px] font-mono uppercase tracking-widest border border-stone-700 text-stone-500 px-3 py-1.5">
+                      <span className="text-[10px] font-mono uppercase tracking-widest border border-hairline-strong text-faint px-3 py-1.5">
                         Attempted
                       </span>
                     ) : (
@@ -139,7 +139,7 @@ export default function Messaging() {
                         onClick={() => send(row)}
                         disabled={sending === row.occasion_id}
                         data-testid={`send-${row.occasion_id}`}
-                        className="flex items-center gap-2 rounded-full bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-stone-950 px-5 py-2 font-mono uppercase tracking-widest text-[10px] active:scale-95 transition"
+                        className="flex items-center gap-2 rounded-full bg-brass hover:bg-brass-deep disabled:opacity-40 text-on-brass px-5 py-2 font-mono uppercase tracking-widest text-[10px] active:scale-95 transition"
                       >
                         <Send size={12} />
                         {sending === row.occasion_id ? "Sending…" : "Send wishes"}
@@ -152,7 +152,7 @@ export default function Messaging() {
                     Shown whether or not anybody has pressed anything, because it is the
                     reason the button is not there. */}
                 {row.problem && (
-                  <p className="text-xs text-stone-400 mt-3 border-l-2 border-stone-700 pl-3">
+                  <p className="text-xs text-muted2 mt-3 border-l-2 border-hairline-strong pl-3">
                     {row.problem}
                   </p>
                 )}
@@ -160,8 +160,8 @@ export default function Messaging() {
                   <p
                     className={`text-xs mt-3 border-l-2 pl-3 ${
                       result.sent
-                        ? "border-orange-500/60 text-stone-300"
-                        : "border-red-500/40 text-stone-300"
+                        ? "border-brass/60 text-muted2"
+                        : "border-red-500/40 text-muted2"
                     }`}
                   >
                     {result.sent
@@ -187,29 +187,29 @@ export default function Messaging() {
               : "Switched off for this property"
         }
       >
-        <p className="text-xs text-stone-500 mb-5 max-w-2xl">
+        <p className="text-xs text-faint mb-5 max-w-2xl">
           This one sends itself, once per customer per visit. There is no button: it is a
           scheduled job, and this is what it will do next time it runs. An admin changes
           the window, or switches it off, under Admin &rarr; Notifications.
         </p>
         {followUps?.problem && (
-          <p className="text-xs text-stone-400 mb-5 border-l-2 border-stone-700 pl-3 max-w-2xl">
+          <p className="text-xs text-muted2 mb-5 border-l-2 border-hairline-strong pl-3 max-w-2xl">
             {followUps.problem}
           </p>
         )}
         {followUps?.enabled && followUps.customers.length === 0 && (
-          <p className="text-sm text-stone-500 font-mono uppercase tracking-widest py-2">
+          <p className="text-sm text-faint font-mono uppercase tracking-widest py-2">
             Nobody is due.
           </p>
         )}
-        <div className="divide-y divide-stone-800">
+        <div className="divide-y divide-hairline">
           {followUps?.customers.map((c) => (
             <div key={c.guest_id} className="py-3 flex items-baseline justify-between gap-4">
               <div>
-                <span className="text-stone-200">{c.name}</span>
-                <span className="text-[11px] font-mono text-stone-500 ml-3">{c.phone}</span>
+                <span className="text-ink">{c.name}</span>
+                <span className="text-[11px] font-mono text-faint ml-3">{c.phone}</span>
               </div>
-              <div className="text-[11px] font-mono text-stone-500 whitespace-nowrap">
+              <div className="text-[11px] font-mono text-faint whitespace-nowrap">
                 {c.days_since} days · last in {c.last_visit}
               </div>
             </div>
@@ -224,28 +224,28 @@ export default function Messaging() {
         subtitle="Every attempt, and what WhatsApp actually answered"
       >
         {log.length === 0 && (
-          <p className="text-sm text-stone-500 font-mono uppercase tracking-widest py-2">
+          <p className="text-sm text-faint font-mono uppercase tracking-widest py-2">
             Nothing has been attempted yet.
           </p>
         )}
-        <div className="divide-y divide-stone-800">
+        <div className="divide-y divide-hairline">
           {log.map((row) => (
             <div key={row.id} className="py-3">
               <div className="flex flex-wrap items-baseline justify-between gap-3">
-                <div className="text-sm text-stone-200">
+                <div className="text-sm text-ink">
                   {row.guest_name || "—"}
-                  <span className="text-[11px] font-mono text-stone-500 ml-3">{row.to}</span>
+                  <span className="text-[11px] font-mono text-faint ml-3">{row.to}</span>
                 </div>
                 <div className="flex items-center gap-3 text-[10px] font-mono uppercase tracking-widest">
-                  <span className="text-stone-600">
+                  <span className="text-faint">
                     {row.kind === "occasion" ? row.occasion_label || "occasion" : "follow-up"}
                   </span>
                   <span
                     className={
                       row.status === "sent"
-                        ? "text-orange-400"
+                        ? "text-brass"
                         : row.status === "refused"
-                          ? "text-stone-500"
+                          ? "text-faint"
                           : "text-red-400"
                     }
                   >
@@ -253,15 +253,15 @@ export default function Messaging() {
                   </span>
                 </div>
               </div>
-              <div className="text-[11px] font-mono text-stone-600 mt-1">
+              <div className="text-[11px] font-mono text-faint mt-1">
                 {row.sent_at?.slice(0, 19).replace("T", " ")}
                 {row.template ? ` · ${row.template}` : ""}
                 {row.sent_by ? "" : " · sent automatically"}
               </div>
               {row.status === "sent" ? (
-                <p className="text-[11px] font-mono text-stone-500 mt-1">id {row.message_id}</p>
+                <p className="text-[11px] font-mono text-faint mt-1">id {row.message_id}</p>
               ) : (
-                <p className="text-xs text-stone-400 mt-2 border-l-2 border-stone-800 pl-3">
+                <p className="text-xs text-muted2 mt-2 border-l-2 border-hairline pl-3">
                   {row.error}
                 </p>
               )}
@@ -277,13 +277,13 @@ function Section({ icon: Icon, title, subtitle, children }) {
   return (
     <section className="mb-14 max-w-4xl">
       <div className="flex items-center gap-3 mb-1">
-        <Icon size={16} className="text-orange-500" />
-        <h2 className="text-[11px] tracking-[0.3em] uppercase font-mono text-stone-300">
+        <Icon size={16} className="text-brass" />
+        <h2 className="text-[11px] tracking-[0.3em] uppercase font-mono text-muted2">
           {title}
         </h2>
       </div>
-      <div className="text-[11px] font-mono text-stone-600 mb-5 ml-7">{subtitle}</div>
-      <div className="border-t border-stone-800 pt-2">{children}</div>
+      <div className="text-[11px] font-mono text-faint mb-5 ml-7">{subtitle}</div>
+      <div className="border-t border-hairline pt-2">{children}</div>
     </section>
   );
 }

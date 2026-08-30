@@ -232,7 +232,7 @@ export default function POS() {
       <div className="min-w-0">
         <div className="flex items-baseline justify-between flex-wrap gap-3">
           <div>
-            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 mb-1">POS</div>
+            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass mb-1">POS</div>
             <h1 className="font-display uppercase text-3xl md:text-4xl leading-none tracking-tight">
               {currentTable ? `Table ${currentTable.label}` : "Pick a table"}
             </h1>
@@ -241,7 +241,7 @@ export default function POS() {
             data-testid="pos-table-select"
             value={tableId || ""}
             onChange={(e) => nav(`/app/pos/${e.target.value}`)}
-            className="bg-stone-900 border border-stone-700 py-2 px-3 text-sm"
+            className="bg-surface border border-hairline-strong py-2 px-3 text-sm"
           >
             <option value="">Select table…</option>
             {tables.map((t) => (
@@ -255,8 +255,8 @@ export default function POS() {
         </div>
 
         <div className="mt-6 flex items-center gap-3">
-          <div className="flex items-center border border-stone-800 px-3 flex-1">
-            <Search size={14} className="text-stone-500" />
+          <div className="flex items-center border border-hairline px-3 flex-1">
+            <Search size={14} className="text-faint" />
             <input
               data-testid="menu-search"
               value={q}
@@ -274,7 +274,7 @@ export default function POS() {
               onClick={() => setCat(c)}
               data-testid={`cat-${c.toLowerCase().replace(/\s+/g,"-")}`}
               className={`px-4 py-2 text-[10px] font-mono uppercase tracking-widest whitespace-nowrap border ${
-                cat === c ? "border-orange-500 text-orange-400 bg-stone-900" : "border-stone-800 text-stone-400 hover:border-stone-600"
+                cat === c ? "border-brass text-brass bg-surface" : "border-hairline text-muted2 hover:border-hairline-strong"
               }`}
             >
               {c}
@@ -288,19 +288,19 @@ export default function POS() {
               key={m.id}
               data-testid={`menu-item-${m.name.replace(/\s+/g,"-")}`}
               onClick={() => addItem(m)}
-              className="text-left border border-stone-800 bg-stone-900/40 hover:border-orange-500 hover:bg-stone-900 overflow-hidden transition-colors active:scale-[0.98]"
+              className="text-left border border-hairline bg-surface/40 hover:border-brass hover:bg-surface overflow-hidden transition-colors active:scale-[0.98]"
             >
               {m.image && (
-                <div className="aspect-[16/9] bg-stone-900 overflow-hidden">
+                <div className="aspect-[16/9] bg-surface overflow-hidden">
                   <img src={m.image} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = "none"; }} />
                 </div>
               )}
               <div className="p-4">
-                <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">{m.category}</div>
+                <div className="text-[10px] font-mono uppercase tracking-widest text-faint">{m.category}</div>
                 <div className="mt-2 font-medium">{m.name}</div>
                 <div className="mt-4 flex items-baseline justify-between gap-2">
-                  <span className="font-mono text-orange-400">{priceLabel(m)}</span>
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                  <span className="font-mono text-brass">{priceLabel(m)}</span>
+                  <span className="text-[10px] font-mono uppercase tracking-widest text-faint">
                     {variantsOf(m).length
                       ? variantsOf(m).map((v) => v.label).join(" · ")
                       : m.station}
@@ -310,7 +310,7 @@ export default function POS() {
             </button>
           ))}
           {filtered.length === 0 && (
-            <div className="col-span-full text-stone-600 text-sm font-mono uppercase tracking-widest py-10 text-center">
+            <div className="col-span-full text-faint text-sm font-mono uppercase tracking-widest py-10 text-center">
               No matching items
             </div>
           )}
@@ -318,15 +318,15 @@ export default function POS() {
       </div>
 
       {/* Right · Bill */}
-      <aside className="border border-stone-800 bg-stone-900/40 p-5 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto min-w-0">
+      <aside className="border border-hairline bg-surface/40 p-5 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto min-w-0">
         <div className="flex items-center justify-between mb-4">
-          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">Bill</div>
-          <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
+          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass">Bill</div>
+          <div className="text-[10px] font-mono uppercase tracking-widest text-faint">
             {order ? `Order ${order.id.slice(0, 6)}` : "New"}
           </div>
         </div>
 
-        <div className="min-h-[240px] max-h-[440px] overflow-y-auto divide-y divide-stone-800" data-testid="bill-items">
+        <div className="min-h-[240px] max-h-[440px] overflow-y-auto divide-y divide-hairline" data-testid="bill-items">
           {order?.items?.length ? (
             <AnimatePresence initial={false}>
               {order.items.map((it) => (
@@ -347,13 +347,13 @@ export default function POS() {
                     {it.variant_label && (
                       <span
                         data-testid={`bill-portion-${it.id}`}
-                        className="text-[9px] font-mono uppercase tracking-widest border border-orange-500/60 text-orange-400 px-1.5 py-0.5"
+                        className="text-[9px] font-mono uppercase tracking-widest border border-brass/60 text-brass px-1.5 py-0.5"
                       >
                         {it.variant_label}
                       </span>
                     )}
                   </div>
-                  <div className="text-[10px] font-mono uppercase text-stone-500 mt-0.5">
+                  <div className="text-[10px] font-mono uppercase text-faint mt-0.5">
                     {currency(it.price)} · {it.station} · {it.status}
                   </div>
                 </div>
@@ -361,7 +361,7 @@ export default function POS() {
                   <button
                     onClick={() => changeQty(it, -1)}
                     data-testid={`dec-${it.id}`}
-                    className="w-7 h-7 flex items-center justify-center border border-stone-700 hover:border-orange-500 active:scale-95 transition"
+                    className="w-7 h-7 flex items-center justify-center border border-hairline-strong hover:border-brass active:scale-95 transition"
                   >
                     <Minus size={12} />
                   </button>
@@ -369,7 +369,7 @@ export default function POS() {
                   <button
                     onClick={() => changeQty(it, +1)}
                     data-testid={`inc-${it.id}`}
-                    className="w-7 h-7 flex items-center justify-center border border-stone-700 hover:border-orange-500 active:scale-95 transition"
+                    className="w-7 h-7 flex items-center justify-center border border-hairline-strong hover:border-brass active:scale-95 transition"
                   >
                     <Plus size={12} />
                   </button>
@@ -385,7 +385,7 @@ export default function POS() {
           )}
         </div>
 
-        <div className="mt-4 space-y-1 border-t border-stone-800 pt-4 text-sm font-mono">
+        <div className="mt-4 space-y-1 border-t border-hairline pt-4 text-sm font-mono">
           {/* "Taxable value" when the rate is inclusive, because the subtotal and the
               total are then the same number and two identical lines with different names
               is how a guest is told the bill is wrong. */}
@@ -394,7 +394,7 @@ export default function POS() {
             value={currency(gst.inclusive ? foot.taxableValue : foot.subtotal)}
           />
           <Row label={gstLabel(gst)} value={currency(foot.tax)} />
-          <div className="flex items-center justify-between text-stone-400">
+          <div className="flex items-center justify-between text-muted2">
             <span className="text-[10px] uppercase tracking-widest">Discount</span>
             <input
               data-testid="discount-input"
@@ -402,15 +402,15 @@ export default function POS() {
               min={0}
               value={discount}
               onChange={(e) => setDiscount(e.target.value)}
-              className="w-24 bg-transparent border-b border-stone-700 text-right py-0.5 focus-neon"
+              className="w-24 bg-transparent border-b border-hairline-strong text-right py-0.5 focus-neon"
             />
           </div>
           <Row label="Total" value={currency(foot.total)} bold />
         </div>
 
         <div className="mt-4">
-          <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">
-            Customer <span className="text-stone-600 normal-case tracking-normal">(optional)</span>
+          <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-2">
+            Customer <span className="text-faint normal-case tracking-normal">(optional)</span>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <input
@@ -418,14 +418,14 @@ export default function POS() {
               value={custName}
               onChange={(e) => setCustName(e.target.value)}
               placeholder="Name"
-              className="bg-transparent border-b border-stone-700 py-1.5 text-sm focus-neon"
+              className="bg-transparent border-b border-hairline-strong py-1.5 text-sm focus-neon"
             />
             <input
               data-testid="cust-phone"
               value={custPhone}
               onChange={(e) => setCustPhone(e.target.value)}
               placeholder="Phone"
-              className="bg-transparent border-b border-stone-700 py-1.5 text-sm focus-neon"
+              className="bg-transparent border-b border-hairline-strong py-1.5 text-sm focus-neon"
             />
           </div>
 
@@ -436,8 +436,8 @@ export default function POS() {
               not. Where the greeting goes from is Customers -> Messaging, on the day. */}
           {custPhone.trim() && (
             <div className="mt-4" data-testid="occasion-capture">
-              <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">
-                Occasion <span className="text-stone-600 normal-case tracking-normal">(optional)</span>
+              <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-2">
+                Occasion <span className="text-faint normal-case tracking-normal">(optional)</span>
               </div>
               <div className="flex flex-wrap gap-2 mb-2">
                 {["Birthday", "Anniversary"].map((label) => (
@@ -448,8 +448,8 @@ export default function POS() {
                     onClick={() => setOccasionLabel(occasionLabel === label ? "" : label)}
                     className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest border ${
                       occasionLabel === label
-                        ? "border-orange-500 text-orange-400 bg-stone-900"
-                        : "border-stone-800 text-stone-400 hover:border-stone-600"
+                        ? "border-brass text-brass bg-surface"
+                        : "border-hairline text-muted2 hover:border-hairline-strong"
                     }`}
                   >
                     {label}
@@ -462,18 +462,18 @@ export default function POS() {
                   value={occasionLabel}
                   onChange={(e) => setOccasionLabel(e.target.value)}
                   placeholder="Or type one…"
-                  className="bg-transparent border-b border-stone-700 py-1.5 text-sm focus-neon"
+                  className="bg-transparent border-b border-hairline-strong py-1.5 text-sm focus-neon"
                 />
                 <input
                   data-testid="occasion-date"
                   type="date"
                   value={occasionDate}
                   onChange={(e) => setOccasionDate(e.target.value)}
-                  className="bg-transparent border-b border-stone-700 py-1.5 text-sm focus-neon"
+                  className="bg-transparent border-b border-hairline-strong py-1.5 text-sm focus-neon"
                 />
               </div>
               {occasionLabel.trim() && !occasionDate && (
-                <div className="text-[10px] font-mono text-stone-500 mt-2">
+                <div className="text-[10px] font-mono text-faint mt-2">
                   Add the date and it is saved when the bill is settled.
                 </div>
               )}
@@ -482,7 +482,7 @@ export default function POS() {
         </div>
 
         <div className="mt-4">
-          <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">Payment</div>
+          <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-2">Payment</div>
           <div className="grid grid-cols-4 gap-2">
             {["cash", "card", "online", "room"].map((p) => (
               <button
@@ -493,7 +493,7 @@ export default function POS() {
                 }}
                 data-testid={`pay-${p}`}
                 className={`py-2 text-[10px] font-mono uppercase tracking-widest border ${
-                  pay === p ? "border-orange-500 text-orange-400" : "border-stone-800 text-stone-400 hover:border-stone-600"
+                  pay === p ? "border-brass text-brass" : "border-hairline text-muted2 hover:border-hairline-strong"
                 }`}
               >
                 {p}
@@ -504,24 +504,24 @@ export default function POS() {
           {pay === "room" && (
             <div className="mt-3">
               {chosenFolio ? (
-                <div className="flex items-center justify-between border border-orange-500/50 bg-orange-500/10 rounded px-3 py-2">
+                <div className="flex items-center justify-between border border-brass/50 bg-brass/10 rounded px-3 py-2">
                   <div>
-                    <div className="text-sm text-orange-400">
+                    <div className="text-sm text-brass">
                       Room {chosenFolio.room?.number} · {chosenFolio.guest?.name}
                     </div>
-                    <div className="text-[10px] font-mono text-stone-500">{chosenFolio.guest?.phone}</div>
+                    <div className="text-[10px] font-mono text-faint">{chosenFolio.guest?.phone}</div>
                   </div>
                   <button
                     onClick={() => setChosenFolio(null)}
-                    className="text-[10px] font-mono uppercase tracking-widest text-stone-500 hover:text-red-400"
+                    className="text-[10px] font-mono uppercase tracking-widest text-faint hover:text-red-400"
                   >
                     Change
                   </button>
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center border border-stone-800 px-3">
-                    <Search size={14} className="text-stone-500" />
+                  <div className="flex items-center border border-hairline px-3">
+                    <Search size={14} className="text-faint" />
                     <input
                       data-testid="room-search"
                       value={roomQuery}
@@ -530,9 +530,9 @@ export default function POS() {
                       className="bg-transparent px-3 py-2 flex-1 text-sm focus:outline-none"
                     />
                   </div>
-                  <ul className="mt-2 max-h-40 overflow-y-auto divide-y divide-stone-800">
+                  <ul className="mt-2 max-h-40 overflow-y-auto divide-y divide-hairline">
                     {inHouse.length === 0 && (
-                      <li className="py-2 text-xs text-stone-500 font-mono uppercase tracking-widest">
+                      <li className="py-2 text-xs text-faint font-mono uppercase tracking-widest">
                         No in-house guest matches.
                       </li>
                     )}
@@ -540,10 +540,10 @@ export default function POS() {
                       <li key={x.folio.id}>
                         <button
                           onClick={() => setChosenFolio(x)}
-                          className="w-full text-left py-2 text-sm text-stone-300 hover:text-orange-400"
+                          className="w-full text-left py-2 text-sm text-muted2 hover:text-brass"
                         >
                           Room {x.room?.number} · {x.guest?.name}
-                          <span className="block text-[10px] font-mono text-stone-500">
+                          <span className="block text-[10px] font-mono text-faint">
                             {x.guest?.phone}
                           </span>
                         </button>
@@ -560,7 +560,7 @@ export default function POS() {
           data-testid="settle-btn"
           onClick={settle}
           disabled={!order?.items?.length}
-          className="mt-5 w-full rounded-full bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-stone-950 px-6 py-3 font-mono uppercase tracking-widest text-xs active:scale-95 transition"
+          className="mt-5 w-full rounded-full bg-brass hover:bg-brass-deep disabled:opacity-40 text-on-brass px-6 py-3 font-mono uppercase tracking-widest text-xs active:scale-95 transition"
         >
           Settle Bill
         </button>
@@ -569,15 +569,15 @@ export default function POS() {
       {/* Portion sheet · only ever in front of a dish that is sold in more than one */}
       {portionFor && (
         <div
-          className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur flex items-center justify-center p-6"
+          className="fixed inset-0 z-50 bg-ground/80 backdrop-blur flex items-center justify-center p-6"
           onClick={() => setPortionFor(null)}
           data-testid="portion-sheet"
         >
           <div
-            className="border border-orange-500 bg-stone-900 p-6 w-full max-w-sm"
+            className="border border-brass bg-surface p-6 w-full max-w-sm"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">
+            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass">
               Portion
             </div>
             <div className="font-display uppercase text-2xl mt-2 leading-none">
@@ -589,16 +589,16 @@ export default function POS() {
                   key={v.label}
                   data-testid={`portion-${v.label.replace(/\s+/g, "-")}`}
                   onClick={() => addPortion(portionFor, v)}
-                  className="w-full flex items-center justify-between border border-stone-700 hover:border-orange-500 hover:bg-stone-800 px-4 py-3 text-left active:scale-[0.98] transition"
+                  className="w-full flex items-center justify-between border border-hairline-strong hover:border-brass hover:bg-raised px-4 py-3 text-left active:scale-[0.98] transition"
                 >
                   <span className="text-sm">{v.label}</span>
-                  <span className="font-mono text-orange-400">{currency(v.price)}</span>
+                  <span className="font-mono text-brass">{currency(v.price)}</span>
                 </button>
               ))}
             </div>
             <button
               onClick={() => setPortionFor(null)}
-              className="mt-5 w-full border border-stone-800 hover:border-stone-600 py-2 text-[10px] font-mono uppercase tracking-widest text-stone-400"
+              className="mt-5 w-full border border-hairline hover:border-hairline-strong py-2 text-[10px] font-mono uppercase tracking-widest text-muted2"
             >
               Cancel
             </button>
@@ -617,7 +617,7 @@ export default function POS() {
 
 function Row({ label, value, bold }) {
   return (
-    <div className={`flex items-center justify-between ${bold ? "text-stone-100 text-base pt-2" : "text-stone-400"}`}>
+    <div className={`flex items-center justify-between ${bold ? "text-ink text-base pt-2" : "text-muted2"}`}>
       <span className="text-[10px] uppercase tracking-widest">{label}</span>
       <span>{value}</span>
     </div>

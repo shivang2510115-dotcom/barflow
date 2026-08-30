@@ -61,8 +61,8 @@ function when(iso) {
 
 const PILL =
   "border rounded-full px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest transition-colors";
-const CHOSEN = "border-orange-500 text-orange-400 bg-orange-500/10";
-const UNCHOSEN = "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300";
+const CHOSEN = "border-brass text-brass bg-brass/10";
+const UNCHOSEN = "border-hairline-strong text-faint hover:border-hairline-strong hover:text-muted2";
 
 /** A guest asked, or somebody working here did. Different things to whoever reads the list. */
 function SourceBadge({ job }) {
@@ -71,7 +71,7 @@ function SourceBadge({ job }) {
     <span
       data-testid={guest ? "job-source-guest" : "job-source-staff"}
       className={`inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 border ${
-        guest ? "border-orange-500/60 text-orange-300 bg-orange-500/10" : "border-stone-700 text-stone-500"
+        guest ? "border-brass/60 text-brass bg-brass/10" : "border-hairline-strong text-faint"
       }`}
     >
       {guest ? <User size={10} aria-hidden="true" /> : <BedDouble size={10} aria-hidden="true" />}
@@ -84,7 +84,7 @@ function PriorityBadge({ priority }) {
   return (
     <span
       className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 border ${
-        priority === "high" ? "border-red-500/60 text-red-300" : "border-stone-700 text-stone-400"
+        priority === "high" ? "border-red-500/60 text-red-300" : "border-hairline-strong text-muted2"
       }`}
     >
       {PRIORITY_LABELS[priority] || priority}
@@ -130,13 +130,13 @@ function RequestForm({ rooms, roomId, onRaised }) {
   return (
     <div className="space-y-3" data-testid="raise-request-form">
       {!roomId && (
-        <label className="block text-[10px] font-mono uppercase tracking-widest text-stone-500">
+        <label className="block text-[10px] font-mono uppercase tracking-widest text-faint">
           Room
           <select
             value={room}
             data-testid="request-room"
             onChange={(e) => setRoom(e.target.value)}
-            className="block w-full mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-2.5 px-2 rounded"
+            className="block w-full mt-2 bg-ground border border-hairline-strong text-ink py-2.5 px-2 rounded"
           >
             <option value="">Choose…</option>
             {rooms.map((r) => (
@@ -149,7 +149,7 @@ function RequestForm({ rooms, roomId, onRaised }) {
       )}
 
       <div>
-        <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500 mb-2">
+        <div className="text-[10px] font-mono uppercase tracking-widest text-faint mb-2">
           Priority
         </div>
         <div className="flex gap-2">
@@ -168,7 +168,7 @@ function RequestForm({ rooms, roomId, onRaised }) {
         </div>
       </div>
 
-      <label className="block text-[10px] font-mono uppercase tracking-widest text-stone-500">
+      <label className="block text-[10px] font-mono uppercase tracking-widest text-faint">
         What is needed
         <textarea
           value={reason}
@@ -176,7 +176,7 @@ function RequestForm({ rooms, roomId, onRaised }) {
           data-testid="request-reason"
           placeholder="Spill on the carpet"
           onChange={(e) => setReason(e.target.value)}
-          className="block w-full mt-2 bg-stone-950 border border-stone-700 text-stone-100 text-sm p-2 rounded focus:border-orange-500 outline-none"
+          className="block w-full mt-2 bg-ground border border-hairline-strong text-ink text-sm p-2 rounded focus:border-brass outline-none"
         />
       </label>
 
@@ -185,7 +185,7 @@ function RequestForm({ rooms, roomId, onRaised }) {
         onClick={submit}
         disabled={busy}
         data-testid="raise-request"
-        className="w-full bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full py-3 text-xs font-mono uppercase tracking-widest"
+        className="w-full bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full py-3 text-xs font-mono uppercase tracking-widest"
       >
         {busy ? "Raising…" : "Raise request"}
       </button>
@@ -198,24 +198,24 @@ function JobRow({ job, onAct, busy }) {
   return (
     <li
       data-testid={`job-${job.id}`}
-      className="py-3 border-b border-stone-800 last:border-b-0"
+      className="py-3 border-b border-hairline last:border-b-0"
     >
       <div className="flex items-center gap-2 flex-wrap">
         <span className="font-mono tabular-nums text-xl leading-none">{job.room_number || "—"}</span>
         <PriorityBadge priority={job.priority} />
         <SourceBadge job={job} />
-        <span className="text-[9px] font-mono uppercase tracking-widest text-stone-500">
+        <span className="text-[9px] font-mono uppercase tracking-widest text-faint">
           {JOB_STATUS_LABELS[job.status] || job.status}
         </span>
-        <span className="ml-auto text-[10px] font-mono text-stone-600">{when(job.created_at)}</span>
+        <span className="ml-auto text-[10px] font-mono text-faint">{when(job.created_at)}</span>
       </div>
 
       {job.reason ? (
         /* Pre-line, because a guest's second press appends a line rather than replacing
            the first — see `merge_reason` on the server. */
-        <p className="mt-1.5 text-sm text-stone-300 whitespace-pre-line break-words">{job.reason}</p>
+        <p className="mt-1.5 text-sm text-muted2 whitespace-pre-line break-words">{job.reason}</p>
       ) : (
-        <p className="mt-1.5 text-sm text-stone-500 italic">No reason given</p>
+        <p className="mt-1.5 text-sm text-faint italic">No reason given</p>
       )}
 
       {jobIsLive(job) && (
@@ -226,7 +226,7 @@ function JobRow({ job, onAct, busy }) {
               data-testid={`job-acknowledge-${job.id}`}
               disabled={busy}
               onClick={() => onAct(job, "acknowledge")}
-              className={`${PILL} border-orange-500/50 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50`}
+              className={`${PILL} border-brass/50 text-brass hover:bg-brass-deep/10 disabled:opacity-50`}
             >
               On it
             </button>
@@ -348,30 +348,30 @@ function RoomSheet({ card, onClose, onChanged }) {
         type="button"
         aria-label="Close"
         onClick={onClose}
-        className="fixed inset-0 z-40 bg-stone-950/70 backdrop-blur-sm"
+        className="fixed inset-0 z-40 bg-ground/70 backdrop-blur-sm"
       />
       <div
         data-testid="room-sheet"
         role="dialog"
         aria-label={`Room ${card.number}`}
         className="fixed z-50 inset-x-0 bottom-0 md:inset-x-auto md:right-6 md:bottom-6 md:w-[26rem]
-                   max-h-[85vh] overflow-y-auto border-t md:border border-stone-700 bg-stone-900
+                   max-h-[85vh] overflow-y-auto border-t md:border border-hairline-strong bg-surface
                    p-5 pb-8 shadow-2xl shadow-black/60"
       >
         <div className="flex items-start gap-3">
           <div>
             <div className="font-mono tabular-nums text-4xl leading-none">{card.number}</div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-stone-400">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-muted2">
                 {STATUS_LABELS[status]}
               </span>
               {card.occupied && (
-                <span className="text-[10px] font-mono uppercase tracking-widest text-orange-300">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-brass">
                   In house
                 </span>
               )}
               {card.departing_today && (
-                <span className="text-[10px] font-mono uppercase tracking-widest text-orange-400">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-brass">
                   Departs today
                 </span>
               )}
@@ -382,14 +382,14 @@ function RoomSheet({ card, onClose, onChanged }) {
             onClick={onClose}
             data-testid="close-room-sheet"
             aria-label="Close"
-            className="ml-auto text-stone-500 hover:text-stone-200 p-2 -m-2"
+            className="ml-auto text-faint hover:text-ink p-2 -m-2"
           >
             <X size={20} />
           </button>
         </div>
 
         {card.housekeeping_note && (
-          <p className="mt-4 text-sm text-stone-300 border-l-2 border-red-500/60 pl-3 whitespace-pre-line">
+          <p className="mt-4 text-sm text-muted2 border-l-2 border-red-500/60 pl-3 whitespace-pre-line">
             {card.housekeeping_note}
           </p>
         )}
@@ -398,7 +398,7 @@ function RoomSheet({ card, onClose, onChanged }) {
             list this screen worked out for itself. */}
         <div className="mt-5 space-y-2" data-testid="status-options">
           {blocked ? (
-            <p className="text-sm text-stone-500" data-testid="no-status-options">
+            <p className="text-sm text-faint" data-testid="no-status-options">
               {blocked}
             </p>
           ) : (
@@ -411,14 +411,14 @@ function RoomSheet({ card, onClose, onChanged }) {
                 onClick={() => choose(to)}
                 className={`w-full text-left border rounded p-4 min-h-[3.5rem] disabled:opacity-50 transition-colors ${
                   pending === to
-                    ? "border-orange-500 bg-orange-500/10"
-                    : "border-stone-700 hover:border-orange-500/60"
+                    ? "border-brass bg-brass/10"
+                    : "border-hairline-strong hover:border-brass/60"
                 }`}
               >
-                <div className="text-sm font-mono uppercase tracking-widest text-stone-100">
+                <div className="text-sm font-mono uppercase tracking-widest text-ink">
                   {STATUS_LABELS[to]}
                 </div>
-                <div className="text-xs text-stone-500 mt-0.5">{STATUS_BLURB[to]}</div>
+                <div className="text-xs text-faint mt-0.5">{STATUS_BLURB[to]}</div>
               </button>
             ))
           )}
@@ -426,7 +426,7 @@ function RoomSheet({ card, onClose, onChanged }) {
 
         {pending && (
           <div className="mt-3" data-testid="note-required">
-            <label className="block text-[10px] font-mono uppercase tracking-widest text-stone-500">
+            <label className="block text-[10px] font-mono uppercase tracking-widest text-faint">
               What is wrong with the room
               <textarea
                 autoFocus
@@ -434,10 +434,10 @@ function RoomSheet({ card, onClose, onChanged }) {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="Burst pipe in the bathroom"
-                className="block w-full mt-2 bg-stone-950 border border-stone-700 text-stone-100 text-sm p-2 rounded focus:border-orange-500 outline-none"
+                className="block w-full mt-2 bg-ground border border-hairline-strong text-ink text-sm p-2 rounded focus:border-brass outline-none"
               />
             </label>
-            <p className="text-xs text-stone-500 mt-2">
+            <p className="text-xs text-faint mt-2">
               A manager takes the room back out of this, once the fault is fixed.
             </p>
             <button
@@ -445,7 +445,7 @@ function RoomSheet({ card, onClose, onChanged }) {
               data-testid="confirm-out-of-order"
               disabled={busy || !note.trim()}
               onClick={() => set(pending, note.trim())}
-              className="mt-3 w-full bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full py-3 text-xs font-mono uppercase tracking-widest"
+              className="mt-3 w-full bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full py-3 text-xs font-mono uppercase tracking-widest"
             >
               {busy ? "Saving…" : `Mark ${STATUS_LABELS[pending].toLowerCase()}`}
             </button>
@@ -457,7 +457,7 @@ function RoomSheet({ card, onClose, onChanged }) {
             two chances to miss one. */}
         {(card.jobs || []).length > 0 && (
           <div className="mt-6">
-            <h3 className="text-[10px] font-mono uppercase tracking-[0.25em] text-stone-500 mb-1">
+            <h3 className="text-[10px] font-mono uppercase tracking-[0.25em] text-faint mb-1">
               Requests
             </h3>
             <ul>
@@ -505,13 +505,13 @@ function RoomSheet({ card, onClose, onChanged }) {
              logins: when a guest says the room was filthy, this answers who marked it
              clean and when. */
           <ul className="mt-4 space-y-2" data-testid="room-events">
-            {events.length === 0 && <li className="text-sm text-stone-500">Nothing recorded yet.</li>}
+            {events.length === 0 && <li className="text-sm text-faint">Nothing recorded yet.</li>}
             {events.map((e) => (
-              <li key={e.id} className="text-xs text-stone-400 border-l border-stone-700 pl-3">
-                <span className="font-mono text-stone-500">{when(e.changed_at)}</span>{" "}
+              <li key={e.id} className="text-xs text-muted2 border-l border-hairline-strong pl-3">
+                <span className="font-mono text-faint">{when(e.changed_at)}</span>{" "}
                 {STATUS_LABELS[e.from_status] || e.from_status} →{" "}
-                <span className="text-stone-200">{STATUS_LABELS[e.to_status] || e.to_status}</span>
-                {e.note ? <div className="text-stone-500 mt-0.5">{e.note}</div> : null}
+                <span className="text-ink">{STATUS_LABELS[e.to_status] || e.to_status}</span>
+                {e.note ? <div className="text-faint mt-0.5">{e.note}</div> : null}
               </li>
             ))}
           </ul>
@@ -589,16 +589,16 @@ export default function Housekeeping() {
     }
   };
 
-  if (!board) return <div className="p-6 md:p-10 text-stone-400">Loading housekeeping…</div>;
+  if (!board) return <div className="p-6 md:p-10 text-muted2">Loading housekeeping…</div>;
 
   return (
     /* `pb-40` clears the alert that sits across the bottom of a phone. */
     <div className="p-4 md:p-10 pb-40">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Hotel</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Hotel</div>
       <h1 className="text-3xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         Housekeeping
       </h1>
-      <p className="text-stone-500 font-mono text-xs mb-6">{board.date}</p>
+      <p className="text-faint font-mono text-xs mb-6">{board.date}</p>
 
       <div className="flex gap-2 mb-6" role="tablist">
         <button
@@ -620,7 +620,7 @@ export default function Housekeeping() {
           className={`${PILL} ${tab === "requests" ? CHOSEN : UNCHOSEN} flex items-center gap-1.5`}
         >
           <ClipboardList size={12} /> Requests
-          {waiting > 0 && <span className="font-mono text-orange-400">{waiting}</span>}
+          {waiting > 0 && <span className="font-mono text-brass">{waiting}</span>}
         </button>
       </div>
 
@@ -649,7 +649,7 @@ export default function Housekeeping() {
           </button>
 
           {raising && (
-            <div className="border border-stone-800 bg-stone-900 rounded p-4 mb-6">
+            <div className="border border-hairline bg-surface rounded p-4 mb-6">
               <RequestForm
                 rooms={rooms}
                 onRaised={() => {
@@ -676,7 +676,7 @@ export default function Housekeeping() {
           </div>
 
           {jobs.length === 0 ? (
-            <p className="text-stone-500 text-sm flex items-center gap-2">
+            <p className="text-faint text-sm flex items-center gap-2">
               <Check size={14} /> Nothing waiting.
             </p>
           ) : (

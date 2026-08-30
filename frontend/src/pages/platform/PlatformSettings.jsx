@@ -18,11 +18,11 @@ import { api, currency, formatApiErrorDetail } from "@/lib/api";
  */
 
 const FIELD =
-  "block mt-2 w-full bg-transparent border-b border-stone-700 text-stone-100 py-1 " +
-  "focus:border-orange-500 outline-none placeholder:text-stone-600";
-const LABEL = "text-xs tracking-widest uppercase text-stone-500";
+  "block mt-2 w-full bg-transparent border-b border-hairline-strong text-ink py-1 " +
+  "focus:border-brass outline-none placeholder:text-faint";
+const LABEL = "text-xs tracking-widest uppercase text-faint";
 const PRIMARY =
-  "bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 " +
+  "bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 " +
   "text-sm tracking-widest uppercase";
 
 // The worked figures in the copy below. Written through `currency()` like every other
@@ -90,14 +90,14 @@ export default function PlatformSettings({ onSaved }) {
 
   return (
     <div className="max-w-3xl" data-testid="platform-settings">
-      <p className="text-sm text-stone-400 mb-8 max-w-2xl">
+      <p className="text-sm text-muted2 mb-8 max-w-2xl">
         These appear on every invoice you issue. The state is the one that decides
         something: a hotel in it is charged CGST and SGST, a hotel outside it IGST, and
         until it is filled in no invoice can be issued — a guessed split is a document the
         hotel&rsquo;s accountant cannot use.
       </p>
 
-      <div className="border border-stone-800 bg-stone-900 p-6">
+      <div className="border border-hairline bg-surface p-6">
         <div className="grid gap-5 sm:grid-cols-2">
           {TEXT_FIELDS.map(([key, label, placeholder]) => (
             <label key={key} className={LABEL}>
@@ -123,13 +123,13 @@ export default function PlatformSettings({ onSaved }) {
             onChange={(e) =>
               setForm({ ...form, prices_include_gst: e.target.checked })
             }
-            className="mt-1 accent-orange-500 w-4 h-4"
+            className="mt-1 accent-brass w-4 h-4"
           />
           <span>
-            <span className="text-sm text-stone-200">
+            <span className="text-sm text-ink">
               Agreed prices already include GST
             </span>
-            <span className="block text-xs text-stone-500 mt-1 max-w-xl">
+            <span className="block text-xs text-faint mt-1 max-w-xl">
               Tick this — it is the usual arrangement — and a {currency(EXAMPLE_PAID)}{" "}
               payment produces a {currency(EXAMPLE_PAID)} invoice with the tax inside it,
               which reconciles line for line against the bank statement you matched it
@@ -151,7 +151,7 @@ export default function PlatformSettings({ onSaved }) {
         </div>
       </div>
 
-      <p className="text-xs text-stone-500 mt-6 max-w-2xl">
+      <p className="text-xs text-faint mt-6 max-w-2xl">
         Changing these does not change an invoice that has already been issued. Both
         parties are copied onto each document when it is written, so a change of address
         never restates a document somebody has already filed.

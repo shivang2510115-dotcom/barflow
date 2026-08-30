@@ -58,7 +58,7 @@ export default function HousekeepingAlert() {
       // navigation: this sits on top of whatever screen somebody is working on, so it has
       // to be small enough to ignore and close enough to reach with a thumb.
       className="hk-alert fixed z-40 bottom-0 inset-x-0 sm:inset-x-auto sm:right-4 sm:bottom-4 sm:w-80
-                 border-t sm:border border-orange-500/40 bg-stone-900/95 backdrop-blur-xl
+                 border-t sm:border border-brass/40 bg-surface/95 backdrop-blur-xl
                  shadow-2xl shadow-black/50"
       role="status"
       aria-live="polite"
@@ -70,32 +70,32 @@ export default function HousekeepingAlert() {
         aria-expanded={!collapsed}
         className="w-full flex items-center gap-2 px-4 py-3 text-left"
       >
-        <BellRing size={14} className="text-orange-400 shrink-0" aria-hidden="true" />
-        <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-orange-400">
+        <BellRing size={14} className="text-brass shrink-0" aria-hidden="true" />
+        <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-brass">
           Housekeeping
         </span>
         {/* The count is the whole message when this is collapsed, and it is why several
             requests are one alert: "3 waiting" is a thing to act on, three identical
             boxes are a thing to clear. */}
-        <span className="ml-auto text-xs font-mono text-stone-300" data-testid="housekeeping-alert-count">
+        <span className="ml-auto text-xs font-mono text-muted2" data-testid="housekeeping-alert-count">
           {jobs.length} waiting
         </span>
         {collapsed ? (
-          <ChevronUp size={14} className="text-stone-500" aria-hidden="true" />
+          <ChevronUp size={14} className="text-faint" aria-hidden="true" />
         ) : (
-          <ChevronDown size={14} className="text-stone-500" aria-hidden="true" />
+          <ChevronDown size={14} className="text-faint" aria-hidden="true" />
         )}
       </button>
 
       {!collapsed && (
         // Scrolls rather than grows: a hotel having a bad morning must not end up with an
         // alert taller than the screen behind it.
-        <ul className="max-h-64 overflow-y-auto border-t border-stone-800">
+        <ul className="max-h-64 overflow-y-auto border-t border-hairline">
           {jobs.map((job) => (
             <li
               key={job.id}
               data-testid={`housekeeping-alert-job-${job.id}`}
-              className="px-4 py-3 border-b border-stone-800 last:border-b-0"
+              className="px-4 py-3 border-b border-hairline last:border-b-0"
             >
               <div className="flex items-center gap-2">
                 <span className="font-mono tabular-nums text-lg leading-none">
@@ -105,7 +105,7 @@ export default function HousekeepingAlert() {
                   className={`text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 border ${
                     job.priority === "high"
                       ? "border-red-500/60 text-red-300"
-                      : "border-stone-700 text-stone-400"
+                      : "border-hairline-strong text-muted2"
                   }`}
                 >
                   {PRIORITY_LABELS[job.priority] || job.priority}
@@ -114,7 +114,7 @@ export default function HousekeepingAlert() {
                     apart by a word and an icon rather than by a shade of grey. */}
                 {isGuestRaised(job) && (
                   <span
-                    className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-widest text-orange-300"
+                    className="inline-flex items-center gap-1 text-[9px] font-mono uppercase tracking-widest text-brass"
                     data-testid="alert-guest-badge"
                   >
                     <User size={10} aria-hidden="true" /> Guest
@@ -125,8 +125,8 @@ export default function HousekeepingAlert() {
                   data-testid={`acknowledge-${job.id}`}
                   disabled={busy === job.id}
                   onClick={() => pick(job)}
-                  className="ml-auto shrink-0 inline-flex items-center gap-1 border border-orange-500/50 text-orange-400
-                             hover:bg-orange-500/10 disabled:opacity-50 rounded-full px-3 py-1.5
+                  className="ml-auto shrink-0 inline-flex items-center gap-1 border border-brass/50 text-brass
+                             hover:bg-brass-deep/10 disabled:opacity-50 rounded-full px-3 py-1.5
                              text-[10px] font-mono uppercase tracking-widest"
                 >
                   <Check size={12} aria-hidden="true" />
@@ -136,11 +136,11 @@ export default function HousekeepingAlert() {
               {job.reason ? (
                 // `whitespace-pre-line`: a guest who pressed twice has their second
                 // sentence appended on a new line by the merge rule, not concatenated.
-                <p className="mt-1.5 text-xs text-stone-300 whitespace-pre-line break-words">
+                <p className="mt-1.5 text-xs text-muted2 whitespace-pre-line break-words">
                   {job.reason}
                 </p>
               ) : (
-                <p className="mt-1.5 text-xs text-stone-500 italic">No reason given</p>
+                <p className="mt-1.5 text-xs text-faint italic">No reason given</p>
               )}
             </li>
           ))}

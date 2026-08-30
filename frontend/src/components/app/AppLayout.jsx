@@ -239,7 +239,7 @@ function SectionSwitch({ value, sections, onPick, className = "" }) {
   if (sections.length < 2) return null;
   return (
     <div className={`flex items-center gap-2 ${className}`}>
-      <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-stone-600 hidden sm:inline">
+      <span className="text-[10px] font-mono uppercase tracking-[0.25em] text-faint hidden sm:inline">
         Section
       </span>
       {sections.map((s) => (
@@ -251,8 +251,8 @@ function SectionSwitch({ value, sections, onPick, className = "" }) {
           onClick={() => onPick(s.key)}
           className={`text-[10px] font-mono uppercase tracking-widest border rounded-full px-3 py-1 transition-colors ${
             value === s.key
-              ? "border-orange-500 text-orange-400 bg-orange-500/10"
-              : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
+              ? "border-brass text-brass bg-brass/10"
+              : "border-hairline-strong text-faint hover:border-hairline-strong hover:text-muted2"
           }`}
         >
           {s.label}
@@ -292,14 +292,14 @@ export default function AppLayout({ children }) {
   return (
     <PropertyProvider value={property}>
     <SectionProvider value={value}>
-      <div className="min-h-screen flex bg-stone-950 text-stone-100 relative z-[2]">
+      <div className="min-h-screen flex bg-ground text-ink relative z-[2]">
         {/* Sidebar */}
-        <aside className="hidden md:flex flex-col w-60 border-r border-stone-800 bg-stone-950/80 backdrop-blur-2xl sticky top-0 h-screen">
-          <div className="p-6 border-b border-stone-800 flex items-center gap-2">
-            <Wine className="text-orange-500" size={22} />
+        <aside className="hidden md:flex flex-col w-60 border-r border-hairline bg-ground/80 backdrop-blur-2xl sticky top-0 h-screen">
+          <div className="p-6 border-b border-hairline flex items-center gap-2">
+            <Wine className="text-brass" size={22} />
             <div>
               <div className="font-display text-lg tracking-tight uppercase leading-none">BarFlow</div>
-              <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500 mt-1">
+              <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-faint mt-1">
                 {current ? current.label : "Ops Console"}
               </div>
             </div>
@@ -312,7 +312,7 @@ export default function AppLayout({ children }) {
                 return (
                   <div
                     key={`section-${item.section}`}
-                    className="px-6 pt-6 pb-2 text-[10px] font-mono uppercase tracking-[0.3em] text-stone-600"
+                    className="px-6 pt-6 pb-2 text-[10px] font-mono uppercase tracking-[0.3em] text-faint"
                   >
                     {item.section}
                   </div>
@@ -329,8 +329,8 @@ export default function AppLayout({ children }) {
                   className={() =>
                     `flex items-center gap-3 px-6 py-3 text-sm border-l-2 transition-colors ${
                       active
-                        ? "border-orange-500 bg-stone-900 text-orange-400"
-                        : "border-transparent text-stone-400 hover:text-stone-100 hover:bg-stone-900/50"
+                        ? "border-brass bg-surface text-brass"
+                        : "border-transparent text-muted2 hover:text-ink hover:bg-surface/50"
                     }`
                   }
                 >
@@ -340,12 +340,12 @@ export default function AppLayout({ children }) {
               );
             })}
           </nav>
-          <div className="p-4 border-t border-stone-800">
-            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500">
+          <div className="p-4 border-t border-hairline">
+            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-faint">
               Signed in as
             </div>
             <div className="mt-1 text-sm">{user?.name}</div>
-            <div className="text-xs font-mono text-orange-500 uppercase mt-0.5">{user?.role}</div>
+            <div className="text-xs font-mono text-brass uppercase mt-0.5">{user?.role}</div>
             {/* Under the name rather than in the nav above it: changing your own password
                 is not a screen of the business, it is a thing about the person signed in,
                 and this block is the only part of the sidebar that is about them. It has
@@ -353,14 +353,14 @@ export default function AppLayout({ children }) {
             <NavLink
               to="/account"
               data-testid="account-link"
-              className="mt-4 w-full flex items-center justify-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+              className="mt-4 w-full flex items-center justify-center gap-2 border border-hairline-strong hover:border-brass hover:text-brass px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
             >
               <KeyRound size={14} /> Password
             </NavLink>
             <button
               data-testid="logout-button"
               onClick={signOut}
-              className="mt-2 w-full flex items-center justify-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+              className="mt-2 w-full flex items-center justify-center gap-2 border border-hairline-strong hover:border-brass hover:text-brass px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
             >
               <LogOut size={14} /> Sign out
             </button>
@@ -368,10 +368,10 @@ export default function AppLayout({ children }) {
         </aside>
 
         {/* Mobile top bar */}
-        <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-stone-950/90 backdrop-blur-xl border-b border-stone-800">
+        <div className="md:hidden fixed top-0 inset-x-0 z-20 bg-ground/90 backdrop-blur-xl border-b border-hairline">
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex items-center gap-2">
-              <Wine className="text-orange-500" size={18} />
+              <Wine className="text-brass" size={18} />
               <span className="font-display uppercase">BarFlow</span>
             </div>
             {/* The mobile bar has no account block to hang this under, so it sits beside
@@ -381,14 +381,14 @@ export default function AppLayout({ children }) {
               <NavLink
                 to="/account"
                 data-testid="account-link-mobile"
-                className="text-xs font-mono uppercase text-stone-400"
+                className="text-xs font-mono uppercase text-muted2"
               >
                 Password
               </NavLink>
               <button
                 data-testid="logout-button-mobile"
                 onClick={signOut}
-                className="text-xs font-mono uppercase text-stone-400"
+                className="text-xs font-mono uppercase text-muted2"
               >
                 Sign out
               </button>
@@ -399,7 +399,7 @@ export default function AppLayout({ children }) {
               <SectionSwitch value={section} sections={sections} onPick={pick} />
             </div>
           )}
-          <div className="flex overflow-x-auto no-scrollbar border-t border-stone-800">
+          <div className="flex overflow-x-auto no-scrollbar border-t border-hairline">
             {items
               .filter((item) => item.to)
               .map((item) => {
@@ -411,7 +411,7 @@ export default function AppLayout({ children }) {
                     to={to}
                     end={end}
                     className={`px-4 py-3 text-[10px] font-mono uppercase tracking-widest whitespace-nowrap border-b-2 ${
-                      active ? "text-orange-400 border-orange-500" : "text-stone-500 border-transparent"
+                      active ? "text-brass border-brass" : "text-faint border-transparent"
                     }`}
                   >
                     {label}
@@ -425,13 +425,13 @@ export default function AppLayout({ children }) {
           {/* The desktop counterpart of the mobile switch above. Both render the same
               control, so a section can be changed without signing out on either. */}
           {sections.length > 1 && (
-            <div className="hidden md:flex items-center justify-between gap-4 border-b border-stone-800 bg-stone-950/80 backdrop-blur-xl px-6 py-3 sticky top-0 z-10">
+            <div className="hidden md:flex items-center justify-between gap-4 border-b border-hairline bg-ground/80 backdrop-blur-xl px-6 py-3 sticky top-0 z-10">
               <SectionSwitch value={section} sections={sections} onPick={pick} />
               <button
                 type="button"
                 data-testid="section-chooser-link"
                 onClick={() => nav("/app")}
-                className="text-[10px] font-mono uppercase tracking-widest text-stone-500 hover:text-orange-400"
+                className="text-[10px] font-mono uppercase tracking-widest text-faint hover:text-brass"
               >
                 All sections
               </button>

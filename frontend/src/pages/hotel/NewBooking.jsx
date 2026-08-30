@@ -188,7 +188,7 @@ export default function NewBooking() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Hotel</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Hotel</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         New booking
       </h1>
@@ -200,28 +200,28 @@ export default function NewBooking() {
           ["adults", "Adults", "number"],
           ["children", "Children", "number"],
         ].map(([key, label, type]) => (
-          <label key={key} className="text-xs tracking-widest uppercase text-stone-500">
+          <label key={key} className="text-xs tracking-widest uppercase text-faint">
             {label}
             <input
               type={type}
               min={type === "number" ? 0 : undefined}
               value={form[key]}
               onChange={(e) => set(key, e.target.value)}
-              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+              className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
             />
           </label>
         ))}
         <button
           onClick={search}
           disabled={searching}
-          className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+          className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
         >
           {searching ? "Searching…" : "Search"}
         </button>
       </div>
 
       {results && results.rows.length === 0 && (
-        <p className="text-stone-400">No room types are set up yet.</p>
+        <p className="text-muted2">No room types are set up yet.</p>
       )}
 
       {results && results.rows.length > 0 && (
@@ -233,13 +233,13 @@ export default function NewBooking() {
             {results.rows.map((row) => (
               <div
                 key={row.room_type.id}
-                className="border border-stone-800 bg-stone-900 rounded px-4 py-3"
+                className="border border-hairline bg-surface rounded px-4 py-3"
               >
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="font-semibold">{row.room_type.name}</span>
                   <span
                     className={`font-mono text-xs ${
-                      row.available > 0 ? "text-orange-400" : "text-stone-500"
+                      row.available > 0 ? "text-brass" : "text-faint"
                     }`}
                   >
                     {row.available} free
@@ -250,12 +250,12 @@ export default function NewBooking() {
                     No rate set for {row.unpriced_dates.join(", ")} — add one under Rates.
                   </p>
                 ) : !row.fits_party ? (
-                  <p className="text-xs text-stone-500 mt-2">Too small for this party.</p>
+                  <p className="text-xs text-faint mt-2">Too small for this party.</p>
                 ) : (
-                  <p className="text-xs text-stone-400 mt-2 flex flex-wrap gap-x-3">
+                  <p className="text-xs text-muted2 mt-2 flex flex-wrap gap-x-3">
                     {row.quotes.map((q) => (
                       <span key={quoteKey(q)}>
-                        <span className="text-stone-500 tracking-widest uppercase text-[10px]">
+                        <span className="text-faint tracking-widest uppercase text-[10px]">
                           {q.meal_plan ? q.meal_plan.code : "All-in"}
                         </span>{" "}
                         {currency(q.total)}
@@ -267,7 +267,7 @@ export default function NewBooking() {
             ))}
           </div>
 
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
             Free for {results.window.check_in} → {results.window.check_out}
           </h2>
           <RoomGrid
@@ -287,7 +287,7 @@ export default function NewBooking() {
             selectedId={choice?.room?.id ?? null}
             empty="No rooms are set up yet — add some under Rooms."
           />
-          <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+          <p className="text-xs text-faint mt-4 max-w-2xl">
             A free door is a door nothing holds for these dates. The room is only really
             yours once the booking is written: the server re-checks it at that moment and
             says which booking took it if one did.
@@ -296,12 +296,12 @@ export default function NewBooking() {
       )}
 
       {choice && (
-        <div className="mt-10 border border-stone-800 bg-stone-900 rounded p-5 max-w-xl">
+        <div className="mt-10 border border-hairline bg-surface rounded p-5 max-w-xl">
           <h3 className="text-lg font-semibold mb-1">
             Room <span className="font-mono">{choice.room.number}</span> ·{" "}
             {choice.room_type.name}
           </h3>
-          <p className="text-sm text-stone-400 mb-4">
+          <p className="text-sm text-muted2 mb-4">
             {typeOf(choice.room, results.types)?.code
               ? `${typeOf(choice.room, results.types).code} · `
               : ""}
@@ -319,15 +319,15 @@ export default function NewBooking() {
                 onClick={() => setChoice({ ...choice, quote: q })}
                 className={`text-left border rounded p-3 transition-colors ${
                   quoteKey(choice.quote) === quoteKey(q)
-                    ? "border-orange-500 bg-stone-800"
-                    : "border-stone-800 hover:border-stone-600"
+                    ? "border-brass bg-raised"
+                    : "border-hairline hover:border-hairline-strong"
                 }`}
               >
-                <div className="text-xs tracking-widest uppercase text-stone-500">
+                <div className="text-xs tracking-widest uppercase text-faint">
                   {q.meal_plan ? `${q.meal_plan.code} · ${q.meal_plan.name}` : "All inclusive"}
                 </div>
                 <div className="text-xl font-semibold mt-1">{currency(q.total)}</div>
-                <div className="text-xs text-stone-500 mt-1">
+                <div className="text-xs text-faint mt-1">
                   {q.nights.length} night{q.nights.length === 1 ? "" : "s"} incl.{" "}
                   {currency(q.tax_total)} tax
                 </div>
@@ -337,12 +337,12 @@ export default function NewBooking() {
 
           <div className="flex gap-4 flex-wrap">
             {[["name", "Guest name"], ["phone", "Phone"]].map(([k, label]) => (
-              <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+              <label key={k} className="text-xs tracking-widest uppercase text-faint">
                 {label}
                 <input
                   value={guest[k]}
                   onChange={(e) => setGuest((g) => ({ ...g, [k]: e.target.value }))}
-                  className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                  className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
                 />
               </label>
             ))}
@@ -351,7 +351,7 @@ export default function NewBooking() {
           <button
             onClick={book}
             disabled={saving}
-            className="mt-6 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-8 py-2 text-sm tracking-widest uppercase"
+            className="mt-6 bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-8 py-2 text-sm tracking-widest uppercase"
           >
             {saving ? "Booking…" : `Book room ${choice.room.number}`}
           </button>

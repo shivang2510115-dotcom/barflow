@@ -54,16 +54,16 @@ import {
 const OVERDUE_TONE = "text-amber-400 border-amber-500/40 bg-amber-500/5";
 
 const FIELD =
-  "block mt-2 w-full bg-transparent border-b border-stone-700 text-stone-100 py-1 " +
-  "focus:border-orange-500 outline-none placeholder:text-stone-600";
+  "block mt-2 w-full bg-transparent border-b border-hairline-strong text-ink py-1 " +
+  "focus:border-brass outline-none placeholder:text-faint";
 const SELECT =
-  "block mt-2 w-full bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded";
-const LABEL = "text-xs tracking-widest uppercase text-stone-500";
+  "block mt-2 w-full bg-ground border border-hairline-strong text-ink py-1 px-2 rounded";
+const LABEL = "text-xs tracking-widest uppercase text-faint";
 const PRIMARY =
-  "bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 " +
+  "bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 " +
   "text-sm tracking-widest uppercase";
 const GHOST =
-  "border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 " +
+  "border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 " +
   "rounded-full px-6 py-2 text-sm tracking-widest uppercase";
 
 /** The subscription, stated: price, paid-until, and the overdue flag when there is one. */
@@ -72,11 +72,11 @@ export function SubscriptionCell({ subscription }) {
   return (
     <div className="min-w-[11rem]">
       <div
-        className={`tabular-nums ${subscription?.priced ? "text-stone-200" : "text-stone-500"}`}
+        className={`tabular-nums ${subscription?.priced ? "text-ink" : "text-faint"}`}
       >
         {priceLine(subscription, currency)}
       </div>
-      <div className="text-xs text-stone-500 tabular-nums mt-0.5">
+      <div className="text-xs text-faint tabular-nums mt-0.5">
         {paidUntilLine(subscription)}
       </div>
       {overdue && (
@@ -90,10 +90,10 @@ export function SubscriptionCell({ subscription }) {
   );
 }
 
-function Line({ label, value, tone = "text-stone-100" }) {
+function Line({ label, value, tone = "text-ink" }) {
   return (
-    <div className="border border-stone-800 bg-stone-900 p-4">
-      <div className="text-[10px] tracking-[0.2em] uppercase text-stone-500">{label}</div>
+    <div className="border border-hairline bg-surface p-4">
+      <div className="text-[10px] tracking-[0.2em] uppercase text-faint">{label}</div>
       <div className={`text-lg font-bold tabular-nums mt-2 ${tone}`}>{value}</div>
     </div>
   );
@@ -108,10 +108,10 @@ function Line({ label, value, tone = "text-stone-100" }) {
  * arrived once is a second tax invoice, and neither of them could be deleted afterwards.
  */
 function Ledger({ rows, invoiceFor, onIssue, onOpen, busy }) {
-  if (rows === null) return <p className="text-sm text-stone-500 mt-4">Reading the ledger…</p>;
+  if (rows === null) return <p className="text-sm text-faint mt-4">Reading the ledger…</p>;
   if (!rows.length) {
     return (
-      <p className="text-sm text-stone-400 mt-4" data-testid="platform-ledger-empty">
+      <p className="text-sm text-muted2 mt-4" data-testid="platform-ledger-empty">
         No payment recorded yet. The first one goes in above.
       </p>
     );
@@ -120,43 +120,43 @@ function Ledger({ rows, invoiceFor, onIssue, onOpen, busy }) {
     <div className="overflow-x-auto mt-4">
       <table className="w-full text-sm border-collapse" data-testid="platform-ledger">
         <thead>
-          <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
-            <th className="text-left py-2 px-3 border-b border-stone-800">Received</th>
-            <th className="text-right py-2 px-3 border-b border-stone-800">Amount</th>
-            <th className="text-left py-2 px-3 border-b border-stone-800">How</th>
-            <th className="text-left py-2 px-3 border-b border-stone-800">Covers</th>
-            <th className="text-left py-2 px-3 border-b border-stone-800">Reference</th>
-            <th className="text-left py-2 px-3 border-b border-stone-800">Invoice</th>
+          <tr className="text-[11px] tracking-[0.2em] uppercase text-faint">
+            <th className="text-left py-2 px-3 border-b border-hairline">Received</th>
+            <th className="text-right py-2 px-3 border-b border-hairline">Amount</th>
+            <th className="text-left py-2 px-3 border-b border-hairline">How</th>
+            <th className="text-left py-2 px-3 border-b border-hairline">Covers</th>
+            <th className="text-left py-2 px-3 border-b border-hairline">Reference</th>
+            <th className="text-left py-2 px-3 border-b border-hairline">Invoice</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.id}>
-              <td className="py-2 px-3 border-b border-stone-800 text-stone-300 tabular-nums whitespace-nowrap">
+              <td className="py-2 px-3 border-b border-hairline text-muted2 tabular-nums whitespace-nowrap">
                 {formatDay(r.received_on)}
               </td>
-              <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums text-stone-100">
+              <td className="py-2 px-3 border-b border-hairline text-right tabular-nums text-ink">
                 {currency(r.amount)}
               </td>
               {/* `method_label` comes back humanised from the server, so it is printed as
                   given rather than looked up again here — two spellings of "Bank transfer"
                   is one more than a bank statement can be reconciled against. */}
-              <td className="py-2 px-3 border-b border-stone-800 text-stone-400 whitespace-nowrap">
+              <td className="py-2 px-3 border-b border-hairline text-muted2 whitespace-nowrap">
                 {r.method_label || r.method}
               </td>
-              <td className="py-2 px-3 border-b border-stone-800 text-stone-400 tabular-nums whitespace-nowrap">
+              <td className="py-2 px-3 border-b border-hairline text-muted2 tabular-nums whitespace-nowrap">
                 {formatDay(r.covers_from)} → {formatDay(r.covers_to)}
               </td>
-              <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs text-stone-400">
-                {r.reference || <span className="text-stone-600">none given</span>}
+              <td className="py-2 px-3 border-b border-hairline font-mono text-xs text-muted2">
+                {r.reference || <span className="text-faint">none given</span>}
               </td>
-              <td className="py-2 px-3 border-b border-stone-800 whitespace-nowrap">
+              <td className="py-2 px-3 border-b border-hairline whitespace-nowrap">
                 {invoiceFor(r.id) ? (
                   <button
                     type="button"
                     data-testid={`platform-invoice-open-${r.id}`}
                     onClick={() => onOpen(invoiceFor(r.id))}
-                    className="font-mono text-xs text-orange-400 hover:text-orange-300 underline underline-offset-4"
+                    className="font-mono text-xs text-brass hover:text-brass underline underline-offset-4"
                   >
                     {invoiceFor(r.id).number}
                   </button>
@@ -166,7 +166,7 @@ function Ledger({ rows, invoiceFor, onIssue, onOpen, busy }) {
                     data-testid={`platform-invoice-issue-${r.id}`}
                     disabled={busy}
                     onClick={() => onIssue(r.id)}
-                    className="text-[10px] tracking-widest uppercase border border-stone-700 text-stone-400 hover:border-orange-500 hover:text-orange-400 rounded-full px-3 py-1 disabled:opacity-50"
+                    className="text-[10px] tracking-widest uppercase border border-hairline-strong text-muted2 hover:border-brass hover:text-brass rounded-full px-3 py-1 disabled:opacity-50"
                   >
                     Issue invoice
                   </button>
@@ -310,7 +310,7 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
 
   return (
     <div className="mt-8" data-testid="platform-subscription">
-      <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+      <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
         Subscription
       </h3>
 
@@ -318,13 +318,13 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
         <Line
           label="Agreed price"
           value={priceLine(sub, currency)}
-          tone={sub.priced ? "text-stone-100" : "text-stone-500"}
+          tone={sub.priced ? "text-ink" : "text-faint"}
         />
         <Line label="Billing" value={sub.period ? PERIOD_LABELS[sub.period] : "—"} />
         <Line
           label={sub.overdue ? "Overdue" : "Paid until"}
           value={sub.overdue ? overdueLine(sub) : paidUntilLine(sub)}
-          tone={sub.overdue ? "text-amber-400" : "text-stone-100"}
+          tone={sub.overdue ? "text-amber-400" : "text-ink"}
         />
       </div>
 
@@ -337,15 +337,15 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
       )}
 
       {detail.payment_note && (
-        <p className="text-xs text-stone-400 mt-4 max-w-2xl">
-          <span className="tracking-widest uppercase text-stone-500">How they pay</span>{" "}
+        <p className="text-xs text-muted2 mt-4 max-w-2xl">
+          <span className="tracking-widest uppercase text-faint">How they pay</span>{" "}
           {detail.payment_note}
         </p>
       )}
 
       {/* ------------------------------------------------------------------ the price */}
-      <div className="mt-6 border border-stone-800 bg-stone-900 p-5 max-w-3xl">
-        <h4 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+      <div className="mt-6 border border-hairline bg-surface p-5 max-w-3xl">
+        <h4 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
           Agree a price
         </h4>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -400,7 +400,7 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
             {busy ? "Saving…" : "Save price"}
           </button>
         </div>
-        <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+        <p className="text-xs text-faint mt-4 max-w-2xl">
           An amount and a period together, or neither. Clearing both withdraws the price and
           keeps the note — useful when a business moves to a different arrangement and the old
           figure should stop being shown. Agreeing a price does not move the paid-until date;
@@ -409,12 +409,12 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
       </div>
 
       {/* ---------------------------------------------------------------- the payment */}
-      <div className="mt-6 border border-stone-800 bg-stone-900 p-5 max-w-3xl">
-        <h4 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+      <div className="mt-6 border border-hairline bg-surface p-5 max-w-3xl">
+        <h4 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
           Record a payment
         </h4>
         {!sub.priced && (
-          <p className="text-sm text-orange-300 mb-4" data-testid="platform-payment-unpriced">
+          <p className="text-sm text-brass mb-4" data-testid="platform-payment-unpriced">
             Agree a price first. A payment moves the paid-until date by the agreed period, and
             there is no period here yet to move it by — the API refuses this for the same
             reason.
@@ -491,12 +491,12 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
             <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-emerald-400">
               {receipt.headline}
             </div>
-            <p className="text-sm text-stone-200 mt-2 tabular-nums">{receipt.covers}</p>
+            <p className="text-sm text-ink mt-2 tabular-nums">{receipt.covers}</p>
             {receipt.paidUntil && (
-              <p className="text-sm text-stone-300 mt-1 tabular-nums">{receipt.paidUntil}</p>
+              <p className="text-sm text-muted2 mt-1 tabular-nums">{receipt.paidUntil}</p>
             )}
             {receipt.lateNote && (
-              <p className="text-xs text-stone-400 mt-2 tabular-nums">{receipt.lateNote}</p>
+              <p className="text-xs text-muted2 mt-2 tabular-nums">{receipt.lateNote}</p>
             )}
           </div>
         )}
@@ -504,12 +504,12 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
 
       {/* ----------------------------------------------------------------- the ledger */}
       <div className="mt-8">
-        <h4 className="text-[11px] tracking-[0.2em] uppercase text-stone-500">Payments</h4>
+        <h4 className="text-[11px] tracking-[0.2em] uppercase text-faint">Payments</h4>
         {/* There is no Edit and no Delete anywhere below, because there is no route for
             either. Said in words as well as by omission: the first thing an operator tries
             on a mistyped reference is to fix it in place, and finding no button is only an
             answer if you know it is deliberate. */}
-        <p className="text-xs text-stone-500 mt-2 max-w-3xl" data-testid="platform-ledger-blurb">
+        <p className="text-xs text-faint mt-2 max-w-3xl" data-testid="platform-ledger-blurb">
           {LEDGER_BLURB}
         </p>
         <Ledger
@@ -523,63 +523,63 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
 
       {/* ---------------------------------------------------------------- invoices */}
       <div className="mt-8">
-        <h4 className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
+        <h4 className="text-[11px] tracking-[0.2em] uppercase text-faint">
           Tax documents
         </h4>
         {/* Said in words as well as by omission, exactly as the ledger above is: there is
             no Edit and no Delete here because the API has neither, and the first thing
             anybody tries on a mistyped invoice is to fix it in place. */}
-        <p className="text-xs text-stone-500 mt-2 max-w-3xl" data-testid="platform-invoice-blurb">
+        <p className="text-xs text-faint mt-2 max-w-3xl" data-testid="platform-invoice-blurb">
           An issued invoice cannot be edited or deleted — it is a tax document, and its
           number is part of a series an auditor reads for gaps. A correction is a credit
           note that reverses it and names it; both documents stand.
         </p>
 
         {invoices === null ? (
-          <p className="text-sm text-stone-500 mt-4">Reading the invoices…</p>
+          <p className="text-sm text-faint mt-4">Reading the invoices…</p>
         ) : !invoices.length ? (
-          <p className="text-sm text-stone-400 mt-4" data-testid="platform-invoices-empty">
+          <p className="text-sm text-muted2 mt-4" data-testid="platform-invoices-empty">
             Nothing issued yet. Each recorded payment gets one from the ledger above.
           </p>
         ) : (
           <div className="overflow-x-auto mt-4">
             <table className="w-full text-sm border-collapse" data-testid="platform-invoices">
               <thead>
-                <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
-                  <th className="text-left py-2 px-3 border-b border-stone-800">Number</th>
-                  <th className="text-left py-2 px-3 border-b border-stone-800">Issued</th>
-                  <th className="text-left py-2 px-3 border-b border-stone-800">Supply</th>
-                  <th className="text-right py-2 px-3 border-b border-stone-800">Total</th>
-                  <th className="text-left py-2 px-3 border-b border-stone-800"></th>
+                <tr className="text-[11px] tracking-[0.2em] uppercase text-faint">
+                  <th className="text-left py-2 px-3 border-b border-hairline">Number</th>
+                  <th className="text-left py-2 px-3 border-b border-hairline">Issued</th>
+                  <th className="text-left py-2 px-3 border-b border-hairline">Supply</th>
+                  <th className="text-right py-2 px-3 border-b border-hairline">Total</th>
+                  <th className="text-left py-2 px-3 border-b border-hairline"></th>
                 </tr>
               </thead>
               <tbody>
                 {invoices.map((inv) => (
                   <tr key={inv.id}>
-                    <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs whitespace-nowrap">
+                    <td className="py-2 px-3 border-b border-hairline font-mono text-xs whitespace-nowrap">
                       <button
                         type="button"
                         onClick={() => setShowing(inv)}
-                        className="text-orange-400 hover:text-orange-300 underline underline-offset-4"
+                        className="text-brass hover:text-brass underline underline-offset-4"
                       >
                         {inv.number}
                       </button>
                       {inv.corrects && (
-                        <span className="block text-stone-500 mt-1">
+                        <span className="block text-faint mt-1">
                           reverses {inv.corrects}
                         </span>
                       )}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800 text-stone-300 tabular-nums whitespace-nowrap">
+                    <td className="py-2 px-3 border-b border-hairline text-muted2 tabular-nums whitespace-nowrap">
                       {formatDay(inv.issued_on)}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800 text-stone-400 whitespace-nowrap">
+                    <td className="py-2 px-3 border-b border-hairline text-muted2 whitespace-nowrap">
                       {inv.place_of_supply_label}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums text-stone-100">
+                    <td className="py-2 px-3 border-b border-hairline text-right tabular-nums text-ink">
                       {currency(inv.total)}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800 whitespace-nowrap">
+                    <td className="py-2 px-3 border-b border-hairline whitespace-nowrap">
                       {inv.kind === "invoice" && !creditNoteFor(inv.number) && (
                         <button
                           type="button"
@@ -589,7 +589,7 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
                             setCreditReason("");
                             setCrediting(inv);
                           }}
-                          className="text-[10px] tracking-widest uppercase border border-stone-700 text-stone-500 hover:border-red-500/60 hover:text-red-300 rounded-full px-3 py-1 disabled:opacity-50"
+                          className="text-[10px] tracking-widest uppercase border border-hairline-strong text-faint hover:border-red-500/60 hover:text-red-300 rounded-full px-3 py-1 disabled:opacity-50"
                         >
                           Credit note
                         </button>
@@ -609,7 +609,7 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
             data-testid="platform-credit-confirm"
             className="mt-5 p-5 border border-red-500/40 bg-red-950/20 max-w-3xl"
           >
-            <h5 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+            <h5 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
               Credit {crediting.number}?
             </h5>
             <p className="text-sm text-red-300 mb-4">
@@ -647,11 +647,11 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
       <InvoiceDocument invoice={showing} onClose={() => setShowing(null)} />
 
       {/* ------------------------------------------------------------------- the type */}
-      <div className="mt-8 border-t border-stone-800 pt-6 max-w-3xl">
-        <h4 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+      <div className="mt-8 border-t border-hairline pt-6 max-w-3xl">
+        <h4 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
           What this business is
         </h4>
-        <p className="text-xs text-stone-500 mb-4">
+        <p className="text-xs text-faint mb-4">
           Picked at signup and not changeable from inside the app, so correcting a wrong
           choice is the operator's job. Widening gives a work area back; narrowing takes one
           away and takes its staff with it.
@@ -672,12 +672,12 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
                 }}
                 className={`text-[10px] tracking-widest uppercase border rounded-full px-4 py-1.5 transition-colors disabled:opacity-100 ${
                   current
-                    ? "border-orange-500 text-orange-400 bg-orange-500/10"
-                    : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
+                    ? "border-brass text-brass bg-brass/10"
+                    : "border-hairline-strong text-faint hover:border-hairline-strong hover:text-muted2"
                 }`}
               >
                 {c.label}
-                {current && <span className="ml-2 text-stone-500">now</span>}
+                {current && <span className="ml-2 text-faint">now</span>}
               </button>
             );
           })}
@@ -690,13 +690,13 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
           <div
             data-testid="platform-retype-confirm"
             className={`mt-5 p-5 border ${
-              warning ? "border-red-500/40 bg-red-950/20" : "border-stone-800 bg-stone-900"
+              warning ? "border-red-500/40 bg-red-950/20" : "border-hairline bg-surface"
             }`}
           >
-            <h5 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+            <h5 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
               Change {detail.name} to {PROPERTY_TYPE_CHOICES.find((c) => c.key === retyping)?.label}?
             </h5>
-            <p className={`text-sm mb-4 ${warning ? "text-red-300" : "text-stone-400"}`}>
+            <p className={`text-sm mb-4 ${warning ? "text-red-300" : "text-muted2"}`}>
               {warning ||
                 "Nothing is taken away — this business gets a work area back, and its staff are re-stamped with it. Nobody is deactivated by a widening."}
             </p>
@@ -724,13 +724,13 @@ export default function SubscriptionPanel({ detail, payments, onChanged }) {
         {retyped && (
           <div
             data-testid="platform-retype-report"
-            className="mt-5 border border-stone-800 bg-stone-950 p-4"
+            className="mt-5 border border-hairline bg-ground p-4"
           >
-            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-orange-500">
+            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-brass">
               Type changed
             </div>
-            <p className="text-sm text-stone-300 mt-2">{retyped.took}</p>
-            <p className="text-sm text-stone-300 mt-1 tabular-nums">{retyped.people}</p>
+            <p className="text-sm text-muted2 mt-2">{retyped.took}</p>
+            <p className="text-sm text-muted2 mt-1 tabular-nums">{retyped.people}</p>
             {retyped.stranded && (
               <p className="text-sm text-amber-300 mt-2">{retyped.stranded}</p>
             )}

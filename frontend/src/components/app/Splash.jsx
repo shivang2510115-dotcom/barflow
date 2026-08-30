@@ -36,7 +36,7 @@ export default function Splash({ onDone }) {
   return (
     <div
       data-testid="splash-screen"
-      className={`fixed inset-0 z-[100] bg-stone-950 flex flex-col items-center justify-center
+      className={`fixed inset-0 z-[100] bg-ground flex flex-col items-center justify-center
                   transition-opacity duration-[260ms] ${leaving ? "opacity-0" : "opacity-100"}`}
     >
       <style>{`
@@ -63,7 +63,7 @@ export default function Splash({ onDone }) {
         ))}
       </div>
 
-      <div className="mt-8 text-[10px] tracking-[0.5em] uppercase text-stone-500">
+      <div className="mt-8 text-[10px] tracking-[0.5em] uppercase text-faint">
         Loading
       </div>
     </div>

@@ -37,8 +37,8 @@ function dayLabel(date) {
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="bg-stone-950 border border-stone-700 px-3 py-2 text-xs font-mono">
-      {label != null && <div className="text-stone-400 mb-1">{label}</div>}
+    <div className="bg-ground border border-hairline-strong px-3 py-2 text-xs font-mono">
+      {label != null && <div className="text-muted2 mb-1">{label}</div>}
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2" style={{ color: p.color || p.fill }}>
           <span className="uppercase tracking-widest">{p.name}:</span>
@@ -170,11 +170,11 @@ export default function Analytics() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Admin</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         Analytics
       </h1>
-      <p className="text-stone-500 font-mono text-xs mb-8">
+      <p className="text-faint font-mono text-xs mb-8">
         {data ? `${data.start} → ${data.end}` : "—"}
       </p>
 
@@ -183,7 +183,7 @@ export default function Analytics() {
           ["start", "From"],
           ["end", "To"],
         ].map(([k, text]) => (
-          <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+          <label key={k} className="text-xs tracking-widest uppercase text-faint">
             {text}
             <input
               type="date"
@@ -192,11 +192,11 @@ export default function Analytics() {
               max={k === "start" ? range.end : undefined}
               min={k === "end" ? range.start : undefined}
               onChange={(e) => setRange((r) => ({ ...r, [k]: e.target.value }))}
-              className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+              className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
             />
           </label>
         ))}
-        <div className="text-xs tracking-widest uppercase text-stone-500">
+        <div className="text-xs tracking-widest uppercase text-faint">
           Include
           <div className="flex gap-2 mt-2">
             {held.map((d) => (
@@ -208,8 +208,8 @@ export default function Analytics() {
                 aria-pressed={picked.includes(d)}
                 className={`text-[10px] tracking-widest uppercase border rounded-full px-4 py-1.5 transition-colors ${
                   picked.includes(d)
-                    ? "border-orange-500 text-orange-400 bg-orange-500/10"
-                    : "border-stone-700 text-stone-500 hover:border-stone-500"
+                    ? "border-brass text-brass bg-brass/10"
+                    : "border-hairline-strong text-faint hover:border-hairline-strong"
                 }`}
               >
                 {label(d)}
@@ -220,7 +220,7 @@ export default function Analytics() {
       </div>
 
       {picked.length === 0 && (
-        <p className="text-stone-400">Tick at least one area to see figures.</p>
+        <p className="text-muted2">Tick at least one area to see figures.</p>
       )}
 
       {data && (
@@ -251,9 +251,9 @@ export default function Analytics() {
             )}
           </div>
 
-          {caveat && <p className="text-xs text-stone-500 mb-6 max-w-2xl">{caveat}</p>}
+          {caveat && <p className="text-xs text-faint mb-6 max-w-2xl">{caveat}</p>}
 
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mt-10 mb-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mt-10 mb-4">
             By day
           </h2>
           {/* recharts, as on Reports.jsx — `by_day` spans every day in the range, so the
@@ -293,16 +293,16 @@ export default function Analytics() {
           </div>
           {/* One legend only: hand-rolled, as Reports.jsx does for its payment mix, since
               it also carries the peak-day figure. No recharts <Legend> to duplicate it. */}
-          <div className="flex gap-5 mt-3 text-[10px] tracking-widest uppercase text-stone-500">
+          <div className="flex gap-5 mt-3 text-[10px] tracking-widest uppercase text-faint">
             {data.hotel && (
               <span>
-                <span className="inline-block w-3 h-2 bg-orange-500 mr-2" />
+                <span className="inline-block w-3 h-2 bg-brass mr-2" />
                 Hotel
               </span>
             )}
             {data.outlets && (
               <span>
-                <span className="inline-block w-3 h-2 bg-stone-500 mr-2" />
+                <span className="inline-block w-3 h-2 bg-faint mr-2" />
                 {outletsHeading}
               </span>
             )}
@@ -311,7 +311,7 @@ export default function Analytics() {
         </>
       )}
 
-      {loading && <p className="text-stone-500 text-sm mt-6">Loading…</p>}
+      {loading && <p className="text-faint text-sm mt-6">Loading…</p>}
     </div>
   );
 }
@@ -321,16 +321,16 @@ function Figure({ label: text, value, sub, accent }) {
     <div
       data-testid={`figure-${text.toLowerCase().replace(/[^a-z]+/g, "-")}`}
       className={`border rounded p-5 ${
-        accent ? "border-orange-500/40 bg-orange-500/5" : "border-stone-800 bg-stone-900"
+        accent ? "border-brass/40 bg-brass/5" : "border-hairline bg-surface"
       }`}
     >
-      <div className="text-[10px] tracking-[0.2em] uppercase text-stone-500 mb-2">{text}</div>
+      <div className="text-[10px] tracking-[0.2em] uppercase text-faint mb-2">{text}</div>
       {/* A block that was not asked for comes back null, and reads "—". Rendering it as
           ₹0.00 would claim the property took nothing there. */}
-      <div className="text-2xl font-bold tabular-nums text-stone-100">
+      <div className="text-2xl font-bold tabular-nums text-ink">
         {value == null ? "—" : currency(value)}
       </div>
-      {sub && <div className="text-xs text-stone-500 mt-2 tabular-nums">{sub}</div>}
+      {sub && <div className="text-xs text-faint mt-2 tabular-nums">{sub}</div>}
     </div>
   );
 }

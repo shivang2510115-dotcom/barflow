@@ -64,9 +64,9 @@ function bucketLabel(bucket, granularity) {
 function ChartTooltip({ active, payload, label, granularity, moneyKeys = ["revenue"] }) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="bg-stone-950 border border-stone-700 px-3 py-2 text-xs font-mono">
+    <div className="bg-ground border border-hairline-strong px-3 py-2 text-xs font-mono">
       {label != null && (
-        <div className="text-stone-400 mb-1">{granularity ? bucketLabel(label, granularity) : label}</div>
+        <div className="text-muted2 mb-1">{granularity ? bucketLabel(label, granularity) : label}</div>
       )}
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2" style={{ color: p.color || p.fill }}>
@@ -149,36 +149,36 @@ export default function Reports() {
     <div className="p-6 md:p-10">
       <div className="flex items-baseline justify-between flex-wrap gap-4">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 mb-2">Analytics</div>
+          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass mb-2">Analytics</div>
           <h1 className="font-display uppercase text-4xl md:text-5xl leading-none tracking-tight">Sales Analytics</h1>
         </div>
-        <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
+        <div className="text-[10px] font-mono uppercase tracking-widest text-faint">
           {loading ? "Loading…" : rangeLabel}
         </div>
       </div>
 
       {/* Today snapshot */}
-      <div className="mt-8 border border-stone-800 bg-stone-900/40 p-5">
-        <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 mb-3">Today · {today()}</div>
+      <div className="mt-8 border border-hairline bg-surface/40 p-5">
+        <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass mb-3">Today · {today()}</div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-start">
           <Kpi label="Revenue Today" value={currency(todayData?.totals?.revenue)} accent />
           <Kpi label="Orders Today" value={todayData?.totals?.orders ?? "—"} />
           <div className="md:col-span-2">
-            <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">Top Items Today</div>
+            <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-2">Top Items Today</div>
             {todayData?.top_items?.length ? (
               <div className="space-y-1.5">
                 {todayData.top_items.slice(0, 3).map((it, i) => (
                   <div key={it.name} className="flex items-center justify-between text-sm" data-testid={`top-today-${i}`}>
-                    <span className="truncate text-stone-200">
-                      <span className="text-stone-600 font-mono mr-2">{i + 1}</span>
+                    <span className="truncate text-ink">
+                      <span className="text-faint font-mono mr-2">{i + 1}</span>
                       {it.name}
                     </span>
-                    <span className="font-mono text-orange-400 shrink-0 ml-3">×{it.qty}</span>
+                    <span className="font-mono text-brass shrink-0 ml-3">×{it.qty}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="text-xs font-mono text-stone-600">No sales yet today.</div>
+              <div className="text-xs font-mono text-faint">No sales yet today.</div>
             )}
           </div>
         </div>
@@ -186,35 +186,35 @@ export default function Reports() {
 
       {/* Owner Daily Brief (WhatsApp) */}
       <div className="mt-8 grid md:grid-cols-[1fr_360px] gap-5 items-start">
-        <div className="border border-stone-800 bg-stone-900/40 p-5">
+        <div className="border border-hairline bg-surface/40 p-5">
           <div className="flex items-center justify-between mb-3">
-            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">Owner Daily Brief · WhatsApp</div>
+            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass">Owner Daily Brief · WhatsApp</div>
             <button
               data-testid="send-brief-btn"
               onClick={sendBrief}
               disabled={sending}
-              className="rounded-full bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-stone-950 px-4 py-2 text-[10px] font-mono uppercase tracking-widest transition-colors"
+              className="rounded-full bg-brass hover:bg-brass-deep disabled:opacity-50 text-on-brass px-4 py-2 text-[10px] font-mono uppercase tracking-widest transition-colors"
             >
               {sending ? "Sending…" : "Send now"}
             </button>
           </div>
           {/* WhatsApp-style preview bubble */}
-          <div className="bg-[#0b141a] border border-stone-800 p-4 rounded-md max-w-md">
-            <div className="bg-[#005c4b] text-stone-50 rounded-lg rounded-tr-none p-3 text-sm whitespace-pre-wrap font-sans leading-relaxed">
+          <div className="bg-[#0b141a] border border-hairline p-4 rounded-md max-w-md">
+            <div className="bg-[#005c4b] text-ink rounded-lg rounded-tr-none p-3 text-sm whitespace-pre-wrap font-sans leading-relaxed">
               {brief?.message || "Loading brief…"}
             </div>
-            <div className="text-[9px] font-mono text-stone-600 mt-2 text-right">preview · WhatsApp</div>
+            <div className="text-[9px] font-mono text-faint mt-2 text-right">preview · WhatsApp</div>
           </div>
         </div>
-        <div className="border border-stone-800 bg-stone-900/40 p-5">
-          <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">Automatic</div>
-          <div className="text-sm text-stone-300 leading-relaxed">
-            Sends to the owner every night at <span className="text-orange-400 font-mono">23:00</span>, no login needed.
+        <div className="border border-hairline bg-surface/40 p-5">
+          <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-2">Automatic</div>
+          <div className="text-sm text-muted2 leading-relaxed">
+            Sends to the owner every night at <span className="text-brass font-mono">23:00</span>, no login needed.
           </div>
-          <div className="text-xs text-stone-500 mt-3 leading-relaxed">
+          <div className="text-xs text-faint mt-3 leading-relaxed">
             Revenue, bills, top items, best customer, and low-stock alerts — straight to WhatsApp.
           </div>
-          <div className="text-[10px] font-mono text-stone-600 mt-4 border-t border-stone-800 pt-3">
+          <div className="text-[10px] font-mono text-faint mt-4 border-t border-hairline pt-3">
             {brief && !brief.revenue && brief.bills === 0
               ? "No sales today yet — brief shows live once bills settle."
               : "Preview mode until WhatsApp API creds are set."}
@@ -225,7 +225,7 @@ export default function Reports() {
       {/* Range controls */}
       <div className="mt-8 flex flex-wrap items-end gap-4">
         <div>
-          <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">Range</label>
+          <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-2">Range</label>
           <div className="flex flex-wrap gap-2">
             {PRESETS.map((p) => (
               <button
@@ -234,8 +234,8 @@ export default function Reports() {
                 onClick={() => applyPreset(p.key)}
                 className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest border transition-colors ${
                   preset === p.key
-                    ? "border-orange-500 text-orange-400 bg-stone-900"
-                    : "border-stone-800 text-stone-400 hover:border-stone-600"
+                    ? "border-brass text-brass bg-surface"
+                    : "border-hairline text-muted2 hover:border-hairline-strong"
                 }`}
               >
                 {p.label}
@@ -247,18 +247,18 @@ export default function Reports() {
         {preset === "custom" && (
           <div className="flex items-end gap-2">
             <div>
-              <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">From</label>
+              <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">From</label>
               <input
                 data-testid="range-start"
                 type="date"
                 value={range.start}
                 max={range.end}
                 onChange={(e) => setRange((r) => ({ ...r, start: e.target.value }))}
-                className="bg-stone-900 border border-stone-700 py-1.5 px-2 text-sm focus-neon"
+                className="bg-surface border border-hairline-strong py-1.5 px-2 text-sm focus-neon"
               />
             </div>
             <div>
-              <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">To</label>
+              <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">To</label>
               <input
                 data-testid="range-end"
                 type="date"
@@ -266,14 +266,14 @@ export default function Reports() {
                 min={range.start}
                 max={today()}
                 onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
-                className="bg-stone-900 border border-stone-700 py-1.5 px-2 text-sm focus-neon"
+                className="bg-surface border border-hairline-strong py-1.5 px-2 text-sm focus-neon"
               />
             </div>
           </div>
         )}
 
         <div>
-          <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">Group by</label>
+          <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">Group by</label>
           <div className="flex gap-2">
             {["day", "month"].map((g) => (
               <button
@@ -282,8 +282,8 @@ export default function Reports() {
                 onClick={() => setRange((r) => ({ ...r, granularity: g }))}
                 className={`px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest border transition-colors ${
                   range.granularity === g
-                    ? "border-orange-500 text-orange-400 bg-stone-900"
-                    : "border-stone-800 text-stone-400 hover:border-stone-600"
+                    ? "border-brass text-brass bg-surface"
+                    : "border-hairline text-muted2 hover:border-hairline-strong"
                 }`}
               >
                 {g}
@@ -387,9 +387,9 @@ export default function Reports() {
                         className="inline-block w-2.5 h-2.5 rounded-full"
                         style={{ background: PAY_COLORS[p.method] || PAY_COLORS.unknown }}
                       />
-                      <span className="uppercase font-mono text-xs tracking-widest text-stone-300">{p.method}</span>
+                      <span className="uppercase font-mono text-xs tracking-widest text-muted2">{p.method}</span>
                     </span>
-                    <span className="font-mono text-orange-400">{currency(p.revenue)}</span>
+                    <span className="font-mono text-brass">{currency(p.revenue)}</span>
                   </div>
                 ))}
               </div>
@@ -406,7 +406,7 @@ export default function Reports() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left border-b border-stone-800 text-[10px] uppercase tracking-widest font-mono text-stone-500">
+                <tr className="text-left border-b border-hairline text-[10px] uppercase tracking-widest font-mono text-faint">
                   <th className="p-3 w-10">#</th>
                   <th className="p-3">Customer</th>
                   <th className="p-3">Phone</th>
@@ -416,12 +416,12 @@ export default function Reports() {
               </thead>
               <tbody>
                 {topCustomers.map((c, i) => (
-                  <tr key={`${c.name}-${c.phone}-${i}`} className="border-b border-stone-800/60" data-testid={`top-customer-${i}`}>
-                    <td className="p-3 font-mono text-stone-600">{i + 1}</td>
-                    <td className="p-3 text-stone-100">{c.name}</td>
-                    <td className="p-3 font-mono text-xs text-stone-500">{c.phone || "—"}</td>
-                    <td className="p-3 font-mono text-right text-stone-400">{c.orders}</td>
-                    <td className="p-3 font-mono text-right text-orange-400">{currency(c.revenue)}</td>
+                  <tr key={`${c.name}-${c.phone}-${i}`} className="border-b border-hairline/60" data-testid={`top-customer-${i}`}>
+                    <td className="p-3 font-mono text-faint">{i + 1}</td>
+                    <td className="p-3 text-ink">{c.name}</td>
+                    <td className="p-3 font-mono text-xs text-faint">{c.phone || "—"}</td>
+                    <td className="p-3 font-mono text-right text-muted2">{c.orders}</td>
+                    <td className="p-3 font-mono text-right text-brass">{currency(c.revenue)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -439,7 +439,7 @@ export default function Reports() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-left border-b border-stone-800 text-[10px] uppercase tracking-widest font-mono text-stone-500">
+              <tr className="text-left border-b border-hairline text-[10px] uppercase tracking-widest font-mono text-faint">
                 <th className="p-3">Order</th>
                 <th className="p-3">Table</th>
                 <th className="p-3">Customer</th>
@@ -451,21 +451,21 @@ export default function Reports() {
             </thead>
             <tbody>
               {orders.map((o) => (
-                <tr key={o.id} className="border-b border-stone-800/60" data-testid={`report-order-${o.id.slice(0, 6)}`}>
+                <tr key={o.id} className="border-b border-hairline/60" data-testid={`report-order-${o.id.slice(0, 6)}`}>
                   <td className="p-3 font-mono text-xs">#{o.id.slice(0, 6)}</td>
                   <td className="p-3">{o.table_label}</td>
-                  <td className="p-3 text-stone-300">{o.customer_name || <span className="text-stone-600">—</span>}</td>
-                  <td className="p-3 text-stone-400">{o.items.length}</td>
+                  <td className="p-3 text-muted2">{o.customer_name || <span className="text-faint">—</span>}</td>
+                  <td className="p-3 text-muted2">{o.items.length}</td>
                   <td className="p-3 font-mono uppercase text-xs">{o.payment_method || "—"}</td>
-                  <td className="p-3 font-mono text-right text-orange-400">{currency(o.total)}</td>
-                  <td className="p-3 font-mono text-xs text-stone-500">
+                  <td className="p-3 font-mono text-right text-brass">{currency(o.total)}</td>
+                  <td className="p-3 font-mono text-xs text-faint">
                     {o.settled_at ? new Date(o.settled_at).toLocaleString() : ""}
                   </td>
                 </tr>
               ))}
               {orders.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="p-8 text-center text-stone-500 text-sm font-mono uppercase tracking-widest">
+                  <td colSpan={7} className="p-8 text-center text-faint text-sm font-mono uppercase tracking-widest">
                     No settled orders yet
                   </td>
                 </tr>
@@ -480,9 +480,9 @@ export default function Reports() {
 
 function Kpi({ label, value, accent }) {
   return (
-    <div className="border border-stone-800 bg-stone-900/40 p-5" data-testid={`kpi-${label.toLowerCase().replace(/[^a-z]/g, "-")}`}>
-      <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500">{label}</div>
-      <div className={`mt-2 font-display text-3xl md:text-4xl tracking-tight ${accent ? "text-orange-400" : ""}`}>{value}</div>
+    <div className="border border-hairline bg-surface/40 p-5" data-testid={`kpi-${label.toLowerCase().replace(/[^a-z]/g, "-")}`}>
+      <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint">{label}</div>
+      <div className={`mt-2 font-display text-3xl md:text-4xl tracking-tight ${accent ? "text-brass" : ""}`}>{value}</div>
     </div>
   );
 }
@@ -490,14 +490,14 @@ function Kpi({ label, value, accent }) {
 function Section({ title, children }) {
   return (
     <div className="mt-10">
-      <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-stone-500 mb-3">{title}</div>
-      <div className="border border-stone-800 bg-stone-900/30 p-5">{children}</div>
+      <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-faint mb-3">{title}</div>
+      <div className="border border-hairline bg-surface/30 p-5">{children}</div>
     </div>
   );
 }
 
 function Empty({ children }) {
   return (
-    <div className="py-12 text-center text-xs font-mono uppercase tracking-widest text-stone-600">{children}</div>
+    <div className="py-12 text-center text-xs font-mono uppercase tracking-widest text-faint">{children}</div>
   );
 }

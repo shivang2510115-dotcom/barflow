@@ -36,7 +36,7 @@ export default function CocktailLoader({ label = "Mixing…", size = "md", overl
           <path d="M 20 24 L 24 68" stroke="rgba(255,255,255,0.35)" strokeWidth="1" />
       </motion.svg>
       {label && (
-        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-stone-400">
+        <div className="text-[10px] font-mono uppercase tracking-[0.3em] text-muted2">
           {label}
         </div>
       )}
@@ -45,7 +45,7 @@ export default function CocktailLoader({ label = "Mixing…", size = "md", overl
 
   if (!overlay) return <div className="flex items-center justify-center py-8">{shaker}</div>;
   return (
-    <div className="fixed inset-0 z-[80] bg-stone-950/80 backdrop-blur flex items-center justify-center">
+    <div className="fixed inset-0 z-[80] bg-ground/80 backdrop-blur flex items-center justify-center">
       {shaker}
     </div>
   );

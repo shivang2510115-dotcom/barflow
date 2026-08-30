@@ -50,7 +50,7 @@ export default function KOT() {
     <div className="p-6 md:p-10">
       <div className="flex items-baseline justify-between flex-wrap gap-4">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 mb-2">Live · Auto refresh</div>
+          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass mb-2">Live · Auto refresh</div>
           <h1 className="font-display uppercase text-4xl md:text-5xl leading-none tracking-tight">KOT Board</h1>
         </div>
         <div className="flex gap-2">
@@ -64,7 +64,7 @@ export default function KOT() {
               data-testid={`kot-filter-${f.k}`}
               onClick={() => setFilter(f.k)}
               className={`px-4 py-2 text-[10px] font-mono uppercase tracking-widest border flex items-center gap-2 ${
-                filter === f.k ? "border-orange-500 text-orange-400" : "border-stone-800 text-stone-400 hover:border-stone-600"
+                filter === f.k ? "border-brass text-brass" : "border-hairline text-muted2 hover:border-hairline-strong"
               }`}
             >
               {f.icon && <f.icon size={12} />} {f.l}
@@ -83,16 +83,16 @@ export default function KOT() {
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -40 }}
             transition={{ duration: 0.35, ease: "easeOut" }}
-            className="border border-stone-800 bg-stone-900/40 p-4 hover:border-orange-500/50 transition-colors"
+            className="border border-hairline bg-surface/40 p-4 hover:border-brass/50 transition-colors"
           >
-            <div className="flex items-center justify-between border-b border-stone-800 pb-3 mb-3">
+            <div className="flex items-center justify-between border-b border-hairline pb-3 mb-3">
               <div>
                 <div className="font-display text-2xl">{t.table_label}</div>
-                <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                <div className="text-[10px] font-mono uppercase tracking-widest text-faint">
                   #{t.order_id.slice(0, 6)}
                 </div>
               </div>
-              <div className="flex items-center gap-1 text-orange-400 font-mono text-xs">
+              <div className="flex items-center gap-1 text-brass font-mono text-xs">
                 <Clock size={12} /> {elapsed(t.created_at)}
               </div>
             </div>
@@ -107,7 +107,7 @@ export default function KOT() {
                         ? "border-yellow-500 text-yellow-400"
                         : it.status === "ready"
                         ? "border-green-500 text-green-400"
-                        : "border-stone-700 text-stone-500 hover:border-orange-500"
+                        : "border-hairline-strong text-faint hover:border-brass"
                     }`}
                     title={`Mark next (${it.status})`}
                   >
@@ -115,7 +115,7 @@ export default function KOT() {
                   </button>
                   <div className="flex-1">
                     <div className="text-sm flex items-center gap-2 flex-wrap">
-                      <span className="font-mono text-orange-400 mr-1">{it.quantity}×</span>
+                      <span className="font-mono text-brass mr-1">{it.quantity}×</span>
                       {it.name}
                       {/* "Butter Chicken" alone tells the kitchen nothing when the dish
                           is cooked half or full. A ticket from before portions existed
@@ -123,7 +123,7 @@ export default function KOT() {
                       {it.variant_label && (
                         <span
                           data-testid={`kot-portion-${it.id}`}
-                          className="text-[10px] font-mono uppercase tracking-widest border border-orange-500 text-orange-400 px-1.5 py-0.5"
+                          className="text-[10px] font-mono uppercase tracking-widest border border-brass text-brass px-1.5 py-0.5"
                         >
                           {it.variant_label}
                         </span>
@@ -132,17 +132,17 @@ export default function KOT() {
                         <motion.span
                           animate={{ scale: [1, 1.15, 1], opacity: [0.7, 1, 0.7] }}
                           transition={{ duration: 1.2, repeat: Infinity }}
-                          className="text-orange-500"
+                          className="text-brass"
                         >
                           <Flame size={12} />
                         </motion.span>
                       )}
                     </div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500 mt-0.5">
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-faint mt-0.5">
                       {it.station} · {it.status}
                     </div>
                     {it.notes && (
-                      <div className="text-[10px] text-stone-400 mt-1 italic">&ldquo;{it.notes}&rdquo;</div>
+                      <div className="text-[10px] text-muted2 mt-1 italic">&ldquo;{it.notes}&rdquo;</div>
                     )}
                   </div>
                 </li>

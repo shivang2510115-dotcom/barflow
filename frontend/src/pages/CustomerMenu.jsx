@@ -293,13 +293,13 @@ export default function CustomerMenu() {
 
   if (table === false)
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-950 text-stone-400 p-6 text-center font-mono uppercase tracking-widest text-xs">
+      <div className="min-h-screen flex items-center justify-center bg-ground text-muted2 p-6 text-center font-mono uppercase tracking-widest text-xs">
         Invalid table QR
       </div>
     );
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 relative z-[2] pb-32">
+    <div className="min-h-screen bg-ground text-ink relative z-[2] pb-32">
       {/* Glass clink welcome */}
       <AnimatePresence>
         {welcome && table && (
@@ -309,7 +309,7 @@ export default function CustomerMenu() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.4 }}
-            className="fixed inset-0 z-[70] bg-stone-950 flex flex-col items-center justify-center"
+            className="fixed inset-0 z-[70] bg-ground flex flex-col items-center justify-center"
             data-testid="cmenu-welcome"
           >
             <motion.div
@@ -332,9 +332,9 @@ export default function CustomerMenu() {
               transition={{ delay: 0.9, duration: 0.4 }}
               className="mt-6 text-center"
             >
-              <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">Welcome</div>
+              <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass">Welcome</div>
               <div className="font-display uppercase text-4xl mt-2">Table {table.label}</div>
-              <div className="text-stone-500 text-xs font-mono uppercase tracking-widest mt-3">
+              <div className="text-faint text-xs font-mono uppercase tracking-widest mt-3">
                 Ready to order?
               </div>
             </motion.div>
@@ -352,10 +352,10 @@ export default function CustomerMenu() {
           alt=""
           className="absolute inset-0 w-full h-full object-cover opacity-50"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-stone-950/40 via-stone-950/60 to-stone-950" />
+        <div className="absolute inset-0 bg-gradient-to-b from-ground/40 via-ground/60 to-ground" />
         <div className="relative h-full flex items-end p-6">
           <div>
-            <div className="flex items-center gap-2 text-orange-500 text-[10px] uppercase tracking-[0.4em] font-mono">
+            <div className="flex items-center gap-2 text-brass text-[10px] uppercase tracking-[0.4em] font-mono">
               <Wine size={14} /> BarFlow · Table {table?.label || "…"}
             </div>
             <h1 className="mt-3 font-display uppercase text-4xl leading-none tracking-tight">
@@ -376,19 +376,19 @@ export default function CustomerMenu() {
           type="button"
           data-testid="cmenu-running-banner"
           onClick={showRunning}
-          className="w-full flex items-center justify-between gap-4 px-5 py-4 bg-stone-900 border-y border-orange-500/30 text-left active:bg-stone-800/70 transition"
+          className="w-full flex items-center justify-between gap-4 px-5 py-4 bg-surface border-y border-brass/30 text-left active:bg-raised/70 transition"
         >
           <div className="min-w-0">
-            <div className="flex items-center gap-2 text-orange-500 text-[10px] uppercase tracking-[0.3em] font-mono">
+            <div className="flex items-center gap-2 text-brass text-[10px] uppercase tracking-[0.3em] font-mono">
               <Receipt size={13} /> Already ordered
             </div>
-            <div className="mt-1.5 text-sm text-stone-300">
+            <div className="mt-1.5 text-sm text-muted2">
               {runningCount} item{runningCount === 1 ? "" : "s"} on this table&rsquo;s bill
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <div className="font-mono text-orange-400">{currency(running.total)}</div>
-            <div className="text-[9px] font-mono uppercase tracking-widest text-stone-500 mt-0.5">
+            <div className="font-mono text-brass">{currency(running.total)}</div>
+            <div className="text-[9px] font-mono uppercase tracking-widest text-faint mt-0.5">
               View
             </div>
           </div>
@@ -396,7 +396,7 @@ export default function CustomerMenu() {
       )}
 
       {/* Category tabs */}
-      <div className="sticky top-0 bg-stone-950/90 backdrop-blur-xl border-b border-stone-800 z-20">
+      <div className="sticky top-0 bg-ground/90 backdrop-blur-xl border-b border-hairline z-20">
         <div className="flex overflow-x-auto no-scrollbar">
           {cats.map((c) => (
             <button
@@ -404,7 +404,7 @@ export default function CustomerMenu() {
               data-testid={`cmenu-cat-${c.replace(/\s+/g,"-")}`}
               onClick={() => setCat(c)}
               className={`px-5 py-4 text-[10px] font-mono uppercase tracking-widest whitespace-nowrap border-b-2 ${
-                cat === c ? "text-orange-400 border-orange-500" : "text-stone-500 border-transparent"
+                cat === c ? "text-brass border-brass" : "text-faint border-transparent"
               }`}
             >
               {c}
@@ -414,18 +414,18 @@ export default function CustomerMenu() {
       </div>
 
       {/* Items */}
-      <ul className="divide-y divide-stone-800">
+      <ul className="divide-y divide-hairline">
         {shown.map((m, idx) => (
           <motion.li
             key={m.id}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: Math.min(idx * 0.04, 0.4), duration: 0.35 }}
-            className="p-4 flex items-start gap-4 hover:bg-stone-900/40 transition-colors"
+            className="p-4 flex items-start gap-4 hover:bg-surface/40 transition-colors"
             data-testid={`cmenu-item-${m.name.replace(/\s+/g,"-")}`}
           >
             {/* Thumbnail */}
-            <div className="relative w-24 h-24 shrink-0 overflow-hidden bg-stone-900 border border-stone-800">
+            <div className="relative w-24 h-24 shrink-0 overflow-hidden bg-surface border border-hairline">
               {m.image ? (
                 <img
                   src={m.image}
@@ -438,23 +438,23 @@ export default function CustomerMenu() {
                   }}
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-stone-700">
+                <div className="w-full h-full flex items-center justify-center text-faint">
                   <Wine size={22} />
                 </div>
               )}
-              <div className="absolute inset-0 bg-gradient-to-t from-stone-950/60 via-transparent to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-ground/60 via-transparent to-transparent" />
             </div>
 
             <div className="flex-1 min-w-0">
               <div className="font-medium text-base leading-snug">{m.name}</div>
               {m.description && (
-                <div className="text-xs text-stone-400 mt-1 leading-relaxed line-clamp-2">
+                <div className="text-xs text-muted2 mt-1 leading-relaxed line-clamp-2">
                   {m.description}
                 </div>
               )}
-              <div className="mt-3 font-mono text-orange-400">{priceLabel(m)}</div>
+              <div className="mt-3 font-mono text-brass">{priceLabel(m)}</div>
               {variantsOf(m).length > 0 && (
-                <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-faint">
                   {variantsOf(m).map((v) => v.label).join(" · ")}
                 </div>
               )}
@@ -468,7 +468,7 @@ export default function CustomerMenu() {
                 <button
                   data-testid={`cmenu-add-${m.name.replace(/\s+/g,"-")}`}
                   onClick={(e) => flyToCart(m, e)}
-                  className="rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-4 py-2 text-[10px] font-mono uppercase tracking-widest active:scale-90 transition"
+                  className="rounded-full bg-brass hover:bg-brass-deep text-on-brass px-4 py-2 text-[10px] font-mono uppercase tracking-widest active:scale-90 transition"
                 >
                   {inCart(m) ? `Add · ${inCart(m)}` : "Choose"}
                 </button>
@@ -477,7 +477,7 @@ export default function CustomerMenu() {
                   <button
                     data-testid={`cmenu-dec-${m.name.replace(/\s+/g,"-")}`}
                     onClick={() => dec(m.id)}
-                    className="w-8 h-8 border border-stone-700 hover:border-orange-500 flex items-center justify-center active:scale-90 transition"
+                    className="w-8 h-8 border border-hairline-strong hover:border-brass flex items-center justify-center active:scale-90 transition"
                   >
                     <Minus size={14} />
                   </button>
@@ -485,7 +485,7 @@ export default function CustomerMenu() {
                   <button
                     data-testid={`cmenu-inc-${m.name.replace(/\s+/g,"-")}`}
                     onClick={(e) => flyToCart(m, e)}
-                    className="w-8 h-8 border border-orange-500 text-orange-400 flex items-center justify-center active:scale-90 transition"
+                    className="w-8 h-8 border border-brass text-brass flex items-center justify-center active:scale-90 transition"
                   >
                     <Plus size={14} />
                   </button>
@@ -494,7 +494,7 @@ export default function CustomerMenu() {
                 <button
                   data-testid={`cmenu-add-${m.name.replace(/\s+/g,"-")}`}
                   onClick={(e) => flyToCart(m, e)}
-                  className="rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-4 py-2 text-[10px] font-mono uppercase tracking-widest active:scale-90 transition"
+                  className="rounded-full bg-brass hover:bg-brass-deep text-on-brass px-4 py-2 text-[10px] font-mono uppercase tracking-widest active:scale-90 transition"
                 >
                   Add
                 </button>
@@ -510,15 +510,15 @@ export default function CustomerMenu() {
           The price on each button is the price the server charges for that portion. */}
       {portionFor && (
         <div
-          className="fixed inset-0 z-50 bg-stone-950/80 backdrop-blur flex items-end sm:items-center justify-center"
+          className="fixed inset-0 z-50 bg-ground/80 backdrop-blur flex items-end sm:items-center justify-center"
           onClick={() => setPortionFor(null)}
           data-testid="cmenu-portion-sheet"
         >
           <div
-            className="w-full sm:max-w-sm bg-stone-900 border-t sm:border border-orange-500/60 p-6"
+            className="w-full sm:max-w-sm bg-surface border-t sm:border border-brass/60 p-6"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500">
+            <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass">
               Choose a portion
             </div>
             <div className="font-display uppercase text-2xl mt-2 leading-none">
@@ -530,16 +530,16 @@ export default function CustomerMenu() {
                   key={v.label}
                   data-testid={`cmenu-portion-${v.label.replace(/\s+/g, "-")}`}
                   onClick={() => choosePortion(portionFor, v)}
-                  className="w-full flex items-center justify-between border border-stone-700 hover:border-orange-500 px-4 py-3 text-left active:scale-[0.98] transition"
+                  className="w-full flex items-center justify-between border border-hairline-strong hover:border-brass px-4 py-3 text-left active:scale-[0.98] transition"
                 >
                   <span className="text-sm">{v.label}</span>
-                  <span className="font-mono text-orange-400">{currency(v.price)}</span>
+                  <span className="font-mono text-brass">{currency(v.price)}</span>
                 </button>
               ))}
             </div>
             <button
               onClick={() => setPortionFor(null)}
-              className="mt-5 w-full border border-stone-800 py-2 text-[10px] font-mono uppercase tracking-widest text-stone-400"
+              className="mt-5 w-full border border-hairline py-2 text-[10px] font-mono uppercase tracking-widest text-muted2"
             >
               Cancel
             </button>
@@ -558,7 +558,7 @@ export default function CustomerMenu() {
           initial={{ y: 40, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.35 }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-stone-900 border border-orange-500/60 text-orange-300 px-6 py-3 font-mono uppercase tracking-widest text-xs flex items-center gap-3 shadow-[0_0_24px_rgba(0,0,0,0.6)] z-30"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-surface border border-brass/60 text-brass px-6 py-3 font-mono uppercase tracking-widest text-xs flex items-center gap-3 shadow-[0_0_24px_rgba(0,0,0,0.6)] z-30"
         >
           <Receipt size={14} />
           Your order · {currency(running.total)}
@@ -569,18 +569,18 @@ export default function CustomerMenu() {
           lines that have been sent, cannot be edited from a phone, and are on a bill. */}
       {openRunning && running && (
         <div
-          className="fixed inset-0 z-40 bg-stone-950/70 backdrop-blur"
+          className="fixed inset-0 z-40 bg-ground/70 backdrop-blur"
           onClick={() => setOpenRunning(false)}
         >
           <div
             data-testid="cmenu-running-sheet"
-            className="absolute bottom-0 inset-x-0 bg-stone-900 border-t border-stone-800 p-6 max-h-[85vh] overflow-y-auto"
+            className="absolute bottom-0 inset-x-0 bg-surface border-t border-hairline p-6 max-h-[85vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="font-display uppercase text-2xl leading-none">Already ordered</div>
-                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-faint">
                   Table {table?.label || "…"} · sent to the kitchen
                 </div>
               </div>
@@ -592,12 +592,12 @@ export default function CustomerMenu() {
             {/* Said out loud, because it is the one thing about this screen that surprises
                 people: the bill is the table's, not the phone's. A guest who sees a dish
                 they did not order should read this and not call a waiter over. */}
-            <p className="mt-4 text-xs text-stone-500 leading-relaxed">
+            <p className="mt-4 text-xs text-faint leading-relaxed">
               One bill for the table — anything ordered from another phone here, or added
               by a waiter, is on it too.
             </p>
 
-            <ul className="divide-y divide-stone-800 mt-4">
+            <ul className="divide-y divide-hairline mt-4">
               {runningItems.map((it) => (
                 <li key={it.id} className="py-3 flex items-start gap-3">
                   <div className="flex-1 min-w-0">
@@ -606,14 +606,14 @@ export default function CustomerMenu() {
                       {/* A line with no portion simply has no badge, which is every line
                           on a card that does not sell dishes that way. */}
                       {it.variant_label && (
-                        <span className="text-[9px] font-mono uppercase tracking-widest border border-orange-500/60 text-orange-400 px-1.5 py-0.5">
+                        <span className="text-[9px] font-mono uppercase tracking-widest border border-brass/60 text-brass px-1.5 py-0.5">
                           {it.variant_label}
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                    <div className="mt-1 text-[10px] font-mono uppercase tracking-widest text-faint">
                       {it.quantity} × {currency(it.price)}
-                      <span className="text-stone-600"> · </span>
+                      <span className="text-faint"> · </span>
                       {ITEM_STATUS[it.status] || it.status}
                     </div>
                   </div>
@@ -626,26 +626,26 @@ export default function CustomerMenu() {
 
             {/* The foot of the bill, in the bill's own figures — the server priced these
                 and the printed slip will carry them, so nothing here is recomputed. */}
-            <div className="mt-4 font-mono text-sm space-y-1 border-t border-stone-800 pt-4">
-              <div className="flex justify-between text-stone-400">
+            <div className="mt-4 font-mono text-sm space-y-1 border-t border-hairline pt-4">
+              <div className="flex justify-between text-muted2">
                 <span>{runningGst.inclusive ? "Taxable value" : "Subtotal"}</span>
                 <span>
                   {currency(runningGst.inclusive ? running.taxable_value : running.subtotal)}
                 </span>
               </div>
-              <div className="flex justify-between text-stone-400">
+              <div className="flex justify-between text-muted2">
                 <span>{gstLabel(runningGst)}</span>
                 <span>{currency(running.tax)}</span>
               </div>
               {running.discount > 0 && (
-                <div className="flex justify-between text-stone-400">
+                <div className="flex justify-between text-muted2">
                   <span>Discount</span>
                   <span>{currency(-running.discount)}</span>
                 </div>
               )}
               <div className="flex justify-between text-base pt-2">
                 <span>Running total</span>
-                <span className="text-orange-400" data-testid="cmenu-running-total">
+                <span className="text-brass" data-testid="cmenu-running-total">
                   {currency(running.total)}
                 </span>
               </div>
@@ -655,7 +655,7 @@ export default function CustomerMenu() {
                 here — see `_bill_locked` — so saying so beats letting the guest fill a
                 cart and be turned away at the last tap. */}
             {running.presented_at && (
-              <p className="mt-4 border border-stone-700 px-4 py-3 text-xs text-stone-400 leading-relaxed">
+              <p className="mt-4 border border-hairline-strong px-4 py-3 text-xs text-muted2 leading-relaxed">
                 Your bill has been totalled. Please ask a member of staff to add anything
                 else.
               </p>
@@ -663,7 +663,7 @@ export default function CustomerMenu() {
 
             <button
               onClick={() => setOpenRunning(false)}
-              className="mt-5 w-full border border-stone-800 py-3 text-[10px] font-mono uppercase tracking-widest text-stone-400"
+              className="mt-5 w-full border border-hairline py-3 text-[10px] font-mono uppercase tracking-widest text-muted2"
             >
               Back to the menu
             </button>
@@ -681,7 +681,7 @@ export default function CustomerMenu() {
           initial={{ y: 40, opacity: 0 }}
           animate={{ y: 0, opacity: 1, scale: [1, 1.08, 1] }}
           transition={{ duration: 0.45, scale: { duration: 0.35 } }}
-          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-6 py-3 font-mono uppercase tracking-widest text-xs flex items-center gap-3 shadow-[0_0_30px_rgba(234,88,12,0.5)] z-30"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-full bg-brass hover:bg-brass-deep text-on-brass px-6 py-3 font-mono uppercase tracking-widest text-xs flex items-center gap-3 shadow-[0_0_30px_rgba(234,88,12,0.5)] z-30"
         >
           <ShoppingBag size={14} />
           {cartCount} item{cartCount > 1 ? "s" : ""} · {currency(total)}
@@ -691,8 +691,8 @@ export default function CustomerMenu() {
 
       {/* Cart sheet */}
       {openCart && (
-        <div className="fixed inset-0 z-40 bg-stone-950/70 backdrop-blur" onClick={() => setOpenCart(false)}>
-          <div className="absolute bottom-0 inset-x-0 bg-stone-900 border-t border-stone-800 p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-40 bg-ground/70 backdrop-blur" onClick={() => setOpenCart(false)}>
+          <div className="absolute bottom-0 inset-x-0 bg-surface border-t border-hairline p-6 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             {/* "Your Order" until this sheet had a sibling. Two screens both called that
                 is how a guest ends up believing they have been charged twice, or that the
                 round they sent twenty minutes ago is still sitting in a cart. This one is
@@ -700,39 +700,39 @@ export default function CustomerMenu() {
             <div className="flex items-start justify-between gap-3 mb-4">
               <div>
                 <div className="font-display uppercase text-2xl leading-none">Adding now</div>
-                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                <div className="mt-2 text-[10px] font-mono uppercase tracking-widest text-faint">
                   Not sent to the kitchen yet
                 </div>
               </div>
               <button onClick={() => setOpenCart(false)} aria-label="Close"><X size={18} /></button>
             </div>
-            <ul className="divide-y divide-stone-800">
+            <ul className="divide-y divide-hairline">
               {cartItems.map((it) => (
                 <li key={it.key} className="py-3 flex items-center gap-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       {it.name}
                       {it.variant_label && (
-                        <span className="text-[9px] font-mono uppercase tracking-widest border border-orange-500/60 text-orange-400 px-1.5 py-0.5">
+                        <span className="text-[9px] font-mono uppercase tracking-widest border border-brass/60 text-brass px-1.5 py-0.5">
                           {it.variant_label}
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">{currency(it.price)}</div>
+                    <div className="text-[10px] font-mono uppercase tracking-widest text-faint">{currency(it.price)}</div>
                   </div>
-                  <button onClick={() => dec(it.key)} className="w-7 h-7 border border-stone-700 flex items-center justify-center"><Minus size={12} /></button>
+                  <button onClick={() => dec(it.key)} className="w-7 h-7 border border-hairline-strong flex items-center justify-center"><Minus size={12} /></button>
                   <span className="w-6 text-center font-mono">{it.qty}</span>
-                  <button onClick={() => add(it.id, it.variant_label)} className="w-7 h-7 border border-orange-500 text-orange-400 flex items-center justify-center"><Plus size={12} /></button>
+                  <button onClick={() => add(it.id, it.variant_label)} className="w-7 h-7 border border-brass text-brass flex items-center justify-center"><Plus size={12} /></button>
                 </li>
               ))}
             </ul>
-            <div className="mt-4 font-mono text-sm space-y-1 border-t border-stone-800 pt-4">
-              <div className="flex justify-between text-stone-400"><span>{gst.inclusive ? "Taxable value" : "Subtotal"}</span><span>{currency(gst.inclusive ? taxableValue : subtotal)}</span></div>
-              <div className="flex justify-between text-stone-400"><span>{gstLabel(gst)}</span><span>{currency(tax)}</span></div>
+            <div className="mt-4 font-mono text-sm space-y-1 border-t border-hairline pt-4">
+              <div className="flex justify-between text-muted2"><span>{gst.inclusive ? "Taxable value" : "Subtotal"}</span><span>{currency(gst.inclusive ? taxableValue : subtotal)}</span></div>
+              <div className="flex justify-between text-muted2"><span>{gstLabel(gst)}</span><span>{currency(tax)}</span></div>
               {/* "Total for these items", not "Total": with a bill already open on the
                   table this figure is not what the guest owes, and a screen that says
                   "Total" beside a number smaller than the bill is a screen that lies. */}
-              <div className="flex justify-between text-base pt-2"><span>{running && runningCount > 0 ? "Total for these items" : "Total"}</span><span className="text-orange-400">{currency(total)}</span></div>
+              <div className="flex justify-between text-base pt-2"><span>{running && runningCount > 0 ? "Total for these items" : "Total"}</span><span className="text-brass">{currency(total)}</span></div>
             </div>
 
             {/* And what that total is *not* counting, one tap from reading it in full.
@@ -743,19 +743,19 @@ export default function CustomerMenu() {
                 type="button"
                 data-testid="cmenu-cart-running-link"
                 onClick={showRunning}
-                className="mt-4 w-full flex items-center justify-between gap-3 border border-stone-800 px-4 py-3 text-left active:bg-stone-800/60 transition"
+                className="mt-4 w-full flex items-center justify-between gap-3 border border-hairline px-4 py-3 text-left active:bg-raised/60 transition"
               >
                 <div className="min-w-0">
-                  <div className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                  <div className="text-[10px] font-mono uppercase tracking-widest text-faint">
                     Not counted above
                   </div>
-                  <div className="mt-1 text-xs text-stone-300">
+                  <div className="mt-1 text-xs text-muted2">
                     Already ordered · {runningCount} item{runningCount === 1 ? "" : "s"}
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="font-mono text-sm text-stone-300">{currency(running.total)}</div>
-                  <div className="text-[9px] font-mono uppercase tracking-widest text-stone-500 mt-0.5">
+                  <div className="font-mono text-sm text-muted2">{currency(running.total)}</div>
+                  <div className="text-[9px] font-mono uppercase tracking-widest text-faint mt-0.5">
                     View
                   </div>
                 </div>
@@ -763,7 +763,7 @@ export default function CustomerMenu() {
             )}
 
             <div className="mt-4">
-              <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-2">Payment preference</div>
+              <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-2">Payment preference</div>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { k: "counter", l: "Pay at counter" },
@@ -774,7 +774,7 @@ export default function CustomerMenu() {
                     data-testid={`cmenu-pay-${p.k}`}
                     onClick={() => setPay(p.k)}
                     className={`py-3 text-[10px] font-mono uppercase tracking-widest border ${
-                      pay === p.k ? "border-orange-500 text-orange-400" : "border-stone-800 text-stone-400"
+                      pay === p.k ? "border-brass text-brass" : "border-hairline text-muted2"
                     }`}
                   >
                     {p.l}
@@ -787,7 +787,7 @@ export default function CustomerMenu() {
               data-testid="cmenu-place"
               disabled={placing || !cartItems.length}
               onClick={placeOrder}
-              className="mt-5 w-full rounded-full bg-orange-600 hover:bg-orange-500 disabled:opacity-40 text-stone-950 py-3 font-mono uppercase tracking-widest text-xs"
+              className="mt-5 w-full rounded-full bg-brass hover:bg-brass-deep disabled:opacity-40 text-on-brass py-3 font-mono uppercase tracking-widest text-xs"
             >
               {placing ? "Sending…" : "Place Order"}
             </button>
@@ -797,31 +797,31 @@ export default function CustomerMenu() {
 
       {/* Placed toast card */}
       {placed && (
-        <div className="fixed inset-0 z-50 bg-stone-950/85 backdrop-blur flex items-center justify-center p-6" onClick={() => setPlaced(null)}>
-          <div className="border border-orange-500 bg-stone-900 p-8 max-w-md text-center" onClick={(e) => e.stopPropagation()}>
-            <div className="text-orange-500 text-[10px] uppercase tracking-[0.4em] font-mono">Order confirmed</div>
+        <div className="fixed inset-0 z-50 bg-ground/85 backdrop-blur flex items-center justify-center p-6" onClick={() => setPlaced(null)}>
+          <div className="border border-brass bg-surface p-8 max-w-md text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="text-brass text-[10px] uppercase tracking-[0.4em] font-mono">Order confirmed</div>
             <div className="font-display text-4xl uppercase mt-2">Cheers!</div>
-            <div className="text-stone-400 text-sm mt-3">
-              Order <span className="font-mono text-orange-400">#{placed.order.id.slice(0, 6)}</span> sent to the bar.
+            <div className="text-muted2 text-sm mt-3">
+              Order <span className="font-mono text-brass">#{placed.order.id.slice(0, 6)}</span> sent to the bar.
               {placed.pay === "counter" ? " Pay at the counter when you're done." : ""}
             </div>
             {/* This figure is the whole table's bill, not the round just sent — the
                 response is the order with these lines added to it. It has always been
                 that number and never said so, which reads as a wrong price for the round
                 whenever anything was ordered before it. */}
-            <div className="mt-6 text-[10px] uppercase tracking-[0.3em] font-mono text-stone-500">
+            <div className="mt-6 text-[10px] uppercase tracking-[0.3em] font-mono text-faint">
               Bill so far
             </div>
-            <div className="mt-1 font-mono text-2xl text-orange-400">{currency(placed.order.total)}</div>
+            <div className="mt-1 font-mono text-2xl text-brass">{currency(placed.order.total)}</div>
             <div className="mt-8 flex items-center justify-center gap-3">
               <button
                 data-testid="cmenu-placed-view"
                 onClick={() => { setPlaced(null); showRunning(); }}
-                className="rounded-full border border-orange-500 text-orange-400 px-6 py-2 text-[10px] font-mono uppercase tracking-widest"
+                className="rounded-full border border-brass text-brass px-6 py-2 text-[10px] font-mono uppercase tracking-widest"
               >
                 See the bill
               </button>
-              <button onClick={() => setPlaced(null)} className="rounded-full border border-stone-700 hover:border-orange-500 px-6 py-2 text-[10px] font-mono uppercase tracking-widest">
+              <button onClick={() => setPlaced(null)} className="rounded-full border border-hairline-strong hover:border-brass px-6 py-2 text-[10px] font-mono uppercase tracking-widest">
                 Keep browsing
               </button>
             </div>

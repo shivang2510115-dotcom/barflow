@@ -7,11 +7,11 @@ import { nextDay, occupancyState } from "@/lib/roomGrid";
 import { toast } from "sonner";
 
 const STATUS_STYLE = {
-  confirmed: "text-orange-400 border-orange-500/40",
+  confirmed: "text-brass border-brass/40",
   tentative: "text-amber-300 border-amber-400/40",
   checked_in: "text-emerald-400 border-emerald-500/40",
-  checked_out: "text-stone-400 border-stone-600",
-  cancelled: "text-stone-500 border-stone-700 line-through",
+  checked_out: "text-muted2 border-hairline-strong",
+  cancelled: "text-faint border-hairline-strong line-through",
   no_show: "text-red-400 border-red-500/40",
 };
 
@@ -101,7 +101,7 @@ export default function Bookings() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Hotel</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Hotel</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         Bookings
       </h1>
@@ -112,24 +112,24 @@ export default function Bookings() {
           numbers to find out who that is. */}
       <section className="mb-12" data-testid="bookings-plan">
         <div className="flex flex-wrap gap-4 items-end mb-5">
-          <label className="text-xs tracking-widest uppercase text-stone-500">
+          <label className="text-xs tracking-widest uppercase text-faint">
             Night of
             <input
               type="date"
               value={night}
               data-testid="bookings-plan-night"
               onChange={(e) => e.target.value && setNight(e.target.value)}
-              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+              className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
             />
           </label>
-          <p className="text-xs text-stone-500 pb-2 max-w-md">
+          <p className="text-xs text-faint pb-2 max-w-md">
             A stay is half-open, so a guest leaving on this date is not in the room for
             this night — the door is already the next arrival's.
           </p>
         </div>
 
         {!plan ? (
-          <p className="text-stone-500 text-sm">Loading the building…</p>
+          <p className="text-faint text-sm">Loading the building…</p>
         ) : (
           <RoomGrid
             rooms={plan.rooms}
@@ -144,26 +144,26 @@ export default function Bookings() {
         )}
       </section>
 
-      <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+      <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
         Every booking
       </h2>
 
       <div className="flex flex-wrap gap-4 items-end mb-6">
-        <label className="text-xs tracking-widest uppercase text-stone-500">
+        <label className="text-xs tracking-widest uppercase text-faint">
           Search
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Reference, name or phone"
-            className="block mt-2 w-64 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+            className="block mt-2 w-64 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
           />
         </label>
-        <label className="text-xs tracking-widest uppercase text-stone-500">
+        <label className="text-xs tracking-widest uppercase text-faint">
           Status
           <select
             value={status}
             onChange={(e) => setStatus(e.target.value)}
-            className="block mt-2 bg-stone-900 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+            className="block mt-2 bg-surface border border-hairline-strong text-ink py-1 px-2 rounded"
           >
             <option value="">All</option>
             {Object.keys(STATUS_STYLE).map((s) => (
@@ -176,51 +176,51 @@ export default function Bookings() {
       </div>
 
       {loading ? (
-        <p className="text-stone-400">Loading bookings…</p>
+        <p className="text-muted2">Loading bookings…</p>
       ) : rows.length === 0 ? (
-        <p className="text-stone-400">No bookings match.</p>
+        <p className="text-muted2">No bookings match.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
-                <th className="text-left py-3 px-3 border-b border-stone-800">Reference</th>
-                <th className="text-left py-3 px-3 border-b border-stone-800">Guest</th>
-                <th className="text-left py-3 px-3 border-b border-stone-800">Dates</th>
-                <th className="text-left py-3 px-3 border-b border-stone-800">Room</th>
-                <th className="text-left py-3 px-3 border-b border-stone-800">Status</th>
-                <th className="text-right py-3 px-3 border-b border-stone-800">Total</th>
+              <tr className="text-[11px] tracking-[0.2em] uppercase text-faint">
+                <th className="text-left py-3 px-3 border-b border-hairline">Reference</th>
+                <th className="text-left py-3 px-3 border-b border-hairline">Guest</th>
+                <th className="text-left py-3 px-3 border-b border-hairline">Dates</th>
+                <th className="text-left py-3 px-3 border-b border-hairline">Room</th>
+                <th className="text-left py-3 px-3 border-b border-hairline">Status</th>
+                <th className="text-right py-3 px-3 border-b border-hairline">Total</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((b) => {
                 const expired = isExpiredHold(b);
                 return (
-                  <tr key={b.id} className="hover:bg-stone-900">
-                    <td className="py-3 px-3 border-b border-stone-800 font-mono">
-                      <Link className="text-orange-400 hover:underline" to={`/app/hotel/bookings/${b.id}`}>
+                  <tr key={b.id} className="hover:bg-surface">
+                    <td className="py-3 px-3 border-b border-hairline font-mono">
+                      <Link className="text-brass hover:underline" to={`/app/hotel/bookings/${b.id}`}>
                         {b.reference}
                       </Link>
                     </td>
-                    <td className="py-3 px-3 border-b border-stone-800">
+                    <td className="py-3 px-3 border-b border-hairline">
                       {b.guest?.name || "—"}
-                      <span className="block text-xs text-stone-500">{b.guest?.phone}</span>
+                      <span className="block text-xs text-faint">{b.guest?.phone}</span>
                     </td>
-                    <td className="py-3 px-3 border-b border-stone-800 font-mono text-xs tabular-nums">
+                    <td className="py-3 px-3 border-b border-hairline font-mono text-xs tabular-nums">
                       {b.check_in} → {b.check_out}
                     </td>
                     {/* "Who still needs a room for tomorrow" is the 9am question, so a
                         booking without one says so rather than showing a blank cell. */}
-                    <td className="py-3 px-3 border-b border-stone-800 tabular-nums">
+                    <td className="py-3 px-3 border-b border-hairline tabular-nums">
                       {b.room ? (
                         b.room.number
                       ) : (
-                        <span className="text-[10px] tracking-widest uppercase text-stone-500">
+                        <span className="text-[10px] tracking-widest uppercase text-faint">
                           not assigned
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-3 border-b border-stone-800">
+                    <td className="py-3 px-3 border-b border-hairline">
                       <span className={`text-[10px] tracking-widest uppercase border rounded-full px-2 py-1 ${STATUS_STYLE[b.status] || ""}`}>
                         {(b.status || "").replace("_", " ")}
                       </span>
@@ -236,7 +236,7 @@ export default function Bookings() {
                         )
                       )}
                     </td>
-                    <td className="py-3 px-3 border-b border-stone-800 text-right tabular-nums">
+                    <td className="py-3 px-3 border-b border-hairline text-right tabular-nums">
                       {currency(b.quote?.total)}
                     </td>
                   </tr>

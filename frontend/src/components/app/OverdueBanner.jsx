@@ -50,13 +50,13 @@ export default function OverdueBanner() {
           <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-amber-400">
             Invoice due
           </div>
-          <p className="text-sm text-stone-300 mt-1 tabular-nums">
+          <p className="text-sm text-muted2 mt-1 tabular-nums">
             Your {notice.schedule} subscription of{" "}
-            <span className="text-stone-100">{notice.amount}</span> has been due since{" "}
-            <span className="text-stone-100">{notice.since}</span> — {notice.days} ago.
+            <span className="text-ink">{notice.amount}</span> has been due since{" "}
+            <span className="text-ink">{notice.since}</span> — {notice.days} ago.
           </p>
           {/* The reassurance is the point of the banner, not a footnote to it. */}
-          <p className="text-xs text-stone-400 mt-2">
+          <p className="text-xs text-muted2 mt-2">
             Nothing has changed here: bookings, the front desk and the till all work as
             normal, and everyone can still log in. Send the payment the usual way, or talk to
             us if the figure looks wrong.

@@ -68,20 +68,20 @@ export default function GuestRoomRequest() {
 
   if (card === null)
     return (
-      <div className="min-h-screen bg-stone-950 text-stone-500 flex items-center justify-center font-mono text-xs uppercase tracking-widest">
+      <div className="min-h-screen bg-ground text-faint flex items-center justify-center font-mono text-xs uppercase tracking-widest">
         Loading…
       </div>
     );
 
   if (card === false)
     return (
-      <div className="min-h-screen bg-stone-950 text-stone-100 flex items-center justify-center p-8">
+      <div className="min-h-screen bg-ground text-ink flex items-center justify-center p-8">
         <div className="text-center max-w-xs">
-          <div className="text-[10px] font-mono uppercase tracking-[0.4em] text-orange-500">
+          <div className="text-[10px] font-mono uppercase tracking-[0.4em] text-brass">
             Housekeeping
           </div>
           <h1 className="mt-4 font-display uppercase text-2xl">This code is not valid</h1>
-          <p className="mt-3 text-sm text-stone-400">
+          <p className="mt-3 text-sm text-muted2">
             Please call the front desk and they will help straight away.
           </p>
         </div>
@@ -89,9 +89,9 @@ export default function GuestRoomRequest() {
     );
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 flex flex-col">
+    <div className="min-h-screen bg-ground text-ink flex flex-col">
       <header className="px-6 pt-12 pb-8">
-        <div className="flex items-center gap-2 text-orange-500 text-[10px] uppercase tracking-[0.4em] font-mono">
+        <div className="flex items-center gap-2 text-brass text-[10px] uppercase tracking-[0.4em] font-mono">
           <Sparkles size={14} /> {card.property_name || "Housekeeping"}
         </div>
         <h1 className="mt-4 font-display uppercase text-4xl leading-none tracking-tight">
@@ -106,7 +106,7 @@ export default function GuestRoomRequest() {
           <div className="border border-emerald-500/40 bg-emerald-500/5 rounded p-6 text-center">
             <Check className="mx-auto text-emerald-400" size={28} aria-hidden="true" />
             <p className="mt-4 text-lg">Housekeeping has been told.</p>
-            <p className="mt-2 text-sm text-stone-400">
+            <p className="mt-2 text-sm text-muted2">
               Somebody will be along shortly. You can close this page.
             </p>
           </div>
@@ -117,14 +117,14 @@ export default function GuestRoomRequest() {
               setSent(false);
               setReason("");
             }}
-            className="mt-6 w-full border border-stone-700 text-stone-400 hover:text-stone-200 rounded-full py-3 text-xs font-mono uppercase tracking-widest"
+            className="mt-6 w-full border border-hairline-strong text-muted2 hover:text-ink rounded-full py-3 text-xs font-mono uppercase tracking-widest"
           >
             Ask for something else
           </button>
         </main>
       ) : (
         <main className="flex-1 px-6">
-          <label className="block text-[10px] font-mono uppercase tracking-widest text-stone-500">
+          <label className="block text-[10px] font-mono uppercase tracking-widest text-faint">
             What do you need?
             <textarea
               value={reason}
@@ -132,15 +132,15 @@ export default function GuestRoomRequest() {
               data-testid="guest-reason"
               placeholder="Fresh towels, please"
               onChange={(e) => setReason(e.target.value)}
-              className="block w-full mt-3 bg-stone-900 border border-stone-700 text-stone-100 text-base p-4 rounded focus:border-orange-500 outline-none"
+              className="block w-full mt-3 bg-surface border border-hairline-strong text-ink text-base p-4 rounded focus:border-brass outline-none"
             />
           </label>
-          <p className="mt-2 text-xs text-stone-500">
+          <p className="mt-2 text-xs text-faint">
             You can leave this empty if it is easier — we will come and see.
           </p>
 
           {refused && (
-            <p className="mt-4 text-sm text-orange-300" data-testid="guest-request-refused">
+            <p className="mt-4 text-sm text-brass" data-testid="guest-request-refused">
               {refused}
             </p>
           )}
@@ -152,7 +152,7 @@ export default function GuestRoomRequest() {
             data-testid="guest-request-send"
             disabled={sending}
             onClick={send}
-            className="mt-6 w-full flex items-center justify-center gap-2 bg-orange-600 hover:bg-orange-500
+            className="mt-6 w-full flex items-center justify-center gap-2 bg-brass hover:bg-brass-deep
                        disabled:opacity-50 text-white rounded-full py-4 text-sm font-mono uppercase tracking-widest"
           >
             <BellRing size={16} aria-hidden="true" />
@@ -161,7 +161,7 @@ export default function GuestRoomRequest() {
         </main>
       )}
 
-      <footer className="p-6 text-center text-[10px] font-mono uppercase tracking-widest text-stone-600">
+      <footer className="p-6 text-center text-[10px] font-mono uppercase tracking-widest text-faint">
         {card.property_name}
       </footer>
     </div>

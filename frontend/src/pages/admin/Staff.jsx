@@ -64,7 +64,7 @@ function ScreenPicker({ catalogue, value, onChange, role, domains }) {
   const groups = bySection(catalogue);
 
   if (!catalogue.length) {
-    return <p className="text-xs text-stone-500">Loading the screen list…</p>;
+    return <p className="text-xs text-faint">Loading the screen list…</p>;
   }
 
   const toggle = (key) =>
@@ -73,7 +73,7 @@ function ScreenPicker({ catalogue, value, onChange, role, domains }) {
   return (
     <div className={isAdmin ? "opacity-50" : ""}>
       {isAdmin && (
-        <p className="text-xs text-orange-400/80 mb-4">
+        <p className="text-xs text-brass/80 mb-4">
           An admin reaches every screen regardless of what is ticked, exactly as they are
           never checked against work areas. These boxes decide nothing here.
         </p>
@@ -92,7 +92,7 @@ function ScreenPicker({ catalogue, value, onChange, role, domains }) {
           return (
             <div key={section}>
               <div className="flex items-baseline justify-between mb-2">
-                <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
+                <div className="text-[11px] tracking-[0.2em] uppercase text-faint">
                   {section}
                 </div>
                 <button
@@ -100,7 +100,7 @@ function ScreenPicker({ catalogue, value, onChange, role, domains }) {
                   onClick={flip}
                   disabled={isAdmin || grantable.length === 0}
                   data-testid={`screens-all-${section.toLowerCase()}`}
-                  className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30"
+                  className="text-[10px] tracking-widest uppercase text-faint hover:text-brass disabled:opacity-30"
                 >
                   {allOn ? "Clear all" : "Select all"}
                 </button>
@@ -114,7 +114,7 @@ function ScreenPicker({ catalogue, value, onChange, role, domains }) {
                       key={s.key}
                       title={available ? s.key : `Needs ${needs(s)}`}
                       className={`flex items-center gap-2 text-sm ${
-                        available ? "text-stone-300" : "text-stone-600"
+                        available ? "text-muted2" : "text-faint"
                       }`}
                     >
                       <input
@@ -123,11 +123,11 @@ function ScreenPicker({ catalogue, value, onChange, role, domains }) {
                         checked={isAdmin ? false : on}
                         disabled={isAdmin || !available}
                         onChange={() => toggle(s.key)}
-                        className="accent-orange-500 disabled:opacity-40"
+                        className="accent-brass disabled:opacity-40"
                       />
                       <span>{s.label}</span>
                       {!available && (
-                        <span className="text-[10px] tracking-widest uppercase text-stone-600">
+                        <span className="text-[10px] tracking-widest uppercase text-faint">
                           needs {needs(s)}
                         </span>
                       )}
@@ -165,8 +165,8 @@ function DomainPicker({ options, value, onChange, disabled }) {
           onClick={() => toggle(d)}
           className={`text-[10px] tracking-widest uppercase border rounded-full px-3 py-1 disabled:opacity-40 ${
             value.includes(d)
-              ? "border-orange-500 text-orange-400"
-              : "border-stone-700 text-stone-500 hover:border-stone-500"
+              ? "border-brass text-brass"
+              : "border-hairline-strong text-faint hover:border-hairline-strong"
           }`}
         >
           {d}
@@ -352,13 +352,13 @@ export default function Staff() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Admin</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         Staff
       </h1>
 
-      <div className="border border-stone-800 bg-stone-900 rounded p-5 mb-8 max-w-4xl">
-        <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+      <div className="border border-hairline bg-surface rounded p-5 mb-8 max-w-4xl">
+        <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
           Add a staff member
         </h2>
         <div className="flex flex-wrap gap-4 items-end">
@@ -380,7 +380,7 @@ export default function Staff() {
             const password = type === "password";
             const Control = password ? PasswordInput : "input";
             return (
-              <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+              <label key={k} className="text-xs tracking-widest uppercase text-faint">
                 {label}
                 <Control
                   {...(password
@@ -390,24 +390,24 @@ export default function Staff() {
                     : { type, "data-testid": `staff-create-${k}` })}
                   value={creating[k]}
                   onChange={(e) => setCreating({ ...creating, [k]: e.target.value })}
-                  className={`bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none ${
+                  className={`bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none ${
                     password ? "" : "block mt-2"
                   }`}
                 />
                 {hint && (
-                  <span className="block mt-1 text-[10px] normal-case tracking-normal text-stone-600">
+                  <span className="block mt-1 text-[10px] normal-case tracking-normal text-faint">
                     {hint}
                   </span>
                 )}
               </label>
             );
           })}
-          <label className="text-xs tracking-widest uppercase text-stone-500">
+          <label className="text-xs tracking-widest uppercase text-faint">
             Role
             <select
               value={creating.role}
               onChange={(e) => setCreating({ ...creating, role: e.target.value })}
-              className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+              className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
             >
               {ROLES.map((r) => (
                 <option key={r} value={r}>
@@ -416,7 +416,7 @@ export default function Staff() {
               ))}
             </select>
           </label>
-          <div className="text-xs tracking-widest uppercase text-stone-500">
+          <div className="text-xs tracking-widest uppercase text-faint">
             Works in
             <div className="mt-2">
               <DomainPicker
@@ -436,14 +436,14 @@ export default function Staff() {
           <button
             onClick={create}
             disabled={busy}
-            className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
           >
             Add
           </button>
         </div>
 
-        <div className="mt-8 pt-6 border-t border-stone-800">
-          <div className="text-xs tracking-widest uppercase text-stone-500 mb-4">
+        <div className="mt-8 pt-6 border-t border-hairline">
+          <div className="text-xs tracking-widest uppercase text-faint mb-4">
             Screens they can open
           </div>
           <ScreenPicker
@@ -455,8 +455,8 @@ export default function Staff() {
           />
         </div>
 
-        <p className="text-xs text-stone-500 mt-6 max-w-3xl">
-          <span className="text-stone-300">
+        <p className="text-xs text-faint mt-6 max-w-3xl">
+          <span className="text-muted2">
             An email address or a phone number — one is enough, and either one works at the
             sign-in box.
           </span>{" "}
@@ -467,7 +467,7 @@ export default function Staff() {
           Do not invent an address: it cannot receive a password reset, and an account with
           neither identifier is refused because nobody could ever sign into it.
         </p>
-        <p className="text-xs text-stone-500 mt-3 max-w-3xl">
+        <p className="text-xs text-faint mt-3 max-w-3xl">
           An admin reaches everything regardless of domains. Everyone else reaches only the
           areas selected here — enforced by the API, not just hidden in the menu. Leave every
           screen clear and they start with the ones their role has always had. Passwords are
@@ -477,8 +477,8 @@ export default function Staff() {
 
       {/* Said here rather than discovered on the first 403. A manager ticked for Rates can
           read the rate sheet and will be refused the moment they change a figure. */}
-      <p className="text-xs text-stone-500 mb-8 max-w-3xl">
-        <span className="text-stone-300">Editing configuration is admin-only.</span> Ticking a
+      <p className="text-xs text-faint mb-8 max-w-3xl">
+        <span className="text-muted2">Editing configuration is admin-only.</span> Ticking a
         screen grants the screen, not the right to change what is set up on it: rooms, room
         types, rates, seasons, meal plans, tax slabs, the menu and stock items can only be
         edited by an administrator, and anyone else gets a 403 saying so. Taking a booking,
@@ -489,17 +489,17 @@ export default function Staff() {
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
-              <th className="text-left py-2 px-3 border-b border-stone-800">Name</th>
+            <tr className="text-[11px] tracking-[0.2em] uppercase text-faint">
+              <th className="text-left py-2 px-3 border-b border-hairline">Name</th>
               {/* One column, not two. What matters to whoever is reading this roster is
                   what each person types to sign in, and half the rows would be empty in
                   whichever of the two columns they do not use. */}
-              <th className="text-left py-2 px-3 border-b border-stone-800">Signs in with</th>
-              <th className="text-left py-2 px-3 border-b border-stone-800">Role</th>
-              <th className="text-left py-2 px-3 border-b border-stone-800">Works in</th>
-              <th className="text-left py-2 px-3 border-b border-stone-800">Screens</th>
-              <th className="text-left py-2 px-3 border-b border-stone-800">Status</th>
-              <th className="border-b border-stone-800" />
+              <th className="text-left py-2 px-3 border-b border-hairline">Signs in with</th>
+              <th className="text-left py-2 px-3 border-b border-hairline">Role</th>
+              <th className="text-left py-2 px-3 border-b border-hairline">Works in</th>
+              <th className="text-left py-2 px-3 border-b border-hairline">Screens</th>
+              <th className="text-left py-2 px-3 border-b border-hairline">Status</th>
+              <th className="border-b border-hairline" />
             </tr>
           </thead>
           <tbody>
@@ -507,10 +507,10 @@ export default function Staff() {
               const isSelf = me && u.id === me.id;
               return (
                 <tr key={u.id} className={u.active ? "" : "opacity-50"}>
-                  <td className="py-2 px-3 border-b border-stone-800">
+                  <td className="py-2 px-3 border-b border-hairline">
                     {u.name}
                     {isSelf && (
-                      <span className="text-[10px] tracking-widest uppercase text-stone-500 ml-2">
+                      <span className="text-[10px] tracking-widest uppercase text-faint ml-2">
                         you
                       </span>
                     )}
@@ -519,36 +519,36 @@ export default function Staff() {
                       owner resetting somebody's password needs to know which they use.
                       Never an empty cell: the API refuses an account with neither, so a
                       blank here would mean a record that predates that rule. */}
-                  <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs text-stone-400">
+                  <td className="py-2 px-3 border-b border-hairline font-mono text-xs text-muted2">
                     {u.email && <span className="block">{u.email}</span>}
                     {u.phone && (
-                      <span className="block text-stone-500">{formatPhone(u.phone)}</span>
+                      <span className="block text-faint">{formatPhone(u.phone)}</span>
                     )}
-                    {!u.email && !u.phone && <span className="text-stone-600">—</span>}
+                    {!u.email && !u.phone && <span className="text-faint">—</span>}
                   </td>
-                  <td className="py-2 px-3 border-b border-stone-800">
+                  <td className="py-2 px-3 border-b border-hairline">
                     {u.role.replace("_", " ")}
                   </td>
-                  <td className="py-2 px-3 border-b border-stone-800 text-xs text-stone-400">
+                  <td className="py-2 px-3 border-b border-hairline text-xs text-muted2">
                     {u.role === "admin" ? "everything" : (u.domains || []).join(", ") || "—"}
                   </td>
-                  <td className="py-2 px-3 border-b border-stone-800 text-xs text-stone-400 tabular-nums">
+                  <td className="py-2 px-3 border-b border-hairline text-xs text-muted2 tabular-nums">
                     {u.role === "admin"
                       ? "every screen"
                       : `${(u.permissions || []).length} of ${grantable.length || "—"}`}
                   </td>
-                  <td className="py-2 px-3 border-b border-stone-800">
+                  <td className="py-2 px-3 border-b border-hairline">
                     <span
                       className={`text-[10px] tracking-widest uppercase border rounded-full px-2 py-1 ${
                         u.active
-                          ? "text-orange-400 border-orange-500/40"
-                          : "text-stone-500 border-stone-700"
+                          ? "text-brass border-brass/40"
+                          : "text-faint border-hairline-strong"
                       }`}
                     >
                       {u.active ? "active" : "inactive"}
                     </span>
                   </td>
-                  <td className="py-2 px-3 border-b border-stone-800 text-right whitespace-nowrap">
+                  <td className="py-2 px-3 border-b border-hairline text-right whitespace-nowrap">
                     {/* Edit and the active toggle are disabled on your own row: the API
                         answers both with a 409, so offering the control would only ever
                         produce an error toast. */}
@@ -564,14 +564,14 @@ export default function Staff() {
                       }
                       disabled={busy || isSelf}
                       title={isSelf ? "You cannot change your own role or domains" : undefined}
-                      className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30 mr-3"
+                      className="text-[10px] tracking-widest uppercase text-faint hover:text-brass disabled:opacity-30 mr-3"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => setResetting({ id: u.id, name: u.name, password: "" })}
                       disabled={busy}
-                      className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30 mr-3"
+                      className="text-[10px] tracking-widest uppercase text-faint hover:text-brass disabled:opacity-30 mr-3"
                     >
                       Password
                     </button>
@@ -579,7 +579,7 @@ export default function Staff() {
                       onClick={() => setDeactivating(u)}
                       disabled={busy || isSelf}
                       title={isSelf ? "You cannot deactivate yourself" : undefined}
-                      className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-30"
+                      className="text-[10px] tracking-widest uppercase text-faint hover:text-red-400 disabled:opacity-30"
                     >
                       {u.active ? "Deactivate" : "Reactivate"}
                     </button>
@@ -592,25 +592,25 @@ export default function Staff() {
       </div>
 
       {editing && (
-        <div className="mt-8 border border-stone-800 bg-stone-900 rounded p-5 max-w-4xl">
-          <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+        <div className="mt-8 border border-hairline bg-surface rounded p-5 max-w-4xl">
+          <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
             Edit {editing.name}
           </h3>
           <div className="flex flex-wrap gap-4 items-end">
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Name
               <input
                 value={editing.name}
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
               />
             </label>
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Role
               <select
                 value={editing.role}
                 onChange={(e) => setEditing({ ...editing, role: e.target.value })}
-                className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+                className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
               >
                 {ROLES.map((r) => (
                   <option key={r} value={r}>
@@ -619,7 +619,7 @@ export default function Staff() {
                 ))}
               </select>
             </label>
-            <div className="text-xs tracking-widest uppercase text-stone-500">
+            <div className="text-xs tracking-widest uppercase text-faint">
               Works in
               <div className="mt-2">
                 <DomainPicker
@@ -638,8 +638,8 @@ export default function Staff() {
             </div>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-stone-800">
-            <div className="text-xs tracking-widest uppercase text-stone-500 mb-4">
+          <div className="mt-8 pt-6 border-t border-hairline">
+            <div className="text-xs tracking-widest uppercase text-faint mb-4">
               Screens they can open
             </div>
             <ScreenPicker
@@ -654,14 +654,14 @@ export default function Staff() {
             <button
               onClick={saveEdit}
               disabled={busy}
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy ? "Saving…" : "Save"}
             </button>
             <button
               onClick={() => setEditing(null)}
               disabled={busy}
-              className="border border-stone-700 text-stone-400 hover:text-stone-200 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:text-ink disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Cancel
             </button>
@@ -678,15 +678,15 @@ export default function Staff() {
           className={`mt-8 rounded p-5 max-w-2xl border ${
             deactivating.active
               ? "border-red-500/40 bg-red-950/20"
-              : "border-stone-800 bg-stone-900"
+              : "border-hairline bg-surface"
           }`}
         >
-          <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+          <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
             {deactivating.active ? "Deactivate" : "Reactivate"} {deactivating.name}?
           </h3>
           <p
             className={`text-sm mb-4 ${
-              deactivating.active ? "text-red-300" : "text-stone-400"
+              deactivating.active ? "text-red-300" : "text-muted2"
             }`}
           >
             {deactivating.active
@@ -700,7 +700,7 @@ export default function Staff() {
               className={`rounded-full px-6 py-2 text-sm tracking-widest uppercase disabled:opacity-50 ${
                 deactivating.active
                   ? "bg-red-600 hover:bg-red-500 text-white"
-                  : "bg-orange-600 hover:bg-orange-500 text-white"
+                  : "bg-brass hover:bg-brass-deep text-white"
               }`}
             >
               {busy
@@ -712,7 +712,7 @@ export default function Staff() {
             <button
               onClick={() => setDeactivating(null)}
               disabled={busy}
-              className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Never mind
             </button>
@@ -721,8 +721,8 @@ export default function Staff() {
       )}
 
       {resetting && (
-        <div className="mt-8 border border-stone-800 bg-stone-900 rounded p-5 max-w-2xl">
-          <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+        <div className="mt-8 border border-hairline bg-surface rounded p-5 max-w-2xl">
+          <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
             Set a new password for {resetting.name}
           </h3>
           {/* autoFocus stays on the *field*, never on the reveal button: the person
@@ -736,25 +736,25 @@ export default function Staff() {
             onChange={(e) => setResetting({ ...resetting, password: e.target.value })}
             placeholder="At least 8 characters"
             wrapperClassName="inline-block"
-            className="bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+            className="bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
           />
           <div className="flex gap-3 mt-5">
             <button
               onClick={confirmReset}
               disabled={busy || resetting.password.length < 8}
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy ? "Setting…" : "Set password"}
             </button>
             <button
               onClick={() => setResetting(null)}
               disabled={busy}
-              className="border border-stone-700 text-stone-400 hover:text-stone-200 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:text-ink disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Cancel
             </button>
           </div>
-          <p className="text-xs text-stone-500 mt-4">
+          <p className="text-xs text-faint mt-4">
             Tell them the new password directly — there is no email delivery in this app.
           </p>
         </div>

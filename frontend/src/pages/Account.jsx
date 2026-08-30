@@ -98,15 +98,15 @@ export default function Account() {
   const home = homePathFor(user);
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 relative z-[2]">
-      <header className="border-b border-stone-800 px-6 md:px-10 py-4 flex items-center justify-between gap-4">
+    <div className="min-h-screen bg-ground text-ink relative z-[2]">
+      <header className="border-b border-hairline px-6 md:px-10 py-4 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Wine className="text-orange-500" size={22} />
+          <Wine className="text-brass" size={22} />
           <div>
             <div className="font-display text-lg tracking-tight uppercase leading-none">
               BarFlow
             </div>
-            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500 mt-1">
+            <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-faint mt-1">
               Account
             </div>
           </div>
@@ -114,40 +114,40 @@ export default function Account() {
         <Link
           to={home}
           data-testid="account-back"
-          className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+          className="flex items-center gap-2 border border-hairline-strong hover:border-brass hover:text-brass px-3 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
         >
           <ArrowLeft size={14} /> Back
         </Link>
       </header>
 
       <div className="p-6 md:p-10">
-        <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Account</div>
+        <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Account</div>
         <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
           Your password
         </h1>
 
-        <div className="border border-stone-800 bg-stone-900 rounded p-5 md:p-6 max-w-xl">
+        <div className="border border-hairline bg-surface rounded p-5 md:p-6 max-w-xl">
           <div className="flex items-center gap-2 mb-1">
-            <KeyRound className="text-orange-500" size={16} />
-            <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
+            <KeyRound className="text-brass" size={16} />
+            <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint">
               Change it
             </h2>
           </div>
-          <p className="text-xs text-stone-500 mb-6 leading-relaxed" data-testid="account-who">
+          <p className="text-xs text-faint mb-6 leading-relaxed" data-testid="account-who">
             {/* Whichever identifier they have. Reading `user.email` alone left a
                 phone-only waiter with "Signed in as " and nothing after it, which reads
                 as a broken page rather than as an account without an address. */}
             Signed in as{" "}
-            <span className="text-stone-300">{displayIdentifier(user)}</span>
+            <span className="text-muted2">{displayIdentifier(user)}</span>
             {user?.role ? (
-              <span className="font-mono uppercase text-orange-500/80"> · {user.role}</span>
+              <span className="font-mono uppercase text-brass/80"> · {user.role}</span>
             ) : null}
             . This changes your own password and nobody else's.
           </p>
 
           <form onSubmit={submit} className="space-y-6">
             <label className="block">
-              <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
+              <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">
                 Current password
               </span>
               <PasswordInput
@@ -158,16 +158,16 @@ export default function Account() {
                 value={form.current}
                 onChange={set("current")}
                 placeholder="The one you use now"
-                className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 text-base placeholder:text-stone-600"
+                className="w-full bg-transparent border-b border-hairline-strong focus-neon py-2 text-base placeholder:text-faint"
               />
-              <span className="block text-[11px] text-stone-600 mt-2 leading-relaxed">
+              <span className="block text-[11px] text-faint mt-2 leading-relaxed">
                 Asked for so that a signed-in session left open on a shared terminal cannot
                 be turned into permanent ownership of your account.
               </span>
             </label>
 
             <label className="block">
-              <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
+              <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">
                 New password
               </span>
               <PasswordInput
@@ -178,12 +178,12 @@ export default function Account() {
                 value={form.next}
                 onChange={set("next")}
                 placeholder={`At least ${MIN_PASSWORD} characters`}
-                className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 text-base placeholder:text-stone-600"
+                className="w-full bg-transparent border-b border-hairline-strong focus-neon py-2 text-base placeholder:text-faint"
               />
             </label>
 
             <label className="block">
-              <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
+              <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">
                 New password again
               </span>
               <PasswordInput
@@ -194,8 +194,8 @@ export default function Account() {
                 value={form.confirm}
                 onChange={set("confirm")}
                 placeholder="Type it once more"
-                className={`w-full bg-transparent border-b py-2 text-base placeholder:text-stone-600 focus-neon ${
-                  mismatched ? "border-red-500/60" : "border-stone-700"
+                className={`w-full bg-transparent border-b py-2 text-base placeholder:text-faint focus-neon ${
+                  mismatched ? "border-red-500/60" : "border-hairline-strong"
                 }`}
               />
               {/* Kept, rather than dropped in favour of the reveal control, because there
@@ -226,7 +226,7 @@ export default function Account() {
                 type="submit"
                 data-testid="account-submit"
                 disabled={busy || !ready}
-                className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase transition-colors"
+                className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase transition-colors"
               >
                 {busy ? "Changing…" : "Change password"}
               </button>
@@ -237,7 +237,7 @@ export default function Account() {
                   setProblem("");
                 }}
                 disabled={busy}
-                className="border border-stone-700 text-stone-400 hover:text-stone-200 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase transition-colors"
+                className="border border-hairline-strong text-muted2 hover:text-ink hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase transition-colors"
               >
                 Clear
               </button>
@@ -248,7 +248,7 @@ export default function Account() {
               statement about who you are and carries nothing derived from the password, so
               changing it does not end a session that already exists. Somebody changing
               their password because they think they were watched needs to know that. */}
-          <p className="text-xs text-stone-500 mt-6 pt-5 border-t border-stone-800 leading-relaxed">
+          <p className="text-xs text-faint mt-6 pt-5 border-t border-hairline leading-relaxed">
             A device already signed in as you stays signed in until its session expires —
             changing the password does not end it. If you are worried about one in
             particular, sign out on it, and an admin can deactivate the account outright.
@@ -259,7 +259,7 @@ export default function Account() {
           type="button"
           onClick={signOut}
           data-testid="account-logout"
-          className="mt-8 text-[10px] font-mono uppercase tracking-widest text-stone-600 hover:text-orange-400 transition-colors"
+          className="mt-8 text-[10px] font-mono uppercase tracking-widest text-faint hover:text-brass transition-colors"
         >
           Sign out
         </button>

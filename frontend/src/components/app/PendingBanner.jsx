@@ -40,20 +40,20 @@ export default function PendingBanner() {
   return (
     <div
       data-testid="pending-banner"
-      className="border-b border-orange-500/40 bg-orange-950/20 px-6 py-4"
+      className="border-b border-brass/40 bg-brass/20 px-6 py-4"
     >
       <div className="flex items-start gap-3">
-        <Clock size={16} className="text-orange-400 mt-0.5 shrink-0" />
+        <Clock size={16} className="text-brass mt-0.5 shrink-0" />
         <div className="min-w-0">
-          <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-orange-400">
+          <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-brass">
             Awaiting approval
           </div>
-          <p className="text-sm text-stone-300 mt-1">
-            <span className="text-stone-100">{property.name}</span> is registered and being
+          <p className="text-sm text-muted2 mt-1">
+            <span className="text-ink">{property.name}</span> is registered and being
             reviewed. Set the place up now — {open.join(", ").toLowerCase()}{" "}
             are all open, and nothing you build here is lost when you go live.
           </p>
-          <p className="text-xs text-stone-400 mt-2 flex items-start gap-2">
+          <p className="text-xs text-muted2 mt-2 flex items-start gap-2">
             <Lock size={12} className="mt-0.5 shrink-0" />
             <span>
               Locked until approved: {locked.join(", ").toLowerCase()}. Those

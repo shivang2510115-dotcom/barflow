@@ -26,11 +26,11 @@ import { gstSettings, outletTotals } from "@/lib/tax";
  */
 
 const FIELD =
-  "block mt-2 w-full bg-transparent border-b border-stone-700 text-stone-100 py-1 " +
-  "focus:border-orange-500 outline-none placeholder:text-stone-600";
-const LABEL = "text-xs tracking-widest uppercase text-stone-500";
+  "block mt-2 w-full bg-transparent border-b border-hairline-strong text-ink py-1 " +
+  "focus:border-brass outline-none placeholder:text-faint";
+const LABEL = "text-xs tracking-widest uppercase text-faint";
 const PRIMARY =
-  "bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 " +
+  "bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 " +
   "text-sm tracking-widest uppercase";
 
 // The rates a restaurant in India actually charges, offered as one press each so the
@@ -108,11 +108,11 @@ export default function Settings() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Admin</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         Property settings
       </h1>
-      <p className="text-stone-400 mb-10 max-w-2xl">
+      <p className="text-muted2 mb-10 max-w-2xl">
         What this outlet charges on a restaurant bill, and how you sell a room. Room night
         GST is neither — those are the statutory hotel slabs, worked out per night from the
         tariff, and they are not editable here or anywhere.
@@ -125,8 +125,8 @@ export default function Settings() {
         </p>
       )}
 
-      <div className="max-w-3xl border border-stone-800 bg-stone-900 p-6">
-        <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-6">
+      <div className="max-w-3xl border border-hairline bg-surface p-6">
+        <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-6">
           Outlet GST
         </h2>
 
@@ -142,7 +142,7 @@ export default function Settings() {
               placeholder="5"
               className={`${FIELD} tabular-nums max-w-[8rem]`}
             />
-            <span className="text-stone-500 mt-2">%</span>
+            <span className="text-faint mt-2">%</span>
           </div>
         </label>
 
@@ -156,15 +156,15 @@ export default function Settings() {
               onClick={() => setRate(String(r))}
               className={`text-[10px] tracking-widest uppercase border rounded-full px-4 py-1.5 transition-colors ${
                 Number(rate) === r
-                  ? "border-orange-500 text-orange-400 bg-orange-500/10"
-                  : "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300"
+                  ? "border-brass text-brass bg-brass/10"
+                  : "border-hairline-strong text-faint hover:border-hairline-strong hover:text-muted2"
               }`}
             >
               {r}%
             </button>
           ))}
         </div>
-        <p className="text-xs text-stone-500 mt-3 max-w-2xl">
+        <p className="text-xs text-faint mt-3 max-w-2xl">
           5% is restaurant service without input tax credit, 18% the specified cases. 0% is
           for a business below the registration threshold — it is a rate, not a blank, and
           it is saved as one.
@@ -177,13 +177,13 @@ export default function Settings() {
             checked={inclusive}
             disabled={!property}
             onChange={(e) => setInclusive(e.target.checked)}
-            className="mt-1 accent-orange-500 w-4 h-4"
+            className="mt-1 accent-brass w-4 h-4"
           />
           <span>
-            <span className="text-sm text-stone-200">
+            <span className="text-sm text-ink">
               Menu prices already include GST
             </span>
-            <span className="block text-xs text-stone-500 mt-1 max-w-xl">
+            <span className="block text-xs text-faint mt-1 max-w-xl">
               Tick this if the price on your card is what the guest pays. The tax is then
               taken out of that price rather than added to it — adding it on top would
               overcharge every guest by the tax on the tax.
@@ -193,31 +193,31 @@ export default function Settings() {
 
         {/* The worked example. Two words nobody agrees on, one number everybody can. */}
         <div
-          className="mt-8 border border-stone-800 bg-stone-950 p-4"
+          className="mt-8 border border-hairline bg-ground p-4"
           data-testid="gst-preview"
         >
-          <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-orange-500">
+          <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-brass">
             A {currency(EXAMPLE_PRICE)} dish
           </div>
           <dl className="mt-3 text-sm font-mono space-y-1">
-            <div className="flex justify-between text-stone-400">
+            <div className="flex justify-between text-muted2">
               <dt>{inclusive ? "Taxable value" : "Subtotal"}</dt>
               <dd className="tabular-nums">{currency(preview.taxableValue)}</dd>
             </div>
-            <div className="flex justify-between text-stone-400">
+            <div className="flex justify-between text-muted2">
               <dt>
                 GST {Number(rate) || 0}%{inclusive ? " (in price)" : ""}
               </dt>
               <dd className="tabular-nums">{currency(preview.tax)}</dd>
             </div>
-            <div className="flex justify-between text-stone-100 font-bold border-t border-stone-800 pt-1 mt-1">
+            <div className="flex justify-between text-ink font-bold border-t border-hairline pt-1 mt-1">
               <dt>Guest pays</dt>
               <dd className="tabular-nums">{currency(preview.total)}</dd>
             </div>
           </dl>
         </div>
 
-        <p className="text-xs text-stone-500 mt-6 max-w-2xl">
+        <p className="text-xs text-faint mt-6 max-w-2xl">
           Changing this affects bills opened from now on. A bill that has already been
           settled keeps the rate it was settled at — the guest paid what the printed bill
           said, and re-pricing it afterwards would put your books out.
@@ -225,7 +225,7 @@ export default function Settings() {
 
         {/* Room pricing. Same record, same Save, one PUT — so it lives in the same card
             rather than growing a second form that could be saved on its own and stale. */}
-        <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mt-12 mb-6 pt-8 border-t border-stone-800">
+        <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mt-12 mb-6 pt-8 border-t border-hairline">
           Room pricing
         </h2>
 
@@ -236,11 +236,11 @@ export default function Settings() {
             checked={mealPlans}
             disabled={!property}
             onChange={(e) => setMealPlans(e.target.checked)}
-            className="mt-1 accent-orange-500 w-4 h-4"
+            className="mt-1 accent-brass w-4 h-4"
           />
           <span>
-            <span className="text-sm text-stone-200">Quote rooms per meal plan</span>
-            <span className="block text-xs text-stone-500 mt-1 max-w-xl">
+            <span className="text-sm text-ink">Quote rooms per meal plan</span>
+            <span className="block text-xs text-faint mt-1 max-w-xl">
               Tick this if you sell EP, CP and MAP — room only, with breakfast, half
               board — and want a separate price for each. Leave it clear and a room has
               one all-inclusive rate: the desk quotes a single price per room type, and
@@ -249,13 +249,13 @@ export default function Settings() {
           </span>
         </label>
 
-        <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+        <p className="text-xs text-faint mt-4 max-w-2xl">
           This changes what new bookings are quoted on. A booking already taken keeps the
           plan it was taken on and the price the guest was given — turning plans off does
           not re-price it, and turning them back on does not add one to it.
         </p>
 
-        <div className="flex gap-3 mt-8 pt-8 border-t border-stone-800">
+        <div className="flex gap-3 mt-8 pt-8 border-t border-hairline">
           <button
             data-testid="gst-save"
             onClick={save}

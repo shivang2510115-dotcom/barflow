@@ -23,30 +23,30 @@ import { formatDay } from "@/lib/subscription";
  * written into this file.
  */
 
-const CELL = "py-2 px-3 border-b border-stone-800 print:border-neutral-300";
+const CELL = "py-2 px-3 border-b border-hairline print:border-neutral-300";
 const HEAD =
-  "text-left text-[10px] tracking-[0.2em] uppercase text-stone-500 print:text-neutral-600 " +
+  "text-left text-[10px] tracking-[0.2em] uppercase text-faint print:text-neutral-600 " +
   CELL;
 const LABEL =
-  "text-[10px] tracking-[0.2em] uppercase text-stone-500 print:text-neutral-600";
+  "text-[10px] tracking-[0.2em] uppercase text-faint print:text-neutral-600";
 
 function Party({ title, party }) {
   return (
     <div>
       <div className={LABEL}>{title}</div>
-      <div className="text-sm font-bold mt-2 text-stone-100 print:text-black">
+      <div className="text-sm font-bold mt-2 text-ink print:text-black">
         {party?.legal_name || party?.name || "—"}
       </div>
       {party?.address && (
-        <div className="text-xs text-stone-400 print:text-neutral-700 mt-1 max-w-xs">
+        <div className="text-xs text-muted2 print:text-neutral-700 mt-1 max-w-xs">
           {party.address}
         </div>
       )}
-      <div className="text-xs font-mono text-stone-400 print:text-neutral-700 mt-2">
+      <div className="text-xs font-mono text-muted2 print:text-neutral-700 mt-2">
         GSTIN {party?.gstin || "—"}
       </div>
       {party?.state && (
-        <div className="text-xs text-stone-500 print:text-neutral-600 mt-0.5">
+        <div className="text-xs text-faint print:text-neutral-600 mt-0.5">
           State {party.state}
         </div>
       )}
@@ -61,8 +61,8 @@ function Row({ label, value, bold = false }) {
     <div
       className={`flex justify-between gap-8 py-1 ${
         bold
-          ? "font-bold text-stone-100 print:text-black border-t border-stone-800 print:border-neutral-400 pt-2 mt-1"
-          : "text-stone-300 print:text-neutral-800"
+          ? "font-bold text-ink print:text-black border-t border-hairline print:border-neutral-400 pt-2 mt-1"
+          : "text-muted2 print:text-neutral-800"
       }`}
     >
       <span>{label}</span>
@@ -91,34 +91,34 @@ export default function InvoiceDocument({ invoice, onClose }) {
   return createPortal(
     <div
       data-testid="invoice-document"
-      className="print-root fixed inset-0 z-50 overflow-y-auto bg-stone-950/90 print:bg-white print:static print:overflow-visible"
+      className="print-root fixed inset-0 z-50 overflow-y-auto bg-ground/90 print:bg-white print:static print:overflow-visible"
     >
       <div className="min-h-full flex items-start justify-center p-4 md:p-10 print:p-0 print:block">
-        <div className="w-full max-w-3xl border border-stone-800 bg-stone-950 p-8 print:border-0 print:bg-white print:text-black print:max-w-none print:p-0">
+        <div className="w-full max-w-3xl border border-hairline bg-ground p-8 print:border-0 print:bg-white print:text-black print:max-w-none print:p-0">
           {/* Chrome. Gone on paper — see the module note. */}
           <div className="flex justify-between items-center mb-8 print:hidden">
             <button
               data-testid="invoice-print"
               onClick={() => window.print()}
-              className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
+              className="flex items-center gap-2 border border-hairline-strong hover:border-brass hover:text-brass px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors"
             >
               <Printer size={14} /> Print
             </button>
             <button
               data-testid="invoice-close"
               onClick={onClose}
-              className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-stone-400 hover:text-stone-200"
+              className="flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-muted2 hover:text-ink"
             >
               <X size={14} /> Close
             </button>
           </div>
 
-          <div className="flex flex-wrap justify-between items-start gap-6 border-b border-stone-800 print:border-neutral-400 pb-6">
+          <div className="flex flex-wrap justify-between items-start gap-6 border-b border-hairline print:border-neutral-400 pb-6">
             <div>
-              <div className="text-lg font-extrabold uppercase tracking-tight text-stone-100 print:text-black">
+              <div className="text-lg font-extrabold uppercase tracking-tight text-ink print:text-black">
                 {isNote ? "Credit note" : "Tax invoice"}
               </div>
-              <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500 print:text-neutral-600 mt-1">
+              <div className="text-[10px] tracking-[0.25em] uppercase font-mono text-faint print:text-neutral-600 mt-1">
                 {invoice.place_of_supply_label ||
                   (intra ? "Within state — CGST + SGST" : "Inter-state — IGST")}
               </div>
@@ -127,17 +127,17 @@ export default function InvoiceDocument({ invoice, onClose }) {
               <div className={LABEL}>Number</div>
               <div
                 data-testid="invoice-number"
-                className="text-sm font-mono text-stone-100 print:text-black mt-1"
+                className="text-sm font-mono text-ink print:text-black mt-1"
               >
                 {invoice.number}
               </div>
-              <div className="text-xs text-stone-400 print:text-neutral-700 mt-2 tabular-nums">
+              <div className="text-xs text-muted2 print:text-neutral-700 mt-2 tabular-nums">
                 Issued {formatDay(invoice.issued_on)}
               </div>
             </div>
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-2 py-6 border-b border-stone-800 print:border-neutral-300">
+          <div className="grid gap-8 sm:grid-cols-2 py-6 border-b border-hairline print:border-neutral-300">
             <Party title="From" party={invoice.supplier} />
             <Party title="To" party={invoice.customer} />
           </div>
@@ -145,7 +145,7 @@ export default function InvoiceDocument({ invoice, onClose }) {
           {isNote && invoice.corrects && (
             <p
               data-testid="invoice-corrects"
-              className="text-sm text-stone-300 print:text-neutral-800 py-4 border-b border-stone-800 print:border-neutral-300"
+              className="text-sm text-muted2 print:text-neutral-800 py-4 border-b border-hairline print:border-neutral-300"
             >
               This credit note reverses invoice{" "}
               <span className="font-mono">{invoice.corrects}</span>
@@ -162,16 +162,16 @@ export default function InvoiceDocument({ invoice, onClose }) {
             </thead>
             <tbody>
               <tr>
-                <td className={`${CELL} text-stone-200 print:text-black`}>
+                <td className={`${CELL} text-ink print:text-black`}>
                   BarFlow subscription
                   {invoice.period_from && invoice.period_to && (
-                    <span className="block text-xs text-stone-500 print:text-neutral-600 mt-1 tabular-nums">
+                    <span className="block text-xs text-faint print:text-neutral-600 mt-1 tabular-nums">
                       {formatDay(invoice.period_from)} → {formatDay(invoice.period_to)}
                     </span>
                   )}
                 </td>
                 <td
-                  className={`${CELL} text-right tabular-nums text-stone-100 print:text-black`}
+                  className={`${CELL} text-right tabular-nums text-ink print:text-black`}
                 >
                   {currency(invoice.taxable_value)}
                 </td>
@@ -196,17 +196,17 @@ export default function InvoiceDocument({ invoice, onClose }) {
             </div>
           </div>
 
-          <div className="mt-8 pt-6 border-t border-stone-800 print:border-neutral-300">
+          <div className="mt-8 pt-6 border-t border-hairline print:border-neutral-300">
             <div className={LABEL}>Amount in words</div>
             <div
               data-testid="invoice-words"
-              className="text-sm text-stone-200 print:text-black mt-2"
+              className="text-sm text-ink print:text-black mt-2"
             >
               {invoice.total_in_words}
             </div>
           </div>
 
-          <p className="text-xs text-stone-500 print:text-neutral-600 mt-8">
+          <p className="text-xs text-faint print:text-neutral-600 mt-8">
             {isNote
               ? "A credit note is issued against the invoice it names; both documents stand."
               : "This is a computer-generated invoice and does not require a signature."}

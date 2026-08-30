@@ -68,7 +68,7 @@ export default function Guests() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Hotel</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Hotel</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         Guests
       </h1>
@@ -77,25 +77,25 @@ export default function Guests() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="Search by name or phone"
-        className="mb-6 w-full max-w-md bg-transparent border-b border-stone-700 text-stone-100 py-2 focus:border-orange-500 outline-none"
+        className="mb-6 w-full max-w-md bg-transparent border-b border-hairline-strong text-ink py-2 focus:border-brass outline-none"
       />
 
       <div className="grid gap-8 lg:grid-cols-2">
         <div>
           {loading ? (
-            <p className="text-stone-400">Searching…</p>
+            <p className="text-muted2">Searching…</p>
           ) : rows.length === 0 ? (
-            <p className="text-stone-400">No guests match.</p>
+            <p className="text-muted2">No guests match.</p>
           ) : (
-            <ul className="divide-y divide-stone-800">
+            <ul className="divide-y divide-hairline">
               {rows.map((g) => (
                 <li key={g.id}>
                   <button
                     onClick={() => open(g.id)}
-                    className={`w-full text-left py-3 hover:text-orange-400 ${selected?.id === g.id ? "text-orange-400" : ""}`}
+                    className={`w-full text-left py-3 hover:text-brass ${selected?.id === g.id ? "text-brass" : ""}`}
                   >
                     {g.name}
-                    <span className="block text-xs text-stone-500 font-mono">{g.phone}</span>
+                    <span className="block text-xs text-faint font-mono">{g.phone}</span>
                   </button>
                 </li>
               ))}
@@ -104,23 +104,23 @@ export default function Guests() {
         </div>
 
         {selected && (
-          <div className="border border-stone-800 bg-stone-900 rounded p-5 h-fit">
+          <div className="border border-hairline bg-surface rounded p-5 h-fit">
             <h2 className="text-lg font-semibold">{selected.name}</h2>
-            <p className="text-xs text-stone-500 font-mono mb-4">{selected.phone}</p>
+            <p className="text-xs text-faint font-mono mb-4">{selected.phone}</p>
 
             <div className="grid grid-cols-2 gap-3 mb-5">
               <div>
-                <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500">Stays</div>
+                <div className="text-[11px] tracking-[0.2em] uppercase text-faint">Stays</div>
                 <div className="text-2xl font-semibold">{selected.stays?.length || 0}</div>
               </div>
               <div>
-                <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
+                <div className="text-[11px] tracking-[0.2em] uppercase text-faint">
                   Bar & restaurant
                 </div>
-                <div className="text-2xl font-semibold text-orange-400">
+                <div className="text-2xl font-semibold text-brass">
                   {currency(selected.outlet_spend)}
                 </div>
-                <div className="text-xs text-stone-500">
+                <div className="text-xs text-faint">
                   {selected.outlet_orders} bill{selected.outlet_orders === 1 ? "" : "s"}
                 </div>
               </div>
@@ -128,12 +128,12 @@ export default function Guests() {
 
             {(selected.stays || []).length > 0 && (
               <>
-                <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+                <div className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
                   Stay history
                 </div>
                 <ul className="text-sm space-y-1">
                   {selected.stays.map((s) => (
-                    <li key={s.id} className="font-mono text-xs text-stone-400">
+                    <li key={s.id} className="font-mono text-xs text-muted2">
                       {s.check_in} → {s.check_out} · {s.reference} · {s.status}
                     </li>
                   ))}
@@ -143,16 +143,16 @@ export default function Guests() {
 
             {/* The dates this property marks for them. Recorded here or at the till; the
                 greeting itself is pressed from Customers -> Messaging on the day. */}
-            <div className="mt-6 pt-5 border-t border-stone-800">
-              <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+            <div className="mt-6 pt-5 border-t border-hairline">
+              <div className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
                 Occasions
               </div>
               {(selected.occasions || []).length === 0 ? (
-                <p className="text-xs text-stone-600">None recorded.</p>
+                <p className="text-xs text-faint">None recorded.</p>
               ) : (
                 <ul className="text-sm space-y-1">
                   {selected.occasions.map((o) => (
-                    <li key={o.id} className="font-mono text-xs text-stone-400">
+                    <li key={o.id} className="font-mono text-xs text-muted2">
                       {o.date} · {o.label}
                     </li>
                   ))}
@@ -160,18 +160,18 @@ export default function Guests() {
               )}
             </div>
 
-            <div className="mt-5 pt-5 border-t border-stone-800">
-              <label className="flex items-start gap-3 text-sm text-stone-300 cursor-pointer">
+            <div className="mt-5 pt-5 border-t border-hairline">
+              <label className="flex items-start gap-3 text-sm text-muted2 cursor-pointer">
                 <input
                   type="checkbox"
                   data-testid="guest-no-messages"
                   checked={Boolean(selected.no_messages)}
                   onChange={(e) => setConsent(e.target.checked)}
-                  className="accent-orange-500 w-4 h-4 mt-0.5"
+                  className="accent-brass w-4 h-4 mt-0.5"
                 />
                 <span>
                   Do not message this customer
-                  <span className="block text-[11px] text-stone-600 mt-1">
+                  <span className="block text-[11px] text-faint mt-1">
                     Honoured everywhere — no greeting and no follow-up, whatever else is
                     configured.
                   </span>

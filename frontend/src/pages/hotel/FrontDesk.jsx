@@ -11,10 +11,10 @@ const addDays = (iso, n) => {
 };
 
 const Row = ({ b, action }) => (
-  <li className="flex items-center justify-between gap-4 py-3 border-b border-stone-800">
+  <li className="flex items-center justify-between gap-4 py-3 border-b border-hairline">
     <div className="min-w-0">
       <div className="truncate">{b.guest?.name || "—"}</div>
-      <div className="text-xs text-stone-500 font-mono">
+      <div className="text-xs text-faint font-mono">
         {b.reference} · {b.check_in} → {b.check_out}
         {b.room ? ` · room ${b.room.number}` : ""}
       </div>
@@ -122,7 +122,7 @@ export default function FrontDesk() {
     }
   };
 
-  if (!data) return <div className="p-6 md:p-10 text-stone-400">Loading front desk…</div>;
+  if (!data) return <div className="p-6 md:p-10 text-muted2">Loading front desk…</div>;
 
   // In-house guests hold their room, and so now do today's other arrivals — a room
   // pre-assigned to somebody arriving this afternoon is not free to give away this
@@ -146,19 +146,19 @@ export default function FrontDesk() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Hotel</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Hotel</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         Front desk
       </h1>
-      <p className="text-stone-500 font-mono text-xs mb-8">{data.date}</p>
+      <p className="text-faint font-mono text-xs mb-8">{data.date}</p>
 
       <div className="grid gap-8 lg:grid-cols-3">
         <section>
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
             Arrivals · {data.arrivals.length}
           </h2>
           {data.arrivals.length === 0 ? (
-            <p className="text-stone-500 text-sm">No arrivals today.</p>
+            <p className="text-faint text-sm">No arrivals today.</p>
           ) : (
             <ul>
               {data.arrivals.map((b) => (
@@ -168,7 +168,7 @@ export default function FrontDesk() {
                   action={
                     <button
                       onClick={() => startCheckIn(b)}
-                      className="shrink-0 border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
+                      className="shrink-0 border border-brass/50 text-brass hover:bg-brass-deep/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
                     >
                       Check in
                     </button>
@@ -180,11 +180,11 @@ export default function FrontDesk() {
         </section>
 
         <section>
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
             Departures · {data.departures.length}
           </h2>
           {data.departures.length === 0 ? (
-            <p className="text-stone-500 text-sm">No departures today.</p>
+            <p className="text-faint text-sm">No departures today.</p>
           ) : (
             <ul>
               {data.departures.map((b) => (
@@ -198,13 +198,13 @@ export default function FrontDesk() {
                       <button
                         onClick={() => startExtend(b)}
                         data-testid={`extend-${b.id}`}
-                        className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
+                        className="border border-brass/50 text-brass hover:bg-brass-deep/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
                       >
                         Extend
                       </button>
                       <button
                         onClick={() => nav(`/app/hotel/bookings/${b.id}`)}
-                        className="border border-stone-700 text-stone-300 hover:border-orange-500 hover:text-orange-400 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
+                        className="border border-hairline-strong text-muted2 hover:border-brass hover:text-brass rounded-full px-4 py-1 text-xs tracking-widest uppercase"
                       >
                         Open
                       </button>
@@ -217,11 +217,11 @@ export default function FrontDesk() {
         </section>
 
         <section>
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
             In house · {data.in_house.length}
           </h2>
           {data.in_house.length === 0 ? (
-            <p className="text-stone-500 text-sm">Nobody in house.</p>
+            <p className="text-faint text-sm">Nobody in house.</p>
           ) : (
             <ul>
               {data.in_house.map((b) => (
@@ -233,13 +233,13 @@ export default function FrontDesk() {
                       <button
                         onClick={() => startExtend(b)}
                         data-testid={`extend-${b.id}`}
-                        className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
+                        className="border border-brass/50 text-brass hover:bg-brass-deep/10 rounded-full px-4 py-1 text-xs tracking-widest uppercase"
                       >
                         Extend
                       </button>
                       <Link
                         to={`/app/hotel/bookings/${b.id}`}
-                        className="text-xs tracking-widest uppercase text-orange-400 hover:underline"
+                        className="text-xs tracking-widest uppercase text-brass hover:underline"
                       >
                         Folio
                       </Link>
@@ -253,20 +253,20 @@ export default function FrontDesk() {
       </div>
 
       {extending && (
-        <div className="mt-10 border border-orange-500/40 bg-stone-900 rounded p-5 max-w-xl">
+        <div className="mt-10 border border-brass/40 bg-surface rounded p-5 max-w-xl">
           <h3 className="text-lg font-semibold mb-1">
             Extend {extending.guest?.name}
           </h3>
-          <p className="text-xs text-stone-500 font-mono mb-4">
+          <p className="text-xs text-faint font-mono mb-4">
             {extending.reference} · {extending.check_in} → {extending.check_out}
             {extending.room ? ` · room ${extending.room.number}` : ""}
           </p>
-          <p className="text-sm text-stone-400 mb-4">
+          <p className="text-sm text-muted2 mb-4">
             Check-in does not move. Only the added nights are priced, and they go on the
             folio with everything else — the nights already quoted keep their price.
           </p>
 
-          <label className="text-xs tracking-widest uppercase text-stone-500">
+          <label className="text-xs tracking-widest uppercase text-faint">
             New check out
             <input
               type="date"
@@ -274,7 +274,7 @@ export default function FrontDesk() {
               value={newCheckOut}
               min={addDays(extending.check_out, 1)}
               onChange={(e) => setNewCheckOut(e.target.value)}
-              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+              className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
             />
           </label>
 
@@ -282,13 +282,13 @@ export default function FrontDesk() {
             <button
               onClick={submitExtend}
               disabled={busy || !newCheckOut || newCheckOut <= extending.check_out}
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy ? "Extending…" : "Confirm extension"}
             </button>
             <button
               onClick={() => setExtending(null)}
-              className="border border-stone-700 text-stone-400 hover:text-stone-200 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:text-ink rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Cancel
             </button>
@@ -297,27 +297,27 @@ export default function FrontDesk() {
       )}
 
       {checkingIn && (
-        <div className="mt-10 border border-stone-800 bg-stone-900 rounded p-5 max-w-xl">
+        <div className="mt-10 border border-hairline bg-surface rounded p-5 max-w-xl">
           <h3 className="text-lg font-semibold mb-1">
             Check in {checkingIn.guest?.name}
           </h3>
-          <p className="text-xs text-stone-500 font-mono mb-4">
+          <p className="text-xs text-faint font-mono mb-4">
             {checkingIn.reference} · {checkingIn.check_in} → {checkingIn.check_out}
           </p>
           {checkingIn.room && (
-            <p className="text-xs text-stone-400 mb-4">
-              Room <span className="text-orange-400">{checkingIn.room.number}</span> was
+            <p className="text-xs text-muted2 mb-4">
+              Room <span className="text-brass">{checkingIn.room.number}</span> was
               assigned to this booking already — change it below if the guest needs another.
             </p>
           )}
 
           <div className="flex flex-wrap gap-4 items-end">
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Room
               <select
                 value={form.room_id}
                 onChange={(e) => setForm({ ...form, room_id: e.target.value })}
-                className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+                className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
               >
                 <option value="">Choose…</option>
                 {freeRooms.length === 0 ? (
@@ -333,12 +333,12 @@ export default function FrontDesk() {
                 )}
               </select>
             </label>
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               ID type
               <select
                 value={form.id_proof_type}
                 onChange={(e) => setForm({ ...form, id_proof_type: e.target.value })}
-                className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+                className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
               >
                 {["Aadhaar", "Passport", "Driving Licence", "Voter ID"].map((t) => (
                   <option key={t} value={t}>
@@ -347,17 +347,17 @@ export default function FrontDesk() {
                 ))}
               </select>
             </label>
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               ID number
               <input
                 value={form.id_proof_number}
                 onChange={(e) => setForm({ ...form, id_proof_number: e.target.value })}
-                className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
               />
             </label>
           </div>
 
-          <p className="text-xs text-stone-500 mt-4">
+          <p className="text-xs text-faint mt-4">
             ID capture is a legal requirement for Indian hotels and is recorded against the
             guest, not the booking.
           </p>
@@ -366,13 +366,13 @@ export default function FrontDesk() {
             <button
               onClick={submitCheckIn}
               disabled={busy}
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy ? "Checking in…" : "Confirm check in"}
             </button>
             <button
               onClick={() => setCheckingIn(null)}
-              className="border border-stone-700 text-stone-400 hover:text-stone-200 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:text-ink rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Cancel
             </button>

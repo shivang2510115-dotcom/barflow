@@ -55,21 +55,21 @@ export default function PaymentReturn() {
   const paidOk = statusData?.payment_status === "paid";
 
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 flex items-center justify-center p-8 relative z-[2]">
+    <div className="min-h-screen bg-ground text-ink flex items-center justify-center p-8 relative z-[2]">
       <div className="max-w-md w-full text-center">
-        <div className="flex items-center justify-center gap-2 text-orange-500 text-[10px] uppercase tracking-[0.4em] font-mono mb-6">
+        <div className="flex items-center justify-center gap-2 text-brass text-[10px] uppercase tracking-[0.4em] font-mono mb-6">
           <Wine size={14} /> BarFlow · Table
         </div>
 
         {paid === "0" && (
           <>
             <div className="font-display uppercase text-4xl">Payment cancelled</div>
-            <p className="text-stone-400 mt-4">
+            <p className="text-muted2 mt-4">
               No worries — nothing was charged. Try again or settle at the counter.
             </p>
             <button
               onClick={() => nav(`/t/${tableId}`)}
-              className="mt-8 rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-6 py-3 text-[10px] font-mono uppercase tracking-widest"
+              className="mt-8 rounded-full bg-brass hover:bg-brass-deep text-on-brass px-6 py-3 text-[10px] font-mono uppercase tracking-widest"
               data-testid="pay-return-back"
             >
               Back to menu
@@ -80,7 +80,7 @@ export default function PaymentReturn() {
         {paid === "1" && !paidOk && !failed && (
           <>
             <CocktailLoader label={`Confirming payment · attempt ${attempts + 1}`} />
-            <p className="text-stone-500 text-xs mt-6 font-mono uppercase tracking-widest">
+            <p className="text-faint text-xs mt-6 font-mono uppercase tracking-widest">
               Hold tight — the ledger is settling.
             </p>
           </>
@@ -89,13 +89,13 @@ export default function PaymentReturn() {
         {paid === "1" && failed && (
           <>
             <div className="font-display uppercase text-3xl">Still verifying</div>
-            <p className="text-stone-400 mt-4">
+            <p className="text-muted2 mt-4">
               Stripe is taking longer than usual. If you were charged, staff will see the settled bill
               shortly. You can safely close this page.
             </p>
             <button
               onClick={() => nav(`/t/${tableId}`)}
-              className="mt-8 rounded-full border border-stone-700 hover:border-orange-500 px-6 py-3 text-[10px] font-mono uppercase tracking-widest"
+              className="mt-8 rounded-full border border-hairline-strong hover:border-brass px-6 py-3 text-[10px] font-mono uppercase tracking-widest"
               data-testid="pay-return-back"
             >
               Return to table

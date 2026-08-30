@@ -58,7 +58,7 @@ export default function Notifications() {
     value: settings?.[key] ?? "",
     onChange: (e) => setSettings((prev) => ({ ...prev, [key]: e.target.value })),
     className:
-      "block mt-2 w-full bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none font-mono text-sm",
+      "block mt-2 w-full bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none font-mono text-sm",
   });
 
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function Notifications() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Admin</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Admin</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         Notifications
       </h1>
@@ -90,20 +90,20 @@ export default function Notifications() {
       <div className="max-w-3xl">
         <div
           className={`border rounded p-5 mb-8 ${
-            ok ? "border-orange-500/40 bg-orange-500/5" : "border-stone-800 bg-stone-900"
+            ok ? "border-brass/40 bg-brass/5" : "border-hairline bg-surface"
           }`}
         >
-          <div className="text-[10px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+          <div className="text-[10px] tracking-[0.2em] uppercase text-faint mb-2">
             WhatsApp daily brief
           </div>
-          <div className="text-lg font-bold uppercase tracking-wide text-stone-100">
+          <div className="text-lg font-bold uppercase tracking-wide text-ink">
             {status === null ? "Checking…" : ok ? "Ready to send" : "Not configured"}
           </div>
           {status && !ok && (
-            <p className="text-sm text-stone-400 mt-3">{status.problem}</p>
+            <p className="text-sm text-muted2 mt-3">{status.problem}</p>
           )}
           {status && !ok && (
-            <p className="text-xs text-stone-500 mt-4">
+            <p className="text-xs text-faint mt-4">
               These are environment variables on the server. Setting them needs a Meta
               WhatsApp Business account with a verified business — the token and the phone
               number ID both come from the app&rsquo;s API Setup page.
@@ -111,28 +111,28 @@ export default function Notifications() {
           )}
         </div>
 
-        <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+        <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
           Send a test message
         </h2>
         <div className="flex flex-wrap gap-4 items-end">
-          <label className="text-xs tracking-widest uppercase text-stone-500">
+          <label className="text-xs tracking-widest uppercase text-faint">
             To
             <input
               value={to}
               onChange={(e) => setTo(e.target.value)}
               placeholder="919876543210"
-              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none font-mono"
+              className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none font-mono"
             />
           </label>
           <button
             onClick={send}
             disabled={sending}
-            className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
           >
             {sending ? "Sending…" : "Send test"}
           </button>
         </div>
-        <p className="text-xs text-stone-500 mt-3">
+        <p className="text-xs text-faint mt-3">
           Country code, digits only, no plus sign. A real message is sent — it will appear
           on that phone, or the reason it did not is shown below.
         </p>
@@ -140,23 +140,23 @@ export default function Notifications() {
         {result && (
           <div
             className={`mt-8 border rounded p-5 ${
-              result.sent ? "border-orange-500/40 bg-orange-500/5" : "border-red-500/30 bg-red-950/20"
+              result.sent ? "border-brass/40 bg-brass/5" : "border-red-500/30 bg-red-950/20"
             }`}
           >
-            <div className="text-[10px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+            <div className="text-[10px] tracking-[0.2em] uppercase text-faint mb-2">
               {result.sent ? "Delivered to WhatsApp" : "Not sent"}
             </div>
             {result.sent ? (
-              <p className="text-sm text-stone-300">
+              <p className="text-sm text-muted2">
                 Accepted with id{" "}
-                <span className="font-mono text-xs text-stone-400">{result.message_id}</span>.
+                <span className="font-mono text-xs text-muted2">{result.message_id}</span>.
                 Find it in the Meta dashboard if it does not arrive.
               </p>
             ) : (
               <>
-                <p className="text-sm text-stone-300">{result.error}</p>
+                <p className="text-sm text-muted2">{result.error}</p>
                 {result.error_code != null && (
-                  <p className="text-xs text-stone-500 mt-3 font-mono">
+                  <p className="text-xs text-faint mt-3 font-mono">
                     Meta error code {result.error_code}
                   </p>
                 )}
@@ -166,64 +166,64 @@ export default function Notifications() {
         )}
 
         {/* ------------------------------------------- customer messaging */}
-        <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mt-16 mb-4">
+        <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mt-16 mb-4">
           Customer messages
         </h2>
-        <p className="text-sm text-stone-400 max-w-2xl mb-2">
+        <p className="text-sm text-muted2 max-w-2xl mb-2">
           A birthday greeting, or a note to somebody who has not been in for a while,
           arrives more than 24 hours after that customer last messaged you. WhatsApp
           refuses plain text there. It can only be a <strong>template Meta has
           approved</strong> for your business, sent by name with the customer&rsquo;s
           details filled into it.
         </p>
-        <p className="text-xs text-stone-500 max-w-2xl mb-8">
+        <p className="text-xs text-faint max-w-2xl mb-8">
           Submit the templates in the Meta dashboard under WhatsApp Manager &rarr; Message
           templates, wait for approval, then put their exact names here. Until then
           nothing sends, and BarFlow will say so rather than pretending otherwise.
         </p>
 
         {settings && (
-          <div className="border border-stone-800 bg-stone-900 p-5 max-w-2xl">
-            <label className="block text-xs tracking-widest uppercase text-stone-500 mb-6">
+          <div className="border border-hairline bg-surface p-5 max-w-2xl">
+            <label className="block text-xs tracking-widest uppercase text-faint mb-6">
               Birthday / occasion template
               <input {...field("default_occasion_template")} placeholder="guest_occasion_v1" />
-              <span className="block text-[11px] normal-case tracking-normal text-stone-600 mt-2">
+              <span className="block text-[11px] normal-case tracking-normal text-faint mt-2">
                 Used for every occasion. Variables, in order: the customer&rsquo;s name,
                 the occasion, your property&rsquo;s name.
               </span>
             </label>
 
-            <label className="block text-xs tracking-widest uppercase text-stone-500 mb-6">
+            <label className="block text-xs tracking-widest uppercase text-faint mb-6">
               Visit follow-up template
               <input {...field("follow_up_template")} placeholder="guest_follow_up_v1" />
-              <span className="block text-[11px] normal-case tracking-normal text-stone-600 mt-2">
+              <span className="block text-[11px] normal-case tracking-normal text-faint mt-2">
                 Variables, in order: the customer&rsquo;s name, your property&rsquo;s name.
               </span>
             </label>
 
-            <label className="block text-xs tracking-widest uppercase text-stone-500 mb-8">
+            <label className="block text-xs tracking-widest uppercase text-faint mb-8">
               Template language
               <input {...field("template_language")} placeholder="en" />
-              <span className="block text-[11px] normal-case tracking-normal text-stone-600 mt-2">
+              <span className="block text-[11px] normal-case tracking-normal text-faint mt-2">
                 The language code the template was approved under — often{" "}
                 <code className="font-mono">en</code> or{" "}
                 <code className="font-mono">en_US</code>. A mismatch is refused by Meta.
               </span>
             </label>
 
-            <div className="border-t border-stone-800 pt-6">
-              <label className="flex items-center gap-3 text-sm text-stone-300 cursor-pointer">
+            <div className="border-t border-hairline pt-6">
+              <label className="flex items-center gap-3 text-sm text-muted2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={Boolean(settings.follow_up_enabled)}
                   onChange={(e) =>
                     setSettings((prev) => ({ ...prev, follow_up_enabled: e.target.checked }))
                   }
-                  className="accent-orange-500 w-4 h-4"
+                  className="accent-brass w-4 h-4"
                 />
                 Follow up with customers who have not been back
               </label>
-              <label className="block text-xs tracking-widest uppercase text-stone-500 mt-5">
+              <label className="block text-xs tracking-widest uppercase text-faint mt-5">
                 After how many days
                 <input
                   type="number"
@@ -232,10 +232,10 @@ export default function Notifications() {
                   onChange={(e) =>
                     setSettings((prev) => ({ ...prev, follow_up_days: e.target.value }))
                   }
-                  className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none font-mono"
+                  className="block mt-2 w-28 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none font-mono"
                 />
               </label>
-              <p className="text-[11px] text-stone-600 mt-4 max-w-xl">
+              <p className="text-[11px] text-faint mt-4 max-w-xl">
                 This one sends itself, once per customer per visit — nobody presses
                 anything. A customer who has asked not to be messaged is never included,
                 whatever this says.
@@ -245,7 +245,7 @@ export default function Notifications() {
             <button
               onClick={saveSettings}
               disabled={savingSettings}
-              className="mt-8 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="mt-8 bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {savingSettings ? "Saving…" : "Save"}
             </button>

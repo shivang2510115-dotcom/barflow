@@ -113,7 +113,7 @@ function OccupancyFields({ value, onChange, prefix }) {
         ["max_occupancy", "Up to", "the most people it will take at all"],
         ["max_extra_beds", "Extra beds", "on top of the beds already in it"],
       ].map(([k, label, hint]) => (
-        <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+        <label key={k} className="text-xs tracking-widest uppercase text-faint">
           {label}
           <input
             type="number"
@@ -122,9 +122,9 @@ function OccupancyFields({ value, onChange, prefix }) {
             data-testid={`${prefix}-${k}`}
             value={value[k]}
             onChange={(e) => onChange({ ...value, [k]: e.target.value })}
-            className="block mt-2 w-24 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+            className="block mt-2 w-24 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
           />
-          <span className="block mt-1 text-[10px] normal-case tracking-normal text-stone-600 max-w-[9rem]">
+          <span className="block mt-1 text-[10px] normal-case tracking-normal text-faint max-w-[9rem]">
             {hint}
           </span>
         </label>
@@ -139,14 +139,14 @@ function PlacementFields({ draft, set }) {
   return (
     <>
       {[["floor", "Floor", "2"], ["block", "Block", "A"]].map(([k, label, ph]) => (
-        <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+        <label key={k} className="text-xs tracking-widest uppercase text-faint">
           {label}
           <input
             value={draft[k]}
             data-testid={`room-${k}`}
             onChange={(e) => set({ [k]: e.target.value })}
             placeholder={ph}
-            className="block mt-2 w-20 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+            className="block mt-2 w-20 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
           />
         </label>
       ))}
@@ -174,7 +174,7 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
   const clashes = range.numbers.filter((n) => existing.some((r) => r.number === n));
 
   return (
-    <div className="mt-4 pt-4 border-t border-stone-800">
+    <div className="mt-4 pt-4 border-t border-hairline">
       <div className="flex gap-2 mb-4">
         {[["one", "One room"], ["range", "A range"]].map(([mode, label]) => (
           <button
@@ -184,8 +184,8 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
             data-testid={`room-mode-${mode}`}
             className={`text-[10px] tracking-widest uppercase border rounded-full px-3 py-1 ${
               draft.mode === mode
-                ? "border-orange-500 text-orange-400"
-                : "border-stone-700 text-stone-500 hover:border-stone-500"
+                ? "border-brass text-brass"
+                : "border-hairline-strong text-faint hover:border-hairline-strong"
             }`}
           >
             {label}
@@ -195,14 +195,14 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
 
       {draft.mode === "one" ? (
         <div className="flex flex-wrap gap-4 items-end">
-          <label className="text-xs tracking-widest uppercase text-stone-500">
+          <label className="text-xs tracking-widest uppercase text-faint">
             Number
             <input
               value={draft.number}
               data-testid="room-number"
               onChange={(e) => set({ number: e.target.value })}
               placeholder="101"
-              className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+              className="block mt-2 w-28 bg-transparent border-b border-hairline-strong text-ink py-1 font-mono focus:border-brass outline-none"
             />
           </label>
           <PlacementFields draft={draft} set={set} />
@@ -210,7 +210,7 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
             onClick={onAddOne}
             disabled={busy}
             data-testid="room-add-one"
-            className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
           >
             {busy ? "Adding…" : "Add room"}
           </button>
@@ -218,25 +218,25 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
       ) : (
         <>
           <div className="flex flex-wrap gap-4 items-end">
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Prefix
               <input
                 value={draft.prefix}
                 data-testid="room-prefix"
                 onChange={(e) => set({ prefix: e.target.value })}
                 placeholder="optional"
-                className="block mt-2 w-24 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+                className="block mt-2 w-24 bg-transparent border-b border-hairline-strong text-ink py-1 font-mono focus:border-brass outline-none"
               />
             </label>
             {[["first", "From"], ["last", "To"]].map(([k, label]) => (
-              <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+              <label key={k} className="text-xs tracking-widest uppercase text-faint">
                 {label}
                 <input
                   value={draft[k]}
                   data-testid={`room-${k}`}
                   onChange={(e) => set({ [k]: e.target.value })}
                   placeholder={k === "first" ? "101" : "110"}
-                  className="block mt-2 w-24 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+                  className="block mt-2 w-24 bg-transparent border-b border-hairline-strong text-ink py-1 font-mono focus:border-brass outline-none"
                 />
               </label>
             ))}
@@ -245,7 +245,7 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
               onClick={onAddRange}
               disabled={busy || !!range.problem || range.numbers.length === 0}
               data-testid="room-add-range"
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy
                 ? "Adding…"
@@ -261,10 +261,10 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
               <p className="text-red-300">{range.problem}</p>
             ) : range.numbers.length ? (
               <>
-                <p className="text-stone-400">
+                <p className="text-muted2">
                   Will create {range.numbers.length} room
                   {range.numbers.length === 1 ? "" : "s"}:{" "}
-                  <span className="font-mono text-stone-300">
+                  <span className="font-mono text-muted2">
                     {listNumbers(range.numbers)}
                   </span>
                 </p>
@@ -277,7 +277,7 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
                 )}
               </>
             ) : (
-              <p className="text-stone-500">
+              <p className="text-faint">
                 Two numbers and the rooms between them, inclusive — 101 to 110 makes ten
                 rooms. Leading zeros are kept, so 001 to 012 numbers them 001…012.
               </p>
@@ -295,10 +295,10 @@ function AddRoomsPanel({ draft, setDraft, busy, existing, onAddOne, onAddRange, 
           className={`mt-4 rounded p-4 border text-xs ${
             result.failed.length
               ? "border-red-500/40 bg-red-950/20"
-              : "border-stone-800 bg-stone-950"
+              : "border-hairline bg-ground"
           }`}
         >
-          <p className={result.failed.length ? "text-red-200" : "text-stone-300"}>
+          <p className={result.failed.length ? "text-red-200" : "text-muted2"}>
             Created {result.made} of {result.asked}.
           </p>
           {result.failed.length > 0 && (
@@ -333,18 +333,18 @@ function RoomPanel({ room, type, types, edit, setEdit, busy, onSave, onClose, on
   return (
     <div
       data-testid="room-panel"
-      className="mt-6 border border-orange-500/40 bg-stone-900 rounded p-5 max-w-3xl"
+      className="mt-6 border border-brass/40 bg-surface rounded p-5 max-w-3xl"
     >
       <div className="flex items-baseline justify-between gap-4">
         <h3 className="text-2xl font-mono tabular-nums">{room.number}</h3>
         <button
           onClick={onClose}
-          className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-stone-300"
+          className="text-[10px] tracking-widest uppercase text-faint hover:text-muted2"
         >
           Close
         </button>
       </div>
-      <p className="text-sm text-stone-400 mt-1">
+      <p className="text-sm text-muted2 mt-1">
         {type ? `${type.name} · ${type.code}` : "Type not found"}
         {room.floor ? ` · floor ${room.floor}` : " · no floor recorded"}
         {room.block ? ` · block ${room.block}` : ""}
@@ -367,24 +367,24 @@ function RoomPanel({ room, type, types, edit, setEdit, busy, onSave, onClose, on
       )}
 
       {edit ? (
-        <div className="mt-5 pt-5 border-t border-stone-800">
+        <div className="mt-5 pt-5 border-t border-hairline">
           <div className="flex flex-wrap gap-4 items-end">
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Number
               <input
                 value={edit.number}
                 data-testid="room-edit-number"
                 onChange={(e) => setEdit({ ...edit, number: e.target.value })}
-                className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+                className="block mt-2 w-28 bg-transparent border-b border-hairline-strong text-ink py-1 font-mono focus:border-brass outline-none"
               />
             </label>
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Type
               <select
                 value={edit.room_type_id}
                 data-testid="room-edit-type"
                 onChange={(e) => setEdit({ ...edit, room_type_id: e.target.value })}
-                className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+                className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
               >
                 {types.map((t) => (
                   <option key={t.id} value={t.id}>
@@ -394,13 +394,13 @@ function RoomPanel({ room, type, types, edit, setEdit, busy, onSave, onClose, on
               </select>
             </label>
             {[["floor", "Floor"], ["block", "Block"]].map(([k, label]) => (
-              <label key={k} className="text-xs tracking-widest uppercase text-stone-500">
+              <label key={k} className="text-xs tracking-widest uppercase text-faint">
                 {label}
                 <input
                   value={edit[k] ?? ""}
                   data-testid={`room-edit-${k}`}
                   onChange={(e) => setEdit({ ...edit, [k]: e.target.value })}
-                  className="block mt-2 w-20 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                  className="block mt-2 w-20 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
                 />
               </label>
             ))}
@@ -410,31 +410,31 @@ function RoomPanel({ room, type, types, edit, setEdit, busy, onSave, onClose, on
               onClick={onSave}
               disabled={busy}
               data-testid="room-edit-save"
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy ? "Saving…" : "Save room"}
             </button>
             <button
               onClick={() => setEdit(null)}
               disabled={busy}
-              className="border border-stone-700 text-stone-400 hover:text-stone-200 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:text-ink disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Cancel
             </button>
           </div>
-          <p className="text-xs text-stone-500 mt-4 max-w-xl">
+          <p className="text-xs text-faint mt-4 max-w-xl">
             Moving a room to another type changes what it is sold as from now on. Bookings
             already taken keep the price they were quoted, and a live booking assigned to
             this room is not moved with it — check the plan for these dates first.
           </p>
         </div>
       ) : (
-        <div className="mt-5 pt-5 border-t border-stone-800 flex flex-wrap gap-4">
+        <div className="mt-5 pt-5 border-t border-hairline flex flex-wrap gap-4">
           <button
             onClick={() => setEdit({ ...room })}
             disabled={busy}
             data-testid="room-panel-edit"
-            className="text-[10px] tracking-widest uppercase text-orange-400 hover:text-orange-300 disabled:opacity-30"
+            className="text-[10px] tracking-widest uppercase text-brass hover:text-brass disabled:opacity-30"
           >
             Edit
           </button>
@@ -442,7 +442,7 @@ function RoomPanel({ room, type, types, edit, setEdit, busy, onSave, onClose, on
             onClick={onToggle}
             disabled={busy}
             data-testid={`room-toggle-${room.id}`}
-            className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30"
+            className="text-[10px] tracking-widest uppercase text-faint hover:text-brass disabled:opacity-30"
           >
             {room.active === false ? "Reactivate" : "Deactivate"}
           </button>
@@ -450,7 +450,7 @@ function RoomPanel({ room, type, types, edit, setEdit, busy, onSave, onClose, on
             onClick={onDelete}
             disabled={busy}
             data-testid={`room-delete-${room.id}`}
-            className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-30"
+            className="text-[10px] tracking-widest uppercase text-faint hover:text-red-400 disabled:opacity-30"
           >
             Delete
           </button>
@@ -762,7 +762,7 @@ export default function Rooms() {
     });
   };
 
-  if (loading) return <div className="p-6 md:p-10 text-stone-400">Loading rooms…</div>;
+  if (loading) return <div className="p-6 md:p-10 text-muted2">Loading rooms…</div>;
 
   const empty = types.length === 0;
   // Read back off the freshly loaded list, so a deleted room closes its own panel.
@@ -770,7 +770,7 @@ export default function Rooms() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Hotel</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Hotel</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-8">
         Rooms
       </h1>
@@ -781,7 +781,7 @@ export default function Rooms() {
           this is the same rooms, arranged the way the receptionist already holds them. */}
       {rooms.length > 0 && (
         <section className="mb-10" data-testid="rooms-plan">
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
             The building · {rooms.length} room{rooms.length === 1 ? "" : "s"}
           </h2>
           <RoomGrid
@@ -805,7 +805,7 @@ export default function Rooms() {
             selectedId={openRoomId}
           />
           {!isAdmin && (
-            <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+            <p className="text-xs text-faint mt-4 max-w-2xl">
               Rooms, room types and rates can only be changed by an administrator.
             </p>
           )}
@@ -833,10 +833,10 @@ export default function Rooms() {
       {isAdmin && (
         <div
           className={`rounded p-5 mb-8 max-w-4xl border ${
-            empty ? "border-orange-500/40 bg-stone-900" : "border-stone-800 bg-stone-900"
+            empty ? "border-brass/40 bg-surface" : "border-hairline bg-surface"
           }`}
         >
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
             {empty ? "Start here — your first room type" : "Add a room type"}
           </h2>
           {/* The chain, said once and only while it is still broken. A hotel with no
@@ -844,31 +844,31 @@ export default function Rooms() {
               booking — which is why an empty screen leads with the form rather than
               with a sentence describing a button that is not there. */}
           {empty && (
-            <p className="text-sm text-stone-400 mb-5 max-w-2xl">
+            <p className="text-sm text-muted2 mb-5 max-w-2xl">
               A room type is the thing guests book — Deluxe, Standard, Suite — and
               everything else hangs off it. Add one here, put rooms in it, then set a rate
               on the Rates screen. Until all three exist, no booking can be priced.
             </p>
           )}
           <div className="flex flex-wrap gap-4 items-end">
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Name
               <input
                 data-testid="room-type-name"
                 value={creating.name}
                 onChange={(e) => setCreating({ ...creating, name: e.target.value })}
                 placeholder="Deluxe Double"
-                className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
               />
             </label>
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Code
               <input
                 data-testid="room-type-code"
                 value={creating.code}
                 onChange={(e) => setCreating({ ...creating, code: e.target.value })}
                 placeholder="DLX"
-                className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+                className="block mt-2 w-28 bg-transparent border-b border-hairline-strong text-ink py-1 font-mono focus:border-brass outline-none"
               />
             </label>
             <OccupancyFields value={creating} onChange={setCreating} prefix="room-type" />
@@ -876,12 +876,12 @@ export default function Rooms() {
               onClick={createType}
               disabled={busy}
               data-testid="room-type-create"
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy ? "Saving…" : empty ? "Create it" : "Add type"}
             </button>
           </div>
-          <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+          <p className="text-xs text-faint mt-4 max-w-2xl">
             Sleeps is what the rate is quoted for; anyone above it is charged as an extra
             adult or child. Up to is the hard ceiling — a booking for more people than
             that is refused. Max occupancy cannot be below what the type sleeps as
@@ -891,7 +891,7 @@ export default function Rooms() {
       )}
 
       {empty ? (
-        <p className="text-stone-400 max-w-2xl">
+        <p className="text-muted2 max-w-2xl">
           {isAdmin
             ? "No room types yet — the form above is the whole of what is needed to make one."
             : "No room types yet. Setting them up is the owner's to do: rooms, room types and rates can only be changed by an administrator, so ask them to add one before you try to take a booking."}
@@ -908,7 +908,7 @@ export default function Rooms() {
               <div
                 key={t.id}
                 data-testid={`room-type-${t.id}`}
-                className={`border border-stone-800 bg-stone-900 rounded p-5 ${
+                className={`border border-hairline bg-surface rounded p-5 ${
                   t.active === false ? "opacity-60" : ""
                 }`}
               >
@@ -916,14 +916,14 @@ export default function Rooms() {
                   <h3 className="text-lg font-semibold">
                     {t.name}
                     {t.active === false && (
-                      <span className="text-[10px] tracking-widest uppercase text-stone-500 ml-3">
+                      <span className="text-[10px] tracking-widest uppercase text-faint ml-3">
                         not bookable
                       </span>
                     )}
                   </h3>
-                  <span className="text-xs font-mono text-stone-500">{t.code}</span>
+                  <span className="text-xs font-mono text-faint">{t.code}</span>
                 </div>
-                <p className="text-sm text-stone-400 mt-2">
+                <p className="text-sm text-muted2 mt-2">
                   Sleeps {t.base_occupancy}, up to {t.max_occupancy}
                   {t.max_extra_beds
                     ? ` plus ${t.max_extra_beds} extra bed${t.max_extra_beds === 1 ? "" : "s"}`
@@ -935,7 +935,7 @@ export default function Rooms() {
                     availability counts rooms and there are none. Said here, where the
                     button that fixes it is. */}
                 {mine.length === 0 ? (
-                  <p className="text-sm text-stone-500 mt-3">
+                  <p className="text-sm text-faint mt-3">
                     No rooms in this type yet — nothing can be booked into it until there
                     is at least one.
                   </p>
@@ -955,25 +955,25 @@ export default function Rooms() {
                           setOpenRoomId(r.id);
                         }}
                         className={`font-mono text-sm ${
-                          r.active === false ? "text-stone-600 line-through" : "text-stone-300"
-                        } ${isAdmin ? "hover:text-orange-400" : "cursor-default"}`}
+                          r.active === false ? "text-faint line-through" : "text-muted2"
+                        } ${isAdmin ? "hover:text-brass" : "cursor-default"}`}
                       >
                         {r.number}
                       </button>
                     ))}
                   </p>
                 )}
-                <p className="text-sm text-orange-400 mt-3 font-mono">
+                <p className="text-sm text-brass mt-3 font-mono">
                   {mine.length} room{mine.length === 1 ? "" : "s"}
                 </p>
 
                 {isAdmin && (
-                  <div className="mt-4 pt-4 border-t border-stone-800 flex flex-wrap gap-4">
+                  <div className="mt-4 pt-4 border-t border-hairline flex flex-wrap gap-4">
                     <button
                       onClick={() => (addingTo === t.id ? setAddingTo(null) : openAdd(t.id))}
                       disabled={busy}
                       data-testid={`room-add-open-${t.id}`}
-                      className="text-[10px] tracking-widest uppercase text-orange-400 hover:text-orange-300 disabled:opacity-30"
+                      className="text-[10px] tracking-widest uppercase text-brass hover:text-brass disabled:opacity-30"
                     >
                       {addingTo === t.id ? "Close" : "Add rooms"}
                     </button>
@@ -981,7 +981,7 @@ export default function Rooms() {
                       onClick={() => setEditingType({ ...t })}
                       disabled={busy}
                       data-testid={`room-type-edit-${t.id}`}
-                      className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-orange-400 disabled:opacity-30"
+                      className="text-[10px] tracking-widest uppercase text-faint hover:text-brass disabled:opacity-30"
                     >
                       Edit
                     </button>
@@ -991,7 +991,7 @@ export default function Rooms() {
                       }
                       disabled={busy}
                       data-testid={`room-type-delete-${t.id}`}
-                      className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-30"
+                      className="text-[10px] tracking-widest uppercase text-faint hover:text-red-400 disabled:opacity-30"
                     >
                       Delete
                     </button>
@@ -1016,27 +1016,27 @@ export default function Rooms() {
       )}
 
       {editingType && (
-        <div className="mt-8 border border-stone-800 bg-stone-900 rounded p-5 max-w-4xl">
-          <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+        <div className="mt-8 border border-hairline bg-surface rounded p-5 max-w-4xl">
+          <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
             Edit {editingType.name}
           </h3>
           <div className="flex flex-wrap gap-4 items-end">
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Name
               <input
                 data-testid="room-type-edit-name"
                 value={editingType.name}
                 onChange={(e) => setEditingType({ ...editingType, name: e.target.value })}
-                className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
               />
             </label>
-            <label className="text-xs tracking-widest uppercase text-stone-500">
+            <label className="text-xs tracking-widest uppercase text-faint">
               Code
               <input
                 data-testid="room-type-edit-code"
                 value={editingType.code}
                 onChange={(e) => setEditingType({ ...editingType, code: e.target.value })}
-                className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 font-mono focus:border-orange-500 outline-none"
+                className="block mt-2 w-28 bg-transparent border-b border-hairline-strong text-ink py-1 font-mono focus:border-brass outline-none"
               />
             </label>
             <OccupancyFields
@@ -1047,13 +1047,13 @@ export default function Rooms() {
             {/* Deactivating a type takes it out of availability without touching the
                 rooms in it — the way to stop selling a floor being refurbished without
                 deleting the record every past booking still points at. */}
-            <label className="flex items-center gap-2 text-xs tracking-widest uppercase text-stone-500 pb-2">
+            <label className="flex items-center gap-2 text-xs tracking-widest uppercase text-faint pb-2">
               <input
                 type="checkbox"
                 data-testid="room-type-edit-active"
                 checked={editingType.active !== false}
                 onChange={(e) => setEditingType({ ...editingType, active: e.target.checked })}
-                className="accent-orange-500"
+                className="accent-brass"
               />
               Bookable
             </label>
@@ -1063,19 +1063,19 @@ export default function Rooms() {
               onClick={saveType}
               disabled={busy}
               data-testid="room-type-edit-save"
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {busy ? "Saving…" : "Save"}
             </button>
             <button
               onClick={() => setEditingType(null)}
               disabled={busy}
-              className="border border-stone-700 text-stone-400 hover:text-stone-200 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:text-ink disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Cancel
             </button>
           </div>
-          <p className="text-xs text-stone-500 mt-4 max-w-2xl">
+          <p className="text-xs text-faint mt-4 max-w-2xl">
             Renaming a type renames it everywhere it is shown; bookings already taken
             against it keep the price they were quoted. Unticking Bookable stops it being
             offered for new dates and leaves its rooms and its history alone.
@@ -1089,13 +1089,13 @@ export default function Rooms() {
           <div
             data-testid="rooms-confirm"
             className={`mt-8 rounded p-5 max-w-2xl border ${
-              copy.danger ? "border-red-500/40 bg-red-950/20" : "border-stone-800 bg-stone-900"
+              copy.danger ? "border-red-500/40 bg-red-950/20" : "border-hairline bg-surface"
             }`}
           >
-            <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-2">
+            <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-2">
               {copy.title}
             </h3>
-            <p className={`text-sm mb-4 ${copy.danger ? "text-red-300" : "text-stone-400"}`}>
+            <p className={`text-sm mb-4 ${copy.danger ? "text-red-300" : "text-muted2"}`}>
               {copy.body}
             </p>
             <div className="flex gap-3">
@@ -1104,7 +1104,7 @@ export default function Rooms() {
                 disabled={busy}
                 data-testid="rooms-confirm-go"
                 className={`rounded-full px-6 py-2 text-sm tracking-widest uppercase disabled:opacity-50 text-white ${
-                  copy.danger ? "bg-red-600 hover:bg-red-500" : "bg-orange-600 hover:bg-orange-500"
+                  copy.danger ? "bg-red-600 hover:bg-red-500" : "bg-brass hover:bg-brass-deep"
                 }`}
               >
                 {busy ? "Working…" : copy.go}
@@ -1112,7 +1112,7 @@ export default function Rooms() {
               <button
                 onClick={() => setConfirming(null)}
                 disabled={busy}
-                className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
               >
                 Never mind
               </button>

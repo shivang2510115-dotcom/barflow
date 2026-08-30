@@ -68,9 +68,9 @@ function Field({ id, label, type, placeholder, required, value, onChange }) {
       : { type };
   return (
     <label className="block">
-      <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">
+      <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">
         {label}
-        {!required && <span className="text-stone-600 normal-case tracking-normal ml-2">optional</span>}
+        {!required && <span className="text-faint normal-case tracking-normal ml-2">optional</span>}
       </span>
       <Control
         data-testid={`signup-${id}`}
@@ -79,7 +79,7 @@ function Field({ id, label, type, placeholder, required, value, onChange }) {
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-transparent border-b border-stone-700 focus-neon py-2 text-base placeholder:text-stone-600"
+        className="w-full bg-transparent border-b border-hairline-strong focus-neon py-2 text-base placeholder:text-faint"
       />
     </label>
   );
@@ -97,7 +97,7 @@ function Field({ id, label, type, placeholder, required, value, onChange }) {
 function TypePicker({ value, onChange }) {
   return (
     <div>
-      <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-3">
+      <span className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-3">
         What is it?
       </span>
       <div className="space-y-2">
@@ -112,18 +112,18 @@ function TypePicker({ value, onChange }) {
               onClick={() => onChange(key)}
               className={`w-full text-left border px-4 py-3 transition-colors ${
                 on
-                  ? "border-orange-500 bg-orange-500/10"
-                  : "border-stone-800 hover:border-stone-600"
+                  ? "border-brass bg-brass/10"
+                  : "border-hairline hover:border-hairline-strong"
               }`}
             >
               <div
                 className={`text-sm font-mono uppercase tracking-widest ${
-                  on ? "text-orange-400" : "text-stone-300"
+                  on ? "text-brass" : "text-muted2"
                 }`}
               >
                 {label}
               </div>
-              <div className="text-xs text-stone-500 mt-1 leading-relaxed">{blurb}</div>
+              <div className="text-xs text-faint mt-1 leading-relaxed">{blurb}</div>
             </button>
           );
         })}
@@ -148,14 +148,14 @@ function Pending({ hotel, propertyType }) {
   const open = unlockedWhilePending(propertyType);
   const locked = lockedUntilApproved(propertyType);
   return (
-    <div className="min-h-screen bg-stone-950 text-stone-100 relative z-[2] flex items-center justify-center p-6 md:p-12">
+    <div className="min-h-screen bg-ground text-ink relative z-[2] flex items-center justify-center p-6 md:p-12">
       <div className="w-full max-w-3xl">
         <Link to="/" className="flex items-center gap-2 mb-12">
-          <Wine className="text-orange-500" size={22} />
+          <Wine className="text-brass" size={22} />
           <span className="font-display uppercase text-lg">BarFlow</span>
         </Link>
 
-        <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-500 mb-4">
+        <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-brass mb-4">
           Registered · awaiting approval
         </div>
         <h1 className="font-display uppercase text-4xl md:text-6xl leading-[0.95] tracking-tight">
@@ -163,28 +163,28 @@ function Pending({ hotel, propertyType }) {
           <br />
           the platform.
         </h1>
-        <p className="text-stone-400 mt-6 max-w-xl leading-relaxed">
+        <p className="text-muted2 mt-6 max-w-xl leading-relaxed">
           We review each business before it starts trading. That check is on us, not on you —
           sign in now and set the place up while it runs. Nothing you build in the meantime
           is thrown away when you are approved.
         </p>
 
-        <div className="grid md:grid-cols-2 gap-px bg-stone-800 border border-stone-800 mt-10">
-          <div className="bg-stone-900 p-6">
-            <div className="flex items-center gap-2 text-[10px] tracking-[0.25em] uppercase font-mono text-orange-400 mb-4">
+        <div className="grid md:grid-cols-2 gap-px bg-raised border border-hairline mt-10">
+          <div className="bg-surface p-6">
+            <div className="flex items-center gap-2 text-[10px] tracking-[0.25em] uppercase font-mono text-brass mb-4">
               <Check size={14} /> Open now
             </div>
-            <ul className="space-y-2 text-sm text-stone-300">
+            <ul className="space-y-2 text-sm text-muted2">
               {open.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
           </div>
-          <div className="bg-stone-900 p-6">
-            <div className="flex items-center gap-2 text-[10px] tracking-[0.25em] uppercase font-mono text-stone-500 mb-4">
+          <div className="bg-surface p-6">
+            <div className="flex items-center gap-2 text-[10px] tracking-[0.25em] uppercase font-mono text-faint mb-4">
               <Lock size={14} /> Waiting on approval
             </div>
-            <ul className="space-y-2 text-sm text-stone-500">
+            <ul className="space-y-2 text-sm text-faint">
               {locked.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -195,7 +195,7 @@ function Pending({ hotel, propertyType }) {
         <Link
           to="/login"
           data-testid="signup-to-login"
-          className="mt-10 inline-flex items-center gap-3 rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-7 py-3 font-mono uppercase tracking-widest text-xs transition-colors"
+          className="mt-10 inline-flex items-center gap-3 rounded-full bg-brass hover:bg-brass-deep text-on-brass px-7 py-3 font-mono uppercase tracking-widest text-xs transition-colors"
         >
           Sign in and start setting up
           <ArrowRight size={14} />
@@ -275,15 +275,15 @@ export default function Signup() {
   if (done) return <Pending hotel={done.name} propertyType={done.type} />;
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2 bg-stone-950 text-stone-100 relative z-[2]">
-      <div className="hidden md:flex flex-col justify-between p-12 border-r border-stone-800">
+    <div className="min-h-screen grid md:grid-cols-2 bg-ground text-ink relative z-[2]">
+      <div className="hidden md:flex flex-col justify-between p-12 border-r border-hairline">
         <Link to="/" className="flex items-center gap-2">
-          <Wine className="text-orange-500" size={22} />
+          <Wine className="text-brass" size={22} />
           <span className="font-display uppercase text-lg">BarFlow</span>
         </Link>
 
         <div>
-          <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-500 mb-4">
+          <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-brass mb-4">
             Register your place
           </div>
           <h2 className="font-display uppercase text-4xl leading-[0.95] tracking-tight">
@@ -291,9 +291,9 @@ export default function Signup() {
             <br />
             Your tables.
             <br />
-            <span className="text-orange-500">Or just the tables.</span>
+            <span className="text-brass">Or just the tables.</span>
           </h2>
-          <p className="text-stone-400 mt-8 max-w-sm leading-relaxed text-sm">
+          <p className="text-muted2 mt-8 max-w-sm leading-relaxed text-sm">
             One form creates the property and the first administrator together. Tell us what
             the business is and you get that console and no other — a restaurant never sees a
             front desk. You set the place up straight away; taking money waits until we have
@@ -301,14 +301,14 @@ export default function Signup() {
           </p>
         </div>
 
-        <div className="text-xs font-mono uppercase tracking-widest text-stone-500">
+        <div className="text-xs font-mono uppercase tracking-widest text-faint">
           Hotel, restaurant, bar · one console
         </div>
       </div>
 
       <div className="flex items-center justify-center p-8 md:p-12">
         <form onSubmit={submit} className="w-full max-w-sm">
-          <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-orange-500 mb-4">
+          <div className="text-[10px] tracking-[0.4em] uppercase font-mono text-brass mb-4">
             Sign up
           </div>
           <h1 className="font-display uppercase text-4xl md:text-5xl leading-none tracking-tight mb-10">
@@ -352,7 +352,7 @@ export default function Signup() {
               {/* Said out loud because the certificate is usually in a drawer at the
                   office, and a blocked signup at nine in the evening is a hotel that
                   signs up with somebody else. The property screen asks again later. */}
-              <p className="text-xs text-stone-500 mt-2">
+              <p className="text-xs text-faint mt-2">
                 Leave it blank if the certificate is not to hand — you can add it on the
                 property screen before you go live.
               </p>
@@ -372,7 +372,7 @@ export default function Signup() {
                 {/* Said once, under the second of the pair, because "optional" on each of
                     two fields reads as though both could be skipped and they cannot. */}
                 {id === "admin_phone" && (
-                  <p className="text-[11px] text-stone-500 -mt-3">
+                  <p className="text-[11px] text-faint -mt-3">
                     One of the two is enough — whichever you will actually sign in with.
                     Give both if you want to be reachable either way.
                   </p>
@@ -396,15 +396,15 @@ export default function Signup() {
             type="submit"
             disabled={busy}
             data-testid="signup-submit"
-            className="mt-8 w-full rounded-full bg-orange-600 hover:bg-orange-500 disabled:opacity-60 text-stone-950 px-6 py-3 font-mono uppercase tracking-widest text-xs transition-colors flex items-center justify-center gap-2"
+            className="mt-8 w-full rounded-full bg-brass hover:bg-brass-deep disabled:opacity-60 text-on-brass px-6 py-3 font-mono uppercase tracking-widest text-xs transition-colors flex items-center justify-center gap-2"
           >
             {busy ? "Registering…" : "Register"}
             {!busy && <ArrowRight size={14} />}
           </button>
 
-          <p className="mt-8 text-xs text-stone-500">
+          <p className="mt-8 text-xs text-faint">
             Already registered?{" "}
-            <Link to="/login" data-testid="signup-login-link" className="text-orange-400 hover:text-orange-300">
+            <Link to="/login" data-testid="signup-login-link" className="text-brass hover:text-brass">
               Sign in
             </Link>
             .

@@ -32,7 +32,7 @@ export default function AmbientBG() {
       {embers.map((e, i) => (
         <motion.span
           key={i}
-          className="absolute rounded-full bg-orange-400"
+          className="absolute rounded-full bg-brass"
           style={{
             left: `${e.left}%`,
             bottom: "-2%",

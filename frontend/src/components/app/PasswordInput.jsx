@@ -67,7 +67,7 @@ export default function PasswordInput({
         aria-controls={inputId}
         title={action}
         data-testid={testId}
-        className="absolute right-0 top-1/2 -translate-y-1/2 p-1 rounded text-stone-500 hover:text-orange-400 focus:outline-none focus-visible:ring-1 focus-visible:ring-orange-500 transition-colors"
+        className="absolute right-0 top-1/2 -translate-y-1/2 p-1 rounded text-faint hover:text-brass focus:outline-none focus-visible:ring-1 focus-visible:ring-brass transition-colors"
       >
         <Icon size={16} aria-hidden="true" />
       </button>

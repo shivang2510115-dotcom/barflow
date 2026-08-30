@@ -32,7 +32,7 @@ export default function EmptyState({ title = "Enjoy the calm.", subtitle = "No a
         />
       </motion.svg>
       <div className="font-display uppercase text-2xl tracking-tight">{title}</div>
-      <div className="text-stone-500 text-sm mt-2 font-mono uppercase tracking-widest">
+      <div className="text-faint text-sm mt-2 font-mono uppercase tracking-widest">
         {subtitle}
       </div>
       {cta && <div className="mt-6">{cta}</div>}

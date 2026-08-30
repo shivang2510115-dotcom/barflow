@@ -27,32 +27,32 @@ const LOOK = {
   active: {
     icon: Check,
     label: "Active",
-    tile: "border-stone-600 bg-stone-900 text-stone-100",
-    chip: "text-stone-400",
+    tile: "border-hairline-strong bg-surface text-ink",
+    chip: "text-muted2",
   },
   free: {
     icon: Check,
     label: "Free",
-    tile: "border-emerald-500/60 bg-emerald-500/5 text-stone-100",
-    chip: "text-emerald-300",
+    tile: "border-state-free/60 bg-state-free/5 text-ink",
+    chip: "text-state-free",
   },
   vacant: {
     icon: DoorOpen,
     label: "Vacant",
-    tile: "border-stone-700 bg-stone-900 text-stone-300",
-    chip: "text-stone-500",
+    tile: "border-hairline bg-surface text-muted2",
+    chip: "text-faint",
   },
   taken: {
     icon: User,
     label: "Taken",
-    tile: "border-orange-500/60 bg-orange-500/10 text-stone-100",
-    chip: "text-orange-300",
+    tile: "border-state-occupied/60 bg-state-occupied/10 text-ink",
+    chip: "text-state-occupied",
   },
   occupied: {
     icon: User,
     label: "Occupied",
-    tile: "border-orange-500/60 bg-orange-500/10 text-stone-100",
-    chip: "text-orange-300",
+    tile: "border-state-occupied/60 bg-state-occupied/10 text-ink",
+    chip: "text-state-occupied",
   },
   blocked: {
     icon: Wrench,
@@ -60,20 +60,20 @@ const LOOK = {
     // The hatch is the point: an out-of-order room reads as struck through even in a
     // photocopy, and it is the one state where acting on the wrong answer means walking
     // a guest to a room with no water.
-    tile: "border-red-500/60 room-tile-hatch text-stone-100",
-    chip: "text-red-300",
+    tile: "border-state-alert/60 room-tile-hatch text-ink",
+    chip: "text-state-alert",
   },
   inactive: {
     icon: PowerOff,
     label: "Inactive",
-    tile: "border-dashed border-stone-700 bg-stone-950 text-stone-500",
-    chip: "text-stone-500",
+    tile: "border-dashed border-hairline bg-ground text-faint",
+    chip: "text-faint",
   },
   full: {
     icon: Ban,
     label: "Not bookable",
-    tile: "border-stone-700 bg-stone-950 text-stone-400",
-    chip: "text-stone-500",
+    tile: "border-hairline bg-ground text-muted2",
+    chip: "text-faint",
   },
 
   // The fourth question, and the reason this table is a table: housekeeping asks whether
@@ -88,34 +88,34 @@ const LOOK = {
   clean: {
     icon: Sparkles,
     label: "Clean",
-    tile: "border-emerald-500/60 bg-emerald-500/5 text-stone-100",
-    chip: "text-emerald-300",
+    tile: "border-state-free/60 bg-state-free/5 text-ink",
+    chip: "text-state-free",
   },
   dirty: {
     icon: Brush,
     label: "Dirty",
-    tile: "border-amber-500/60 bg-amber-500/10 text-stone-100",
-    chip: "text-amber-300",
+    tile: "border-state-dirty/60 bg-state-dirty/10 text-ink",
+    chip: "text-state-dirty",
   },
   inspected: {
     icon: BadgeCheck,
     label: "Inspected",
-    tile: "border-sky-500/60 bg-sky-500/5 text-stone-100",
-    chip: "text-sky-300",
+    tile: "border-state-inspected/60 bg-state-inspected/5 text-ink",
+    chip: "text-state-inspected",
   },
   out_of_order: {
     icon: Wrench,
     label: "Out of order",
-    tile: "border-red-500/60 room-tile-hatch text-stone-100",
-    chip: "text-red-300",
+    tile: "border-state-alert/60 room-tile-hatch text-ink",
+    chip: "text-state-alert",
   },
 };
 
 const FALLBACK = {
   icon: DoorOpen,
   label: "Unknown",
-  tile: "border-stone-700 bg-stone-900",
-  chip: "text-stone-500",
+  tile: "border-hairline bg-surface",
+  chip: "text-faint",
 };
 const look = (state) => LOOK[state] || FALLBACK;
 
@@ -141,10 +141,10 @@ function RoomTile({ room, type, view, onSelect, selectable, selected, testId }) 
       className={`room-tile relative text-left rounded border p-3 min-h-[5.5rem] flex flex-col justify-between
         transition-[color,background-color,border-color,box-shadow] duration-300 ease-out
         ${tile}
-        ${selected ? "ring-2 ring-orange-500 ring-offset-2 ring-offset-stone-950" : ""}
+        ${selected ? "ring-2 ring-brass ring-offset-2 ring-offset-ground" : ""}
         ${
           Wrapper === "button"
-            ? "hover:border-orange-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 cursor-pointer"
+            ? "hover:border-brass focus:outline-none focus-visible:ring-2 focus-visible:ring-brass cursor-pointer"
             : ""
         }
         ${onSelect && !selectable ? "opacity-70" : ""}`}
@@ -159,7 +159,7 @@ function RoomTile({ room, type, view, onSelect, selectable, selected, testId }) 
 
       <div className="mt-2">
         {type && (
-          <div className="text-[10px] tracking-[0.2em] uppercase text-stone-500 truncate">
+          <div className="text-[10px] tracking-[0.2em] uppercase text-faint truncate">
             {type.code || type.name}
           </div>
         )}
@@ -168,12 +168,12 @@ function RoomTile({ room, type, view, onSelect, selectable, selected, testId }) 
           {view.label}
         </div>
         {view.note && (
-          <div className="text-[11px] text-stone-300 truncate mt-1" title={view.note}>
+          <div className="text-[11px] text-muted2 truncate mt-1" title={view.note}>
             {view.note}
           </div>
         )}
         {(view.lines || []).filter(Boolean).map((line) => (
-          <div key={line} className="text-[10px] font-mono tabular-nums text-stone-500 truncate">
+          <div key={line} className="text-[10px] font-mono tabular-nums text-faint truncate">
             {line}
           </div>
         ))}
@@ -201,7 +201,7 @@ function Legend({ entries, order }) {
           >
             <Icon className="w-3.5 h-3.5" aria-hidden="true" />
             {label}
-            <span className="font-mono text-stone-500">{count}</span>
+            <span className="font-mono text-faint">{count}</span>
           </span>
         );
       })}
@@ -231,7 +231,7 @@ export default function RoomGrid({
   testIdPrefix = "room-tile",
 }) {
   const floors = groupRoomsByFloor(rooms);
-  if (floors.length === 0) return <p className="text-stone-500 text-sm">{empty}</p>;
+  if (floors.length === 0) return <p className="text-faint text-sm">{empty}</p>;
 
   const views = new Map((rooms || []).map((r) => [r.id, stateOf(r)]));
 
@@ -252,9 +252,9 @@ export default function RoomGrid({
             className="room-floor"
             style={{ animationDelay: `${Math.min(i, 6) * 60}ms` }}
           >
-            <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-3 flex items-baseline gap-3">
+            <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-3 flex items-baseline gap-3">
               {floor.label}
-              <span className="font-mono text-stone-600">{floor.rooms.length}</span>
+              <span className="font-mono text-faint">{floor.rooms.length}</span>
             </h3>
             {/* auto-fill down to 7rem: four or five doors across a tablet held in
                 portrait, more on a laptop, and never a horizontal scrollbar. */}

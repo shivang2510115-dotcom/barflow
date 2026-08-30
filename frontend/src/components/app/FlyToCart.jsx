@@ -35,13 +35,13 @@ export default function FlyToCart({ flights, onDone }) {
             }}
             transition={{ duration: 0.75, ease: [0.5, -0.2, 0.7, 1.2], times: [0, 0.5, 1] }}
             onAnimationComplete={() => onDone(f.id)}
-            className="absolute origin-top-left overflow-hidden shadow-[0_10px_40px_-10px_rgba(234,88,12,0.7)] ring-1 ring-orange-500/60"
+            className="absolute origin-top-left overflow-hidden shadow-[0_10px_40px_-10px_rgba(234,88,12,0.7)] ring-1 ring-brass/60"
             style={{ top: 0, left: 0 }}
           >
             {f.image ? (
               <img src={f.image} alt="" className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full bg-orange-600" />
+              <div className="w-full h-full bg-brass" />
             )}
           </motion.div>
         ))}

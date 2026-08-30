@@ -1,3 +1,17 @@
+/**
+ * Resolve a palette token, keeping Tailwind's opacity modifier working.
+ *
+ * The tokens in index.css hold space-separated RGB channels rather than hex, which is
+ * what makes `bg-brass/10` possible: Tailwind substitutes the alpha into the slot, and
+ * a bare `var(--brass)` holding `#a85b18` would have nowhere to put it and would drop
+ * the opacity silently. The rooms grid tints every occupied tile that way, so this is
+ * load-bearing rather than tidiness.
+ */
+const withOpacity = (variable) => ({ opacityValue }) =>
+  opacityValue === undefined
+    ? `rgb(var(${variable}))`
+    : `rgb(var(${variable}) / ${opacityValue})`;
+
 /** @type {import('tailwindcss').Config} */
 module.exports = {
     darkMode: ["class"],
@@ -13,6 +27,36 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)'
       },
       colors: {
+        // The app's own palette, as roles rather than shades — see index.css for what
+        // each one means and why. Each token is stored there as RGB channels with its
+        // hex kept alongside in a comment, so contrast stays checkable by eye without
+        // decoding three integers.
+        //
+        // Written through `withOpacity` so that `bg-brass/10` still works: a bare
+        // `var(--brass)` would silently drop the opacity modifier, and the rooms grid
+        // depends on tinted fills.
+        ground: withOpacity('--ground'),
+        surface: withOpacity('--surface'),
+        raised: withOpacity('--raised'),
+
+        ink: withOpacity('--ink'),
+        muted2: withOpacity('--muted'),
+        faint: withOpacity('--faint'),
+
+        hairline: withOpacity('--hairline'),
+        'hairline-strong': withOpacity('--hairline-strong'),
+
+        brass: withOpacity('--brass'),
+        'brass-deep': withOpacity('--brass-deep'),
+        'on-brass': withOpacity('--on-brass'),
+
+        // Room state. Never the brand hue — see the note in index.css.
+        'state-free': withOpacity('--state-free'),
+        'state-occupied': withOpacity('--state-occupied'),
+        'state-dirty': withOpacity('--state-dirty'),
+        'state-alert': withOpacity('--state-alert'),
+        'state-inspected': withOpacity('--state-inspected'),
+
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {

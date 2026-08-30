@@ -189,13 +189,13 @@ export default function InventoryImport({ items, onApplied }) {
   };
 
   return (
-    <div className="mt-8 border border-stone-800 bg-stone-900/40">
-      <div className="p-4 flex flex-wrap items-center gap-3 border-b border-stone-800">
+    <div className="mt-8 border border-hairline bg-surface/40">
+      <div className="p-4 flex flex-wrap items-center gap-3 border-b border-hairline">
         <div className="mr-auto">
-          <div className="text-[10px] uppercase tracking-[0.3em] font-mono text-orange-500">
+          <div className="text-[10px] uppercase tracking-[0.3em] font-mono text-brass">
             Bulk import
           </div>
-          <p className="text-xs text-stone-500 mt-1">
+          <p className="text-xs text-faint mt-1">
             CSV or Excel (.xlsx), up to {MAX_UPLOAD_LABEL}. Nothing is saved until you
             review it and press Apply.
           </p>
@@ -204,11 +204,11 @@ export default function InventoryImport({ items, onApplied }) {
           type="button"
           onClick={downloadTemplate}
           data-testid="inv-import-template"
-          className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 py-2 px-4 text-[10px] font-mono uppercase tracking-widest"
+          className="flex items-center gap-2 border border-hairline-strong hover:border-brass py-2 px-4 text-[10px] font-mono uppercase tracking-widest"
         >
           <Download size={12} /> Template
         </button>
-        <label className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 py-2 px-4 text-[10px] font-mono uppercase tracking-widest cursor-pointer">
+        <label className="flex items-center gap-2 border border-hairline-strong hover:border-brass py-2 px-4 text-[10px] font-mono uppercase tracking-widest cursor-pointer">
           <Upload size={12} /> {report ? "Choose another" : "Choose file"}
           <input
             ref={fileInput}
@@ -223,7 +223,7 @@ export default function InventoryImport({ items, onApplied }) {
 
       {outcome && (
         <div
-          className={`p-4 border-b border-stone-800 text-sm ${outcome.complete ? "text-emerald-400" : "text-red-400"}`}
+          className={`p-4 border-b border-hairline text-sm ${outcome.complete ? "text-emerald-400" : "text-red-400"}`}
           data-testid="inv-import-outcome"
         >
           <div className="font-mono text-xs uppercase tracking-widest">
@@ -231,7 +231,7 @@ export default function InventoryImport({ items, onApplied }) {
             {outcome.complete ? "" : ` · ${outcome.failed.length} failed`}
           </div>
           {!outcome.complete && (
-            <ul className="mt-2 space-y-1 text-xs text-stone-400">
+            <ul className="mt-2 space-y-1 text-xs text-muted2">
               <li className="text-red-400">
                 These rows were not written. Everything above them was.
               </li>
@@ -258,11 +258,11 @@ export default function InventoryImport({ items, onApplied }) {
 
       {rows.length > 0 && (
         <>
-          <div className="p-4 flex flex-wrap items-center gap-4 text-[10px] font-mono uppercase tracking-widest border-b border-stone-800">
-            <span className="text-stone-500">{filename}</span>
+          <div className="p-4 flex flex-wrap items-center gap-4 text-[10px] font-mono uppercase tracking-widest border-b border-hairline">
+            <span className="text-faint">{filename}</span>
             <span className="text-emerald-400">{counts.create} to create</span>
             <span className="text-sky-400">{counts.update} to update</span>
-            <span className="text-stone-500">{counts.skip} skipped</span>
+            <span className="text-faint">{counts.skip} skipped</span>
             {blocked.length > 0 && (
               <span className="text-red-400" data-testid="inv-import-blocked">
                 {blocked.length} with problems
@@ -273,7 +273,7 @@ export default function InventoryImport({ items, onApplied }) {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left border-b border-stone-800 text-[10px] uppercase tracking-widest font-mono text-stone-500">
+                <tr className="text-left border-b border-hairline text-[10px] uppercase tracking-widest font-mono text-faint">
                   <th className="p-3">Row</th>
                   <th className="p-3">Item</th>
                   <th className="p-3">Unit</th>
@@ -297,7 +297,7 @@ export default function InventoryImport({ items, onApplied }) {
                       className={`bg-transparent border-b py-1 w-full ${
                         problems.some((p) => p.column === column)
                           ? "border-red-500 text-red-400"
-                          : "border-stone-700 focus-neon"
+                          : "border-hairline-strong focus-neon"
                       }`}
                     />
                   );
@@ -305,17 +305,17 @@ export default function InventoryImport({ items, onApplied }) {
                     <tr
                       key={r.row}
                       data-testid={`inv-import-row-${r.row}`}
-                      className={`border-b border-stone-800/60 align-top ${
+                      className={`border-b border-hairline/60 align-top ${
                         r.target === "skip" ? "opacity-40" : ""
                       }`}
                     >
-                      <td className="p-3 font-mono text-xs text-stone-500">{r.row}</td>
+                      <td className="p-3 font-mono text-xs text-faint">{r.row}</td>
                       <td className="p-3 min-w-[12rem]">{cell("name")}</td>
                       <td className="p-3 w-24">{cell("unit")}</td>
                       <td className="p-3 w-32">
                         {cell("stock")}
                         {target && (
-                          <div className="mt-1 font-mono text-[10px] text-stone-500">
+                          <div className="mt-1 font-mono text-[10px] text-faint">
                             {target.stock} → <span className="text-sky-400">{num(r.stock)}</span>
                           </div>
                         )}
@@ -324,7 +324,7 @@ export default function InventoryImport({ items, onApplied }) {
                       <td className="p-3 w-32">
                         {cell("cost_per_unit")}
                         {target && (
-                          <div className="mt-1 font-mono text-[10px] text-stone-500">
+                          <div className="mt-1 font-mono text-[10px] text-faint">
                             {currency(target.cost_per_unit)} →{" "}
                             <span className="text-sky-400">{currency(r.cost_per_unit)}</span>
                           </div>
@@ -336,7 +336,7 @@ export default function InventoryImport({ items, onApplied }) {
                           data-testid={`inv-import-${r.row}-target`}
                           value={r.target}
                           onChange={(e) => retarget(r.row, e.target.value)}
-                          className="bg-stone-900 border border-stone-700 py-1 px-2 text-xs w-full"
+                          className="bg-surface border border-hairline-strong py-1 px-2 text-xs w-full"
                         >
                           <option value="">Create as a new item</option>
                           <option value="skip">Drop this row</option>
@@ -369,7 +369,7 @@ export default function InventoryImport({ items, onApplied }) {
             </table>
           </div>
 
-          <div className="p-4 flex flex-wrap items-center gap-3 border-t border-stone-800">
+          <div className="p-4 flex flex-wrap items-center gap-3 border-t border-hairline">
             {blocked.length > 0 && (
               <p className="text-xs text-red-400 mr-auto flex items-center gap-2">
                 <AlertTriangle size={14} />
@@ -378,7 +378,7 @@ export default function InventoryImport({ items, onApplied }) {
               </p>
             )}
             {blocked.length === 0 && (
-              <p className="text-xs text-stone-500 mr-auto">
+              <p className="text-xs text-faint mr-auto">
                 {counts.create + counts.update} row(s) will be written. Nothing has been
                 saved yet.
               </p>
@@ -386,7 +386,7 @@ export default function InventoryImport({ items, onApplied }) {
             <button
               type="button"
               onClick={reset}
-              className="flex items-center gap-2 border border-stone-700 hover:border-stone-500 py-2 px-4 text-[10px] font-mono uppercase tracking-widest"
+              className="flex items-center gap-2 border border-hairline-strong hover:border-hairline-strong py-2 px-4 text-[10px] font-mono uppercase tracking-widest"
             >
               <X size={12} /> Cancel
             </button>
@@ -395,7 +395,7 @@ export default function InventoryImport({ items, onApplied }) {
               onClick={apply}
               data-testid="inv-import-apply"
               disabled={busy || blocked.length > 0 || counts.create + counts.update === 0}
-              className="flex items-center gap-2 rounded-full bg-orange-600 hover:bg-orange-500 disabled:bg-stone-800 disabled:text-stone-600 text-stone-950 py-2 px-5 text-[10px] font-mono uppercase tracking-widest"
+              className="flex items-center gap-2 rounded-full bg-brass hover:bg-brass-deep disabled:bg-raised disabled:text-faint text-on-brass py-2 px-5 text-[10px] font-mono uppercase tracking-widest"
             >
               <Check size={12} /> Apply {counts.create + counts.update} row(s)
             </button>

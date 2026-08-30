@@ -5,11 +5,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
 const STATUS_STYLE = {
-  confirmed: "text-orange-400 border-orange-500/40",
+  confirmed: "text-brass border-brass/40",
   tentative: "text-amber-300 border-amber-400/40",
   checked_in: "text-emerald-400 border-emerald-500/40",
-  checked_out: "text-stone-400 border-stone-600",
-  cancelled: "text-stone-500 border-stone-700 line-through",
+  checked_out: "text-muted2 border-hairline-strong",
+  cancelled: "text-faint border-hairline-strong line-through",
   no_show: "text-red-400 border-red-500/40",
 };
 
@@ -230,7 +230,7 @@ export default function BookingDetail() {
     }
   };
 
-  if (!b) return <div className="p-6 md:p-10 text-stone-400">Loading booking…</div>;
+  if (!b) return <div className="p-6 md:p-10 text-muted2">Loading booking…</div>;
 
   const expired = isExpiredHold(b);
   // A cancelled, departed or no-show booking holds no room, and the server refuses to
@@ -247,7 +247,7 @@ export default function BookingDetail() {
 
   return (
     <div className="p-6 md:p-10">
-      <button onClick={() => nav("/app/hotel/bookings")} className="text-xs tracking-widest uppercase text-stone-500 hover:text-orange-400 mb-4">
+      <button onClick={() => nav("/app/hotel/bookings")} className="text-xs tracking-widest uppercase text-faint hover:text-brass mb-4">
         ← All bookings
       </button>
       <div className="flex items-center gap-3 mb-3">
@@ -268,7 +268,7 @@ export default function BookingDetail() {
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         {b.reference}
       </h1>
-      <p className="text-stone-400 mb-8">
+      <p className="text-muted2 mb-8">
         {b.guest?.name} · {b.guest?.phone}
       </p>
 
@@ -282,25 +282,25 @@ export default function BookingDetail() {
           ["Check out", b.check_out],
           ["Source", b.source],
         ].map(([label, value]) => (
-          <div key={label} className="border border-stone-800 bg-stone-900 rounded p-4">
-            <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500">{label}</div>
+          <div key={label} className="border border-hairline bg-surface rounded p-4">
+            <div className="text-[11px] tracking-[0.2em] uppercase text-faint">{label}</div>
             <div className="mt-1 tabular-nums">{value || "—"}</div>
           </div>
         ))}
       </div>
 
       {roomEditable && !confirming && !forcing && !extending && (
-        <div className="border border-stone-800 bg-stone-900 rounded p-5 max-w-xl mb-8">
-          <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">Room</h2>
+        <div className="border border-hairline bg-surface rounded p-5 max-w-xl mb-8">
+          <h2 className="text-xs tracking-[0.2em] uppercase text-faint mb-3">Room</h2>
           <p className="text-sm mb-4">
             {b.room ? (
               <>
-                Holding room <span className="text-orange-400 font-semibold">{b.room.number}</span>
-                {b.room.floor ? <span className="text-stone-500"> · floor {b.room.floor}</span> : null}
-                {b.status === "checked_in" && <span className="text-stone-500"> · guest in house</span>}
+                Holding room <span className="text-brass font-semibold">{b.room.number}</span>
+                {b.room.floor ? <span className="text-faint"> · floor {b.room.floor}</span> : null}
+                {b.status === "checked_in" && <span className="text-faint"> · guest in house</span>}
               </>
             ) : (
-              <span className="text-stone-400">
+              <span className="text-muted2">
                 No room yet — this booking holds a {b.room_type?.name || "room type"}, not a door.
               </span>
             )}
@@ -311,7 +311,7 @@ export default function BookingDetail() {
               <button
                 onClick={startAssign}
                 disabled={busyAnywhere}
-                className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                className="border border-brass/50 text-brass hover:bg-brass-deep/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
               >
                 {b.room ? "Change room" : "Assign room"}
               </button>
@@ -322,7 +322,7 @@ export default function BookingDetail() {
                 <button
                   onClick={() => setClearing(true)}
                   disabled={busyAnywhere}
-                  className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                  className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
                 >
                   Clear room
                 </button>
@@ -331,8 +331,8 @@ export default function BookingDetail() {
           )}
 
           {assigning && (
-            <div className="border border-orange-500/40 bg-orange-950/10 rounded p-4">
-              <p className="text-sm text-stone-300 mb-3">
+            <div className="border border-brass/40 bg-brass/10 rounded p-4">
+              <p className="text-sm text-muted2 mb-3">
                 A room is held for the whole stay, {b.check_in} → {b.check_out}. If another
                 booking already has it, this is refused and says which one.
               </p>
@@ -340,7 +340,7 @@ export default function BookingDetail() {
                 autoFocus
                 value={picked}
                 onChange={(e) => setPicked(e.target.value)}
-                className="block bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+                className="block bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
               >
                 <option value="">Choose a room…</option>
                 {matchingRooms.length === 0 ? (
@@ -360,7 +360,7 @@ export default function BookingDetail() {
                 <button
                   onClick={() => setRoom(picked)}
                   disabled={savingRoom || !picked}
-                  className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                  className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
                 >
                   {savingRoom ? "Assigning…" : "Confirm room"}
                 </button>
@@ -370,7 +370,7 @@ export default function BookingDetail() {
                     setPicked("");
                   }}
                   disabled={savingRoom}
-                  className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                  className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
                 >
                   Never mind
                 </button>
@@ -379,8 +379,8 @@ export default function BookingDetail() {
           )}
 
           {clearing && (
-            <div className="border border-stone-700 bg-stone-950 rounded p-4">
-              <p className="text-sm text-stone-300 mb-3">
+            <div className="border border-hairline-strong bg-ground rounded p-4">
+              <p className="text-sm text-muted2 mb-3">
                 This releases room {b.room?.number} for these dates — anyone else may take
                 it, and this booking goes back to holding only a room type.
               </p>
@@ -388,14 +388,14 @@ export default function BookingDetail() {
                 <button
                   onClick={() => setRoom(null)}
                   disabled={savingRoom}
-                  className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                  className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
                 >
                   {savingRoom ? "Clearing…" : "Confirm clear"}
                 </button>
                 <button
                   onClick={() => setClearing(false)}
                   disabled={savingRoom}
-                  className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+                  className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
                 >
                   Never mind
                 </button>
@@ -405,22 +405,22 @@ export default function BookingDetail() {
         </div>
       )}
 
-      <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">Price breakdown</h2>
+      <h2 className="text-xs tracking-[0.2em] uppercase text-faint mb-3">Price breakdown</h2>
       <div className="overflow-x-auto mb-8">
         <table className="w-full text-sm border-collapse max-w-2xl">
           <thead>
-            <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
-              <th className="text-left py-2 px-3 border-b border-stone-800">Night</th>
-              <th className="text-right py-2 px-3 border-b border-stone-800">Tariff</th>
-              <th className="text-right py-2 px-3 border-b border-stone-800">GST</th>
+            <tr className="text-[11px] tracking-[0.2em] uppercase text-faint">
+              <th className="text-left py-2 px-3 border-b border-hairline">Night</th>
+              <th className="text-right py-2 px-3 border-b border-hairline">Tariff</th>
+              <th className="text-right py-2 px-3 border-b border-hairline">GST</th>
             </tr>
           </thead>
           <tbody>
             {(b.quote?.nights || []).map((n) => (
               <tr key={n.date}>
-                <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs">{n.date}</td>
-                <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums">{currency(n.tariff)}</td>
-                <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums text-stone-400">
+                <td className="py-2 px-3 border-b border-hairline font-mono text-xs">{n.date}</td>
+                <td className="py-2 px-3 border-b border-hairline text-right tabular-nums">{currency(n.tariff)}</td>
+                <td className="py-2 px-3 border-b border-hairline text-right tabular-nums text-muted2">
                   {currency(n.gst_amount)} <span className="text-xs">({n.gst_percent}%)</span>
                 </td>
               </tr>
@@ -428,7 +428,7 @@ export default function BookingDetail() {
             <tr className="font-semibold">
               <td className="py-3 px-3">Total</td>
               <td />
-              <td className="py-3 px-3 text-right tabular-nums text-orange-400">
+              <td className="py-3 px-3 text-right tabular-nums text-brass">
                 {currency(b.quote?.total)}
               </td>
             </tr>
@@ -443,7 +443,7 @@ export default function BookingDetail() {
               onClick={startExtend}
               disabled={busyAnywhere}
               data-testid="extend-stay"
-              className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-brass/50 text-brass hover:bg-brass-deep/10 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Extend stay
             </button>
@@ -461,16 +461,16 @@ export default function BookingDetail() {
       )}
 
       {extending && (
-        <div className="border border-orange-500/40 bg-stone-900 rounded p-5 max-w-xl mb-4">
-          <h2 className="text-xs tracking-[0.2em] uppercase text-stone-500 mb-3">
+        <div className="border border-brass/40 bg-surface rounded p-5 max-w-xl mb-4">
+          <h2 className="text-xs tracking-[0.2em] uppercase text-faint mb-3">
             Extend stay
           </h2>
-          <p className="text-sm text-stone-400 mb-4">
+          <p className="text-sm text-muted2 mb-4">
             Check-in stays at <span className="font-mono">{b.check_in}</span>. Only the
             added nights are priced — the nights already quoted keep the price the guest
             was given.
           </p>
-          <label className="text-xs tracking-widest uppercase text-stone-500">
+          <label className="text-xs tracking-widest uppercase text-faint">
             New check out
             <input
               type="date"
@@ -478,10 +478,10 @@ export default function BookingDetail() {
               value={newCheckOut}
               min={addDays(b.check_out, 1)}
               onChange={(e) => setNewCheckOut(e.target.value)}
-              className="block mt-2 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+              className="block mt-2 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
             />
           </label>
-          <p className="text-xs text-stone-500 mt-3">
+          <p className="text-xs text-faint mt-3">
             Currently leaving <span className="font-mono">{b.check_out}</span>
             {newCheckOut > b.check_out && (
               <>
@@ -499,14 +499,14 @@ export default function BookingDetail() {
             <button
               onClick={confirmExtend}
               disabled={savingExtend || !newCheckOut || newCheckOut <= b.check_out}
-              className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               {savingExtend ? "Extending…" : "Confirm extension"}
             </button>
             <button
               onClick={abortExtend}
               disabled={savingExtend}
-              className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Never mind
             </button>
@@ -519,7 +519,7 @@ export default function BookingDetail() {
           {folioId && (
             <Link
               to={`/app/hotel/folios/${folioId}`}
-              className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-brass/50 text-brass hover:bg-brass-deep/10 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Open folio
             </Link>
@@ -527,7 +527,7 @@ export default function BookingDetail() {
           <button
             onClick={checkOut}
             disabled={checkingOut || busy}
-            className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-6 py-2 text-sm tracking-widest uppercase"
           >
             {checkingOut ? "Checking out…" : "Check out"}
           </button>
@@ -557,7 +557,7 @@ export default function BookingDetail() {
             onChange={(e) => setForceReason(e.target.value)}
             placeholder="Reason for forcing check-out with a balance"
             rows={3}
-            className="w-full bg-stone-950 border border-stone-700 text-stone-100 rounded p-3 text-sm focus:border-red-500 outline-none"
+            className="w-full bg-ground border border-hairline-strong text-ink rounded p-3 text-sm focus:border-red-500 outline-none"
           />
           <div className="flex gap-3 mt-4">
             <button
@@ -570,7 +570,7 @@ export default function BookingDetail() {
             <button
               onClick={abortForceCheckOut}
               disabled={checkingOut}
-              className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Never mind
             </button>
@@ -582,7 +582,7 @@ export default function BookingDetail() {
         <div className="mb-4">
           <Link
             to={`/app/hotel/folios/${folioId}`}
-            className="border border-orange-500/50 text-orange-400 hover:bg-orange-500/10 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+            className="border border-brass/50 text-brass hover:bg-brass-deep/10 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
           >
             Open folio
           </Link>
@@ -600,7 +600,7 @@ export default function BookingDetail() {
             onChange={(e) => setReason(e.target.value)}
             placeholder="Reason for cancelling"
             rows={3}
-            className="w-full bg-stone-950 border border-stone-700 text-stone-100 rounded p-3 text-sm focus:border-red-500 outline-none"
+            className="w-full bg-ground border border-hairline-strong text-ink rounded p-3 text-sm focus:border-red-500 outline-none"
           />
           <div className="flex gap-3 mt-4">
             <button
@@ -613,7 +613,7 @@ export default function BookingDetail() {
             <button
               onClick={abortCancel}
               disabled={busy}
-              className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
+              className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-6 py-2 text-sm tracking-widest uppercase"
             >
               Never mind
             </button>
@@ -622,7 +622,7 @@ export default function BookingDetail() {
       )}
 
       {b.status === "cancelled" && b.cancellation_reason && (
-        <p className="text-sm text-stone-500">Cancelled — {b.cancellation_reason}</p>
+        <p className="text-sm text-faint">Cancelled — {b.cancellation_reason}</p>
       )}
     </div>
   );

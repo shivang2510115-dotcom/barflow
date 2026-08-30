@@ -57,11 +57,11 @@ import {
 
 const PILL =
   "border rounded-full px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest transition-colors";
-const CHOSEN = "border-orange-500 text-orange-400 bg-orange-500/10";
-const UNCHOSEN = "border-stone-700 text-stone-500 hover:border-stone-500 hover:text-stone-300";
+const CHOSEN = "border-brass text-brass bg-brass/10";
+const UNCHOSEN = "border-hairline-strong text-faint hover:border-hairline-strong hover:text-muted2";
 const FIELD =
-  "block mt-2 w-full bg-stone-950 border border-stone-700 text-stone-100 py-2 px-3 rounded focus:border-orange-500 outline-none";
-const LABEL = "text-[10px] tracking-[0.2em] uppercase text-stone-500";
+  "block mt-2 w-full bg-ground border border-hairline-strong text-ink py-2 px-3 rounded focus:border-brass outline-none";
+const LABEL = "text-[10px] tracking-[0.2em] uppercase text-faint";
 
 const VIEW_LABELS = { month: "Month", week: "Week", day: "Day" };
 
@@ -94,7 +94,7 @@ function EventChip({ event, colour, onOpen, compact }) {
       onClick={() => onOpen(event)}
       data-testid={`event-${event.occurrence_id}`}
       title={`${event.title} · ${timeLabel(event)}`}
-      className="planner-chip w-full text-left flex items-baseline gap-1.5 px-1 py-0.5 rounded-sm hover:bg-stone-800/80 focus:bg-stone-800 outline-none"
+      className="planner-chip w-full text-left flex items-baseline gap-1.5 px-1 py-0.5 rounded-sm hover:bg-raised/80 focus:bg-raised outline-none"
     >
       <span
         aria-hidden="true"
@@ -102,11 +102,11 @@ function EventChip({ event, colour, onOpen, compact }) {
         style={{ backgroundColor: colour || "#78716c" }}
       />
       {!event.all_day && (
-        <span className="shrink-0 font-mono text-[10px] tabular-nums text-stone-500">
+        <span className="shrink-0 font-mono text-[10px] tabular-nums text-faint">
           {event.start_time}
         </span>
       )}
-      <span className={`truncate text-stone-300 ${compact ? "text-[11px]" : "text-xs"}`}>
+      <span className={`truncate text-muted2 ${compact ? "text-[11px]" : "text-xs"}`}>
         {event.title}
       </span>
     </button>
@@ -124,8 +124,8 @@ function MonthCell({ day, anchor, today, events, colours, onOpen, onAdd, canEdit
   return (
     <div
       data-testid={`day-${day}`}
-      className={`planner-day min-h-[7rem] border-b border-r border-stone-800 p-1.5 flex flex-col gap-0.5 ${
-        outside ? "bg-stone-950/60" : "bg-stone-950"
+      className={`planner-day min-h-[7rem] border-b border-r border-hairline p-1.5 flex flex-col gap-0.5 ${
+        outside ? "bg-ground/60" : "bg-ground"
       }`}
     >
       <div className="flex items-center justify-between">
@@ -134,10 +134,10 @@ function MonthCell({ day, anchor, today, events, colours, onOpen, onAdd, canEdit
           onClick={() => onOpen(null, day)}
           className={`font-mono text-[11px] tabular-nums px-1.5 py-0.5 rounded-full transition-colors ${
             isToday
-              ? "bg-orange-500 text-stone-950 font-bold"
+              ? "bg-brass text-on-brass font-bold"
               : outside
-              ? "text-stone-700 hover:text-stone-500"
-              : "text-stone-500 hover:text-orange-400"
+              ? "text-faint hover:text-faint"
+              : "text-faint hover:text-brass"
           }`}
           aria-label={longDate(day)}
         >
@@ -148,7 +148,7 @@ function MonthCell({ day, anchor, today, events, colours, onOpen, onAdd, canEdit
             type="button"
             onClick={() => onAdd(day)}
             aria-label={`Add an event on ${longDate(day)}`}
-            className="opacity-0 focus:opacity-100 group-hover:opacity-100 hover:opacity-100 text-stone-600 hover:text-orange-400 transition-opacity"
+            className="opacity-0 focus:opacity-100 group-hover:opacity-100 hover:opacity-100 text-faint hover:text-brass transition-opacity"
           >
             <Plus size={12} />
           </button>
@@ -164,7 +164,7 @@ function MonthCell({ day, anchor, today, events, colours, onOpen, onAdd, canEdit
         />
       ))}
       {hidden > 0 && (
-        <span className="pl-1 text-[10px] font-mono text-stone-600">+{hidden} more</span>
+        <span className="pl-1 text-[10px] font-mono text-faint">+{hidden} more</span>
       )}
     </div>
   );
@@ -175,20 +175,20 @@ function DayColumn({ day, today, events, colours, onOpen, heading }) {
   return (
     <div
       data-testid={`day-${day}`}
-      className={`border-r border-stone-800 last:border-r-0 min-h-[16rem] ${
-        day === today ? "bg-orange-500/[0.04]" : ""
+      className={`border-r border-hairline last:border-r-0 min-h-[16rem] ${
+        day === today ? "bg-brass/[0.04]" : ""
       }`}
     >
-      <div className="px-2 py-2 border-b border-stone-800 sticky top-0 bg-stone-950/95 backdrop-blur">
+      <div className="px-2 py-2 border-b border-hairline sticky top-0 bg-ground/95 backdrop-blur">
         <div className={`text-[10px] font-mono uppercase tracking-widest ${
-          day === today ? "text-orange-400" : "text-stone-500"
+          day === today ? "text-brass" : "text-faint"
         }`}>
           {heading}
         </div>
       </div>
       <div className="p-1.5 flex flex-col gap-1">
         {events.length === 0 ? (
-          <span className="px-1 text-[11px] text-stone-700">—</span>
+          <span className="px-1 text-[11px] text-faint">—</span>
         ) : (
           events.map((e) => (
             <button
@@ -196,11 +196,11 @@ function DayColumn({ day, today, events, colours, onOpen, heading }) {
               type="button"
               onClick={() => onOpen(e)}
               data-testid={`event-${e.occurrence_id}`}
-              className="planner-chip text-left border-l-2 pl-2 pr-1 py-1 hover:bg-stone-800/80 focus:bg-stone-800 outline-none"
+              className="planner-chip text-left border-l-2 pl-2 pr-1 py-1 hover:bg-raised/80 focus:bg-raised outline-none"
               style={{ borderLeftColor: colours[e.category_id]?.colour || "#78716c" }}
             >
-              <div className="text-xs text-stone-200 leading-snug">{e.title}</div>
-              <div className="font-mono text-[10px] uppercase tracking-widest text-stone-500 mt-0.5">
+              <div className="text-xs text-ink leading-snug">{e.title}</div>
+              <div className="font-mono text-[10px] uppercase tracking-widest text-faint mt-0.5">
                 {timeLabel(e)}
               </div>
             </button>
@@ -272,7 +272,7 @@ function EventForm({ draft, categories, onChange, onSave, onCancel, onDelete, bu
 
       {/* Said out loud rather than left to be inferred from two empty boxes. An all-day
           event is the common case in a hotel and it is a state, not a gap. */}
-      <p className="sm:col-span-2 -mt-2 text-[11px] text-stone-500">
+      <p className="sm:col-span-2 -mt-2 text-[11px] text-faint">
         {draft.start_time
           ? "Leave both times empty for an all-day event."
           : "No time set — this is an all-day event."}
@@ -298,7 +298,7 @@ function EventForm({ draft, categories, onChange, onSave, onCancel, onDelete, bu
       )}
 
       {draft.repeat && (
-        <p className="sm:col-span-2 -mt-2 text-[11px] text-stone-500">
+        <p className="sm:col-span-2 -mt-2 text-[11px] text-faint">
           A repeat is one event drawn on many days. Editing or deleting it changes the
           whole series — single occurrences cannot be moved or removed on their own.
         </p>
@@ -313,16 +313,16 @@ function EventForm({ draft, categories, onChange, onSave, onCancel, onDelete, bu
 
       <div className="sm:col-span-2 flex flex-wrap items-center gap-3 pt-2">
         <button type="submit" disabled={busy} data-testid="event-save"
-                className="border border-orange-500 text-orange-400 hover:bg-orange-500/10 disabled:opacity-40 px-5 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
+                className="border border-brass text-brass hover:bg-brass-deep/10 disabled:opacity-40 px-5 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
           {editing ? "Save changes" : "Add to the planner"}
         </button>
         <button type="button" onClick={onCancel}
-                className="text-xs font-mono uppercase tracking-widest text-stone-500 hover:text-stone-300">
+                className="text-xs font-mono uppercase tracking-widest text-faint hover:text-muted2">
           Cancel
         </button>
         {editing && (
           <button type="button" onClick={onDelete} data-testid="event-delete"
-                  className="ml-auto flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-stone-500 hover:text-red-400">
+                  className="ml-auto flex items-center gap-2 text-xs font-mono uppercase tracking-widest text-faint hover:text-red-400">
             <Trash2 size={14} /> Delete
           </button>
         )}
@@ -375,21 +375,21 @@ function CategoryManager({ categories, onSaved, onClose }) {
   };
 
   return (
-    <div className="border border-stone-800 bg-stone-900/60 rounded p-5" data-testid="category-manager">
+    <div className="border border-hairline bg-surface/60 rounded p-5" data-testid="category-manager">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-400">Categories</h2>
+        <h2 className="text-[11px] tracking-[0.2em] uppercase text-muted2">Categories</h2>
         <button type="button" onClick={onClose} aria-label="Close categories"
-                className="text-stone-500 hover:text-stone-300">
+                className="text-faint hover:text-muted2">
           <X size={16} />
         </button>
       </div>
-      <p className="text-xs text-stone-500 mb-4 max-w-xl">
+      <p className="text-xs text-faint mb-4 max-w-xl">
         These are yours to name. A category events are already filed under cannot be
         removed — switch it off instead and it leaves the picker while those events keep
         their colour.
       </p>
 
-      <ul className="divide-y divide-stone-800 mb-5">
+      <ul className="divide-y divide-hairline mb-5">
         {categories.map((c) => (
           <li key={c.id} className="flex items-center gap-3 py-2" data-testid={`category-${c.id}`}>
             <input
@@ -397,9 +397,9 @@ function CategoryManager({ categories, onSaved, onClose }) {
               value={c.colour}
               aria-label={`Colour for ${c.name}`}
               onChange={(e) => save(c, { colour: e.target.value })}
-              className="w-7 h-7 bg-transparent border border-stone-700 rounded cursor-pointer"
+              className="w-7 h-7 bg-transparent border border-hairline-strong rounded cursor-pointer"
             />
-            <span className={`flex-1 text-sm ${c.active ? "text-stone-200" : "text-stone-600 line-through"}`}>
+            <span className={`flex-1 text-sm ${c.active ? "text-ink" : "text-faint line-through"}`}>
               {c.name}
             </span>
             <button type="button" onClick={() => save(c, { active: !c.active })}
@@ -407,7 +407,7 @@ function CategoryManager({ categories, onSaved, onClose }) {
               {c.active ? "Switch off" : "Switch on"}
             </button>
             <button type="button" onClick={() => remove(c)} aria-label={`Remove ${c.name}`}
-                    className="text-stone-600 hover:text-red-400">
+                    className="text-faint hover:text-red-400">
               <Trash2 size={14} />
             </button>
           </li>
@@ -422,10 +422,10 @@ function CategoryManager({ categories, onSaved, onClose }) {
         </label>
         <input type="color" value={colour} aria-label="Colour for the new category"
                onChange={(e) => setColour(e.target.value)}
-               className="w-10 h-10 bg-transparent border border-stone-700 rounded cursor-pointer" />
+               className="w-10 h-10 bg-transparent border border-hairline-strong rounded cursor-pointer" />
         <button type="button" onClick={add} disabled={busy || !name.trim()}
                 data-testid="category-add"
-                className="border border-stone-700 hover:border-orange-500 hover:text-orange-400 disabled:opacity-40 px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
+                className="border border-hairline-strong hover:border-brass hover:text-brass disabled:opacity-40 px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
           Add
         </button>
       </div>
@@ -557,11 +557,11 @@ export default function Planner() {
 
   return (
     <div className="p-6 md:p-10">
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">Property</div>
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">Property</div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         Planner
       </h1>
-      <p className="text-stone-500 font-mono text-xs mb-8" data-testid="planner-period">
+      <p className="text-faint font-mono text-xs mb-8" data-testid="planner-period">
         {periodLabel(view, anchor)}
       </p>
 
@@ -586,7 +586,7 @@ export default function Planner() {
         <div className="flex items-center gap-1 ml-auto">
           <button type="button" data-testid="period-prev" aria-label="Previous period"
                   onClick={() => setAnchor((a) => step(view, a, -1))}
-                  className="p-2 text-stone-500 hover:text-orange-400 transition-colors">
+                  className="p-2 text-faint hover:text-brass transition-colors">
             <ChevronLeft size={18} />
           </button>
           <button type="button" data-testid="period-today"
@@ -596,7 +596,7 @@ export default function Planner() {
           </button>
           <button type="button" data-testid="period-next" aria-label="Next period"
                   onClick={() => setAnchor((a) => step(view, a, 1))}
-                  className="p-2 text-stone-500 hover:text-orange-400 transition-colors">
+                  className="p-2 text-faint hover:text-brass transition-colors">
             <ChevronRight size={18} />
           </button>
         </div>
@@ -604,12 +604,12 @@ export default function Planner() {
         {canEdit && (
           <div className="flex gap-2">
             <button type="button" data-testid="new-event" onClick={() => openEditor(null)}
-                    className="flex items-center gap-2 border border-orange-500 text-orange-400 hover:bg-orange-500/10 px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
+                    className="flex items-center gap-2 border border-brass text-brass hover:bg-brass-deep/10 px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
               <Plus size={14} /> New event
             </button>
             <button type="button" data-testid="manage-categories"
                     onClick={() => setManaging((m) => !m)}
-                    className="flex items-center gap-2 border border-stone-700 hover:border-orange-500 hover:text-orange-400 px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
+                    className="flex items-center gap-2 border border-hairline-strong hover:border-brass hover:text-brass px-4 py-2 text-xs font-mono uppercase tracking-widest transition-colors">
               <Tags size={14} /> Categories
             </button>
           </div>
@@ -626,9 +626,9 @@ export default function Planner() {
       {/* The editor, above the grid rather than over it: this is a planning screen, and
           the month you are planning into is the context for what you are typing. */}
       {draft && (
-        <div className="planner-sheet mb-6 max-w-3xl border border-stone-800 bg-stone-900/60 rounded p-5"
+        <div className="planner-sheet mb-6 max-w-3xl border border-hairline bg-surface/60 rounded p-5"
              data-testid="event-form">
-          <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-400 mb-4">
+          <h2 className="text-[11px] tracking-[0.2em] uppercase text-muted2 mb-4">
             {draft.id ? "Edit event" : "New event"}
           </h2>
           <EventForm draft={draft} categories={categories} onChange={setDraft}
@@ -638,19 +638,19 @@ export default function Planner() {
       )}
 
       {showing && (
-        <div className="planner-sheet mb-6 max-w-3xl border border-stone-800 bg-stone-900/60 rounded p-5"
+        <div className="planner-sheet mb-6 max-w-3xl border border-hairline bg-surface/60 rounded p-5"
              data-testid="event-detail">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <span aria-hidden="true" className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: colours[showing.category_id]?.colour || "#78716c" }} />
-                <span className="text-[10px] font-mono uppercase tracking-widest text-stone-500">
+                <span className="text-[10px] font-mono uppercase tracking-widest text-faint">
                   {colours[showing.category_id]?.name || "Uncategorised"}
                 </span>
               </div>
-              <h2 className="text-xl text-stone-100">{showing.title}</h2>
-              <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-stone-400">
+              <h2 className="text-xl text-ink">{showing.title}</h2>
+              <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-muted2">
                 <span className="flex items-center gap-1.5">
                   <CalendarDays size={13} /> {longDate(showing.occurrence_date)}
                 </span>
@@ -658,18 +658,18 @@ export default function Planner() {
                   <Clock size={13} /> {timeLabel(showing)}
                 </span>
                 {repeatLabel(showing) && (
-                  <span className="flex items-center gap-1.5 text-orange-400/80">
+                  <span className="flex items-center gap-1.5 text-brass/80">
                     <Repeat size={13} /> {repeatLabel(showing)}
                   </span>
                 )}
               </div>
               {showing.description && (
-                <p className="mt-3 text-sm text-stone-400 whitespace-pre-wrap">
+                <p className="mt-3 text-sm text-muted2 whitespace-pre-wrap">
                   {showing.description}
                 </p>
               )}
               {showing.created_by_name && (
-                <p className="mt-3 text-[10px] font-mono uppercase tracking-widest text-stone-600">
+                <p className="mt-3 text-[10px] font-mono uppercase tracking-widest text-faint">
                   Added by {showing.created_by_name}
                 </p>
               )}
@@ -677,12 +677,12 @@ export default function Planner() {
             <div className="flex items-center gap-3 shrink-0">
               {canEdit && (
                 <button type="button" onClick={editShowing} data-testid="event-edit"
-                        className="text-xs font-mono uppercase tracking-widest text-stone-400 hover:text-orange-400">
+                        className="text-xs font-mono uppercase tracking-widest text-muted2 hover:text-brass">
                   Edit
                 </button>
               )}
               <button type="button" onClick={() => setShowing(null)} aria-label="Close"
-                      className="text-stone-500 hover:text-stone-300">
+                      className="text-faint hover:text-muted2">
                 <X size={16} />
               </button>
             </div>
@@ -691,12 +691,12 @@ export default function Planner() {
       )}
 
       {view === "month" ? (
-        <div className="group border-t border-l border-stone-800 rounded overflow-hidden"
+        <div className="group border-t border-l border-hairline rounded overflow-hidden"
              data-testid="month-grid">
           <div className="grid grid-cols-7">
             {WEEKDAYS.map((d) => (
               <div key={d}
-                   className="border-b border-r border-stone-800 px-2 py-2 text-[10px] font-mono uppercase tracking-widest text-stone-600">
+                   className="border-b border-r border-hairline px-2 py-2 text-[10px] font-mono uppercase tracking-widest text-faint">
                 {d}
               </div>
             ))}
@@ -713,7 +713,7 @@ export default function Planner() {
           ))}
         </div>
       ) : (
-        <div className={`border border-stone-800 rounded overflow-hidden grid ${
+        <div className={`border border-hairline rounded overflow-hidden grid ${
           view === "week" ? "grid-cols-2 sm:grid-cols-4 lg:grid-cols-7" : "grid-cols-1"
         }`} data-testid={`${view}-grid`}>
           {weekDays.map((day, i) => (
@@ -728,7 +728,7 @@ export default function Planner() {
 
       {/* The legend, from the property's own categories rather than a list in this file. */}
       {categories.length > 0 && (
-        <div className="flex flex-wrap gap-4 mt-4 text-[10px] font-mono uppercase tracking-widest text-stone-500">
+        <div className="flex flex-wrap gap-4 mt-4 text-[10px] font-mono uppercase tracking-widest text-faint">
           {categories.filter((c) => c.active).map((c) => (
             <span key={c.id} className="flex items-center gap-2">
               <span aria-hidden="true" className="w-3 h-2" style={{ backgroundColor: c.colour }} />
@@ -738,9 +738,9 @@ export default function Planner() {
         </div>
       )}
 
-      {loading && <p className="text-stone-500 text-sm mt-6">Loading…</p>}
+      {loading && <p className="text-faint text-sm mt-6">Loading…</p>}
       {!loading && data && data.events.length === 0 && (
-        <p className="text-stone-500 text-sm mt-6">
+        <p className="text-faint text-sm mt-6">
           Nothing planned for {periodLabel(view, anchor).toLowerCase()}.
           {canEdit ? " Add the first thing." : ""}
         </p>

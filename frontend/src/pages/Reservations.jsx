@@ -7,16 +7,16 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 
 const STATUS_STYLES = {
   booked: "border-blue-500 text-blue-400 breathe",
-  seated: "border-orange-500 text-orange-400 neon-pulse",
-  no_show: "border-stone-700 text-stone-500",
-  cancelled: "border-stone-800 text-stone-600 line-through",
+  seated: "border-brass text-brass neon-pulse",
+  no_show: "border-hairline-strong text-faint",
+  cancelled: "border-hairline text-faint line-through",
 };
 
 const STATUS_DOT = {
   booked: "bg-blue-400",
-  seated: "bg-orange-500",
-  no_show: "bg-stone-500",
-  cancelled: "bg-stone-700",
+  seated: "bg-brass",
+  no_show: "bg-faint",
+  cancelled: "bg-raised",
 };
 
 const STATUS_LABEL = {
@@ -142,25 +142,25 @@ export default function Reservations() {
     <div className="p-6 md:p-10">
       <div className="flex items-baseline justify-between flex-wrap gap-4">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 mb-2">Front of House</div>
+          <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass mb-2">Front of House</div>
           <h1 className="font-display uppercase text-4xl md:text-5xl leading-none tracking-tight">Reservations</h1>
         </div>
         <div className="flex items-center gap-3">
           <div>
-            <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">Date</label>
+            <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">Date</label>
             <input
               data-testid="reservation-date"
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="bg-stone-900 border border-stone-700 py-1.5 px-2 text-sm focus-neon"
+              className="bg-surface border border-hairline-strong py-1.5 px-2 text-sm focus-neon"
             />
           </div>
           {canManage && (
             <button
               data-testid="new-reservation-btn"
               onClick={() => setOpen(true)}
-              className="rounded-full bg-orange-600 hover:bg-orange-500 text-stone-950 px-5 py-2.5 font-mono uppercase tracking-widest text-xs flex items-center gap-2 self-end"
+              className="rounded-full bg-brass hover:bg-brass-deep text-on-brass px-5 py-2.5 font-mono uppercase tracking-widest text-xs flex items-center gap-2 self-end"
             >
               <Plus size={14} /> Book
             </button>
@@ -177,29 +177,29 @@ export default function Reservations() {
 
       {/* List */}
       <div className="mt-10">
-        <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-stone-500 mb-3">
+        <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-faint mb-3">
           — {new Date(date + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
         </div>
 
         {sorted.length === 0 ? (
-          <div className="border border-stone-800 bg-stone-900/40 p-12 text-center">
-            <CalendarClock className="mx-auto text-stone-700" size={28} />
-            <div className="mt-3 font-mono text-xs uppercase tracking-widest text-stone-500">
+          <div className="border border-hairline bg-surface/40 p-12 text-center">
+            <CalendarClock className="mx-auto text-faint" size={28} />
+            <div className="mt-3 font-mono text-xs uppercase tracking-widest text-faint">
               No reservations for this date
             </div>
           </div>
         ) : (
-          <div className="border border-stone-800 divide-y divide-stone-800 bg-stone-900/30">
+          <div className="border border-hairline divide-y divide-hairline bg-surface/30">
             {sorted.map((r) => (
               <div
                 key={r.id}
                 data-testid={`reservation-row-${r.id}`}
-                className="flex items-center gap-4 p-4 hover:bg-stone-900/60 transition-colors"
+                className="flex items-center gap-4 p-4 hover:bg-surface/60 transition-colors"
               >
                 {/* Time block */}
                 <div className="w-16 shrink-0 text-center">
                   <div className="font-display text-2xl tracking-tight leading-none">{r.time}</div>
-                  <div className="text-[9px] uppercase tracking-widest font-mono text-stone-600 mt-1">
+                  <div className="text-[9px] uppercase tracking-widest font-mono text-faint mt-1">
                     {r.table_label ? `Tbl ${r.table_label}` : "Walk-up"}
                   </div>
                 </div>
@@ -213,7 +213,7 @@ export default function Reservations() {
                 {/* Guest */}
                 <div className="flex-1 min-w-0">
                   <div className="font-display text-lg tracking-tight truncate">{r.guest_name}</div>
-                  <div className="flex items-center gap-3 text-[11px] font-mono text-stone-500 mt-0.5">
+                  <div className="flex items-center gap-3 text-[11px] font-mono text-faint mt-0.5">
                     <span className="inline-flex items-center gap-1">
                       <Users size={11} /> {r.party_size}
                     </span>
@@ -222,7 +222,7 @@ export default function Reservations() {
                         <Phone size={11} /> {r.phone}
                       </span>
                     )}
-                    {r.notes && <span className="truncate text-stone-600 italic">“{r.notes}”</span>}
+                    {r.notes && <span className="truncate text-faint italic">“{r.notes}”</span>}
                   </div>
                 </div>
 
@@ -234,7 +234,7 @@ export default function Reservations() {
                         <button
                           data-testid={`seat-${r.id}`}
                           onClick={() => setStatus(r.id, "seated")}
-                          className="inline-flex items-center gap-1 border border-orange-600 text-orange-400 hover:bg-orange-600 hover:text-stone-950 px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest transition-colors"
+                          className="inline-flex items-center gap-1 border border-brass text-brass hover:bg-brass-deep hover:text-on-brass px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest transition-colors"
                         >
                           <Check size={12} /> Seat
                         </button>
@@ -242,7 +242,7 @@ export default function Reservations() {
                           data-testid={`noshow-${r.id}`}
                           onClick={() => setStatus(r.id, "no_show")}
                           title="No-show"
-                          className="text-stone-600 hover:text-stone-300 transition-colors"
+                          className="text-faint hover:text-muted2 transition-colors"
                         >
                           <Clock size={15} />
                         </button>
@@ -250,7 +250,7 @@ export default function Reservations() {
                           data-testid={`cancel-${r.id}`}
                           onClick={() => setStatus(r.id, "cancelled")}
                           title="Cancel"
-                          className="text-stone-600 hover:text-red-500 transition-colors"
+                          className="text-faint hover:text-red-500 transition-colors"
                         >
                           <X size={16} />
                         </button>
@@ -261,7 +261,7 @@ export default function Reservations() {
                         <button
                           onClick={() => remove(r.id)}
                           title="Delete"
-                          className="text-stone-700 hover:text-red-500 transition-colors"
+                          className="text-faint hover:text-red-500 transition-colors"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -278,9 +278,9 @@ export default function Reservations() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
           data-testid="reservation-modal"
-          className="bg-stone-900 border border-stone-800 rounded-none p-8 max-w-md text-stone-100"
+          className="bg-surface border border-hairline rounded-none p-8 max-w-md text-ink"
         >
-          <DialogTitle className="text-[10px] uppercase tracking-[0.4em] font-mono text-orange-500 font-normal">
+          <DialogTitle className="text-[10px] uppercase tracking-[0.4em] font-mono text-brass font-normal">
             New Reservation
           </DialogTitle>
           <DialogDescription className="sr-only">Book a table reservation for a guest.</DialogDescription>
@@ -293,7 +293,7 @@ export default function Reservations() {
                 value={form.guest_name}
                 onChange={(e) => setForm({ ...form, guest_name: e.target.value })}
                 placeholder="Jordan Vega"
-                className="w-full bg-transparent border-b border-stone-700 focus-neon py-1.5"
+                className="w-full bg-transparent border-b border-hairline-strong focus-neon py-1.5"
                 autoFocus
               />
             </Field>
@@ -306,7 +306,7 @@ export default function Reservations() {
                   min={1}
                   value={form.party_size}
                   onChange={(e) => setForm({ ...form, party_size: e.target.value })}
-                  className="w-full bg-transparent border-b border-stone-700 focus-neon py-1.5"
+                  className="w-full bg-transparent border-b border-hairline-strong focus-neon py-1.5"
                 />
               </Field>
               <Field label="Time">
@@ -315,7 +315,7 @@ export default function Reservations() {
                   type="time"
                   value={form.time}
                   onChange={(e) => setForm({ ...form, time: e.target.value })}
-                  className="w-full bg-stone-900 border border-stone-700 py-1.5 px-2 text-sm focus-neon"
+                  className="w-full bg-surface border border-hairline-strong py-1.5 px-2 text-sm focus-neon"
                 />
               </Field>
             </div>
@@ -326,7 +326,7 @@ export default function Reservations() {
                 value={form.phone}
                 onChange={(e) => setForm({ ...form, phone: e.target.value })}
                 placeholder="+1 555 0134"
-                className="w-full bg-transparent border-b border-stone-700 focus-neon py-1.5"
+                className="w-full bg-transparent border-b border-hairline-strong focus-neon py-1.5"
               />
             </Field>
 
@@ -335,7 +335,7 @@ export default function Reservations() {
                 data-testid="res-table"
                 value={form.table_id}
                 onChange={(e) => setForm({ ...form, table_id: e.target.value })}
-                className="w-full bg-stone-900 border border-stone-700 py-1.5 px-2 text-sm focus-neon"
+                className="w-full bg-surface border border-hairline-strong py-1.5 px-2 text-sm focus-neon"
               >
                 <option value="">— None (walk-up) —</option>
                 {tables.map((t) => (
@@ -347,12 +347,12 @@ export default function Reservations() {
             </Field>
 
             {form.table_id && (
-              <label className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest text-stone-400 cursor-pointer">
+              <label className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest text-muted2 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={form.hold_table}
                   onChange={(e) => setForm({ ...form, hold_table: e.target.checked })}
-                  className="accent-orange-500"
+                  className="accent-brass"
                 />
                 Hold table (mark reserved)
               </label>
@@ -364,7 +364,7 @@ export default function Reservations() {
                 value={form.notes}
                 onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 placeholder="Window seat, anniversary"
-                className="w-full bg-transparent border-b border-stone-700 focus-neon py-1.5"
+                className="w-full bg-transparent border-b border-hairline-strong focus-neon py-1.5"
               />
             </Field>
 
@@ -372,7 +372,7 @@ export default function Reservations() {
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="flex-1 border border-stone-700 hover:border-stone-500 py-2.5 text-[10px] font-mono uppercase tracking-widest transition-colors"
+                className="flex-1 border border-hairline-strong hover:border-hairline-strong py-2.5 text-[10px] font-mono uppercase tracking-widest transition-colors"
               >
                 Cancel
               </button>
@@ -380,7 +380,7 @@ export default function Reservations() {
                 data-testid="res-submit"
                 type="submit"
                 disabled={saving}
-                className="flex-1 rounded-full bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-stone-950 py-2.5 text-[10px] font-mono uppercase tracking-widest transition-colors"
+                className="flex-1 rounded-full bg-brass hover:bg-brass-deep disabled:opacity-50 text-on-brass py-2.5 text-[10px] font-mono uppercase tracking-widest transition-colors"
               >
                 {saving ? "Booking…" : "Confirm"}
               </button>
@@ -394,9 +394,9 @@ export default function Reservations() {
 
 function Stat({ label, value, accent }) {
   return (
-    <div className="border border-stone-800 bg-stone-900/40 p-4">
-      <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500">{label}</div>
-      <div className={`font-display text-3xl mt-1 tracking-tight ${accent ? "text-orange-400" : ""}`}>{value}</div>
+    <div className="border border-hairline bg-surface/40 p-4">
+      <div className="text-[10px] uppercase tracking-[0.25em] font-mono text-faint">{label}</div>
+      <div className={`font-display text-3xl mt-1 tracking-tight ${accent ? "text-brass" : ""}`}>{value}</div>
     </div>
   );
 }
@@ -404,7 +404,7 @@ function Stat({ label, value, accent }) {
 function Field({ label, children }) {
   return (
     <div>
-      <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-stone-500 mb-1">{label}</label>
+      <label className="block text-[10px] uppercase tracking-[0.25em] font-mono text-faint mb-1">{label}</label>
       {children}
     </div>
   );

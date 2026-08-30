@@ -20,7 +20,7 @@ export default function BillSuccess({ open, amount = 0, onClose }) {
       {open && (
         <motion.div
           key="bill-success"
-          className="fixed inset-0 z-[90] bg-stone-950/80 backdrop-blur flex items-center justify-center p-6"
+          className="fixed inset-0 z-[90] bg-ground/80 backdrop-blur flex items-center justify-center p-6"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -51,7 +51,7 @@ export default function BillSuccess({ open, amount = 0, onClose }) {
 
           {/* Receipt */}
           <motion.div
-            className="relative border border-orange-500 bg-stone-900 p-8 max-w-sm w-full text-center"
+            className="relative border border-brass bg-surface p-8 max-w-sm w-full text-center"
             initial={{ y: 120, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -80, opacity: 0 }}
@@ -69,10 +69,10 @@ export default function BillSuccess({ open, amount = 0, onClose }) {
             <div className="text-[10px] uppercase tracking-[0.4em] font-mono text-green-400">
               Payment Successful
             </div>
-            <div className="font-display uppercase text-5xl tracking-tight mt-3 text-orange-400">
+            <div className="font-display uppercase text-5xl tracking-tight mt-3 text-brass">
               ${Number(amount || 0).toFixed(2)}
             </div>
-            <div className="mt-4 text-stone-400 text-sm">Thank you · cheers to the next round.</div>
+            <div className="mt-4 text-muted2 text-sm">Thank you · cheers to the next round.</div>
           </motion.div>
         </motion.div>
       )}

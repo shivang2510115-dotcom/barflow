@@ -118,7 +118,7 @@ export default function Folio() {
     }
   };
 
-  if (!folio) return <div className="p-6 md:p-10 text-stone-400">Loading folio…</div>;
+  if (!folio) return <div className="p-6 md:p-10 text-muted2">Loading folio…</div>;
 
   const voided = new Set(
     folio.entries.filter((e) => e.kind === "void").map((e) => e.ref_entry_id),
@@ -129,51 +129,51 @@ export default function Folio() {
     <div className="p-6 md:p-10">
       <button
         onClick={() => nav(`/app/hotel/bookings/${folio.booking_id}`)}
-        className="text-xs tracking-widest uppercase text-stone-500 hover:text-orange-400 mb-4"
+        className="text-xs tracking-widest uppercase text-faint hover:text-brass mb-4"
       >
         ← Booking
       </button>
-      <div className="text-xs tracking-[0.4em] uppercase text-orange-500 mb-3">
+      <div className="text-xs tracking-[0.4em] uppercase text-brass mb-3">
         Folio · {folio.status.replace("_", " ")}
       </div>
       <h1 className="text-4xl md:text-5xl font-extrabold uppercase tracking-tight mb-2">
         {folio.guest?.name}
       </h1>
-      <p className="text-stone-400 mb-8">
+      <p className="text-muted2 mb-8">
         {folio.booking?.reference} · {folio.booking?.check_in} → {folio.booking?.check_out}
       </p>
 
-      <div className="border border-stone-800 bg-stone-900 rounded p-5 mb-8 max-w-sm">
-        <div className="text-[11px] tracking-[0.2em] uppercase text-stone-500">Balance</div>
+      <div className="border border-hairline bg-surface rounded p-5 mb-8 max-w-sm">
+        <div className="text-[11px] tracking-[0.2em] uppercase text-faint">Balance</div>
         <div
           className={`text-4xl font-extrabold tabular-nums mt-1 ${
-            folio.balance > 0 ? "text-orange-400" : "text-stone-100"
+            folio.balance > 0 ? "text-brass" : "text-ink"
           }`}
         >
           {currency(folio.balance)}
         </div>
-        <div className="text-xs text-stone-500 mt-1">
+        <div className="text-xs text-faint mt-1">
           {folio.balance > 0 ? "Outstanding" : folio.balance < 0 ? "In credit" : "Settled"}
         </div>
       </div>
 
-      <h2 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-3">Ledger</h2>
+      <h2 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-3">Ledger</h2>
       <div className="overflow-x-auto mb-10">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="text-[11px] tracking-[0.2em] uppercase text-stone-500">
-              <th className="text-left py-2 px-3 border-b border-stone-800">Posted</th>
-              <th className="text-left py-2 px-3 border-b border-stone-800">Kind</th>
-              <th className="text-left py-2 px-3 border-b border-stone-800">Description</th>
-              <th className="text-right py-2 px-3 border-b border-stone-800">Debit</th>
-              <th className="text-right py-2 px-3 border-b border-stone-800">Credit</th>
-              <th className="border-b border-stone-800" />
+            <tr className="text-[11px] tracking-[0.2em] uppercase text-faint">
+              <th className="text-left py-2 px-3 border-b border-hairline">Posted</th>
+              <th className="text-left py-2 px-3 border-b border-hairline">Kind</th>
+              <th className="text-left py-2 px-3 border-b border-hairline">Description</th>
+              <th className="text-right py-2 px-3 border-b border-hairline">Debit</th>
+              <th className="text-right py-2 px-3 border-b border-hairline">Credit</th>
+              <th className="border-b border-hairline" />
             </tr>
           </thead>
           <tbody>
             {folio.entries.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-4 px-3 text-stone-500">
+                <td colSpan={6} className="py-4 px-3 text-faint">
                   Nothing posted yet.
                 </td>
               </tr>
@@ -185,25 +185,25 @@ export default function Folio() {
               return (
                 <Fragment key={e.id}>
                   <tr className={isVoided ? "opacity-50 line-through" : ""}>
-                    <td className="py-2 px-3 border-b border-stone-800 font-mono text-xs">
+                    <td className="py-2 px-3 border-b border-hairline font-mono text-xs">
                       {(e.posted_at || "").slice(0, 10)}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800 text-stone-400">
+                    <td className="py-2 px-3 border-b border-hairline text-muted2">
                       {KIND_LABEL[e.kind] || e.kind}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800">{e.description}</td>
-                    <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums">
+                    <td className="py-2 px-3 border-b border-hairline">{e.description}</td>
+                    <td className="py-2 px-3 border-b border-hairline text-right tabular-nums">
                       {e.direction === "debit" ? currency(e.amount) : ""}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800 text-right tabular-nums text-stone-400">
+                    <td className="py-2 px-3 border-b border-hairline text-right tabular-nums text-muted2">
                       {e.direction === "credit" ? currency(e.amount) : ""}
                     </td>
-                    <td className="py-2 px-3 border-b border-stone-800 text-right">
+                    <td className="py-2 px-3 border-b border-hairline text-right">
                       {canVoid && (
                         <button
                           onClick={() => startVoid(e)}
                           disabled={busy}
-                          className="text-[10px] tracking-widest uppercase text-stone-500 hover:text-red-400 disabled:opacity-50"
+                          className="text-[10px] tracking-widest uppercase text-faint hover:text-red-400 disabled:opacity-50"
                         >
                           Void
                         </button>
@@ -212,7 +212,7 @@ export default function Folio() {
                   </tr>
                   {voidTarget?.id === e.id && (
                     <tr>
-                      <td colSpan={6} className="py-0 px-0 border-b border-stone-800">
+                      <td colSpan={6} className="py-0 px-0 border-b border-hairline">
                         <div className="border border-red-500/40 bg-red-950/20 rounded p-4 my-3 mx-3">
                           <p className="text-sm text-red-300 mb-3">
                             This voids “{e.description}” permanently and cannot be undone.
@@ -224,7 +224,7 @@ export default function Folio() {
                             onChange={(ev) => setVoidReason(ev.target.value)}
                             placeholder="Reason for voiding this entry"
                             rows={2}
-                            className="w-full bg-stone-950 border border-stone-700 text-stone-100 rounded p-3 text-sm focus:border-red-500 outline-none"
+                            className="w-full bg-ground border border-hairline-strong text-ink rounded p-3 text-sm focus:border-red-500 outline-none"
                           />
                           <div className="flex gap-3 mt-3">
                             <button
@@ -237,7 +237,7 @@ export default function Folio() {
                             <button
                               onClick={abortVoid}
                               disabled={busy}
-                              className="border border-stone-700 text-stone-300 hover:border-stone-500 disabled:opacity-50 rounded-full px-5 py-2 text-xs tracking-widest uppercase"
+                              className="border border-hairline-strong text-muted2 hover:border-hairline-strong disabled:opacity-50 rounded-full px-5 py-2 text-xs tracking-widest uppercase"
                             >
                               Never mind
                             </button>
@@ -255,61 +255,61 @@ export default function Folio() {
 
       {open && (
         <div className="grid gap-6 md:grid-cols-2 max-w-3xl">
-          <div className="border border-stone-800 bg-stone-900 rounded p-5">
-            <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+          <div className="border border-hairline bg-surface rounded p-5">
+            <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
               Add a charge
             </h3>
             <div className="flex flex-wrap gap-4 items-end">
-              <label className="text-xs tracking-widest uppercase text-stone-500">
+              <label className="text-xs tracking-widest uppercase text-faint">
                 Amount
                 <input
                   type="number"
                   min="0"
                   value={charge.amount}
                   onChange={(e) => setCharge({ ...charge, amount: e.target.value })}
-                  className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                  className="block mt-2 w-28 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
                 />
               </label>
-              <label className="text-xs tracking-widest uppercase text-stone-500 flex-1 min-w-[10rem]">
+              <label className="text-xs tracking-widest uppercase text-faint flex-1 min-w-[10rem]">
                 Description
                 <input
                   value={charge.description}
                   onChange={(e) => setCharge({ ...charge, description: e.target.value })}
                   placeholder="Laundry"
-                  className="block mt-2 w-full bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                  className="block mt-2 w-full bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
                 />
               </label>
               <button
                 onClick={addCharge}
                 disabled={busy}
-                className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-5 py-2 text-xs tracking-widest uppercase"
+                className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-5 py-2 text-xs tracking-widest uppercase"
               >
                 Post
               </button>
             </div>
           </div>
 
-          <div className="border border-stone-800 bg-stone-900 rounded p-5">
-            <h3 className="text-[11px] tracking-[0.2em] uppercase text-stone-500 mb-4">
+          <div className="border border-hairline bg-surface rounded p-5">
+            <h3 className="text-[11px] tracking-[0.2em] uppercase text-faint mb-4">
               Take a payment
             </h3>
             <div className="flex flex-wrap gap-4 items-end">
-              <label className="text-xs tracking-widest uppercase text-stone-500">
+              <label className="text-xs tracking-widest uppercase text-faint">
                 Amount
                 <input
                   type="number"
                   min="0"
                   value={payment.amount}
                   onChange={(e) => setPayment({ ...payment, amount: e.target.value })}
-                  className="block mt-2 w-28 bg-transparent border-b border-stone-700 text-stone-100 py-1 focus:border-orange-500 outline-none"
+                  className="block mt-2 w-28 bg-transparent border-b border-hairline-strong text-ink py-1 focus:border-brass outline-none"
                 />
               </label>
-              <label className="text-xs tracking-widest uppercase text-stone-500">
+              <label className="text-xs tracking-widest uppercase text-faint">
                 Method
                 <select
                   value={payment.method}
                   onChange={(e) => setPayment({ ...payment, method: e.target.value })}
-                  className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+                  className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
                 >
                   {["cash", "card", "online"].map((m) => (
                     <option key={m} value={m}>
@@ -318,12 +318,12 @@ export default function Folio() {
                   ))}
                 </select>
               </label>
-              <label className="text-xs tracking-widest uppercase text-stone-500">
+              <label className="text-xs tracking-widest uppercase text-faint">
                 Type
                 <select
                   value={payment.kind}
                   onChange={(e) => setPayment({ ...payment, kind: e.target.value })}
-                  className="block mt-2 bg-stone-950 border border-stone-700 text-stone-100 py-1 px-2 rounded"
+                  className="block mt-2 bg-ground border border-hairline-strong text-ink py-1 px-2 rounded"
                 >
                   <option value="payment">Payment</option>
                   {isManager && <option value="discount">Discount</option>}
@@ -333,12 +333,12 @@ export default function Folio() {
               <button
                 onClick={takePayment}
                 disabled={busy}
-                className="bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-full px-5 py-2 text-xs tracking-widest uppercase"
+                className="bg-brass hover:bg-brass-deep disabled:opacity-50 text-white rounded-full px-5 py-2 text-xs tracking-widest uppercase"
               >
                 Record
               </button>
             </div>
-            <p className="text-xs text-stone-500 mt-4">
+            <p className="text-xs text-faint mt-4">
               A refund hands money back, so it increases the balance. A discount forgives
               part of it without cash changing hands.
               {!isManager && " Both are managers only."}
