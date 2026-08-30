@@ -43,6 +43,7 @@ export default function BookingDetail() {
   // Folio.jsx. window.prompt is deliberately avoided — unstyleable, blocked by
   // some browsers, and unusable on the tablet this runs on.
   const [folioId, setFolioId] = useState(null);
+  const [timeline, setTimeline] = useState(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [forcing, setForcing] = useState(false);
   const [forceReason, setForceReason] = useState("");
@@ -118,6 +119,16 @@ export default function BookingDetail() {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const loadTimeline = async () => {
+    if (timeline) { setTimeline(null); return; }
+    try {
+      const { data } = await api.get(`/bookings/${id}/timeline`);
+      setTimeline(data.events);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail) || "Could not load the history");
     }
   };
 
@@ -637,6 +648,39 @@ export default function BookingDetail() {
       {b.status === "cancelled" && b.cancellation_reason && (
         <p className="text-sm text-faint">Cancelled — {b.cancellation_reason}</p>
       )}
+
+      {/* What happened during this stay. Loaded on demand rather than with the page:
+          it is the answer to a question that is only sometimes asked, and a booking
+          that opens slower every time would be a worse trade. */}
+      <section className="mt-10 border-t border-hairline pt-6">
+        <button
+          onClick={loadTimeline}
+          className="text-[11px] font-mono uppercase tracking-widest text-muted2 hover:text-brass transition-colors"
+        >
+          {timeline ? "Hide history" : "What happened during this stay"}
+        </button>
+
+        {timeline && (
+          timeline.length === 0 ? (
+            <p className="mt-4 text-sm text-faint">Nothing recorded yet.</p>
+          ) : (
+            <ol className="mt-5 space-y-0">
+              {timeline.map((e, i) => (
+                <li key={`${e.at}-${i}`} className="flex gap-4 py-2 border-b border-hairline last:border-0">
+                  <time className="font-mono text-[11px] text-faint w-36 shrink-0 pt-0.5">
+                    {new Date(e.at).toLocaleString(undefined, {
+                      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </time>
+                  <span className="text-sm text-ink flex-1">{e.description}</span>
+                  {e.amount != null && (
+                    <span className="text-sm tabular-nums text-muted2">{currency(e.amount)}</span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          )
+        )}
+      </section>
     </div>
   );
 }

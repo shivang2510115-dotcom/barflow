@@ -3027,3 +3027,56 @@ def test_a_line_cannot_be_comped_against_another_guests_package(admin, ep_plan):
         "included": [{"line_id": order["items"][0]["id"], "inclusion_id": inc["id"]}]})
     assert r.status_code == 403
     assert admin.get(f"{API}/orders/{order['id']}").json()["status"] == "open"
+
+
+def test_a_stay_has_one_history_covering_money_package_and_housekeeping(admin, ep_plan):
+    """The question a receptionist is asked when something goes wrong in a room, and
+    which currently takes four screens to answer."""
+    outlet = _an_outlet(admin, "restaurant")
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Tl {uuid.uuid4().hex[:6]}"}).json()
+    inc = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": outlet["id"], "scope": "outlet", "quantity": 1,
+        "period": "per_stay"}).json()
+    booking_id, folio_id = _checked_in_folio(admin, ep_plan, pkg["id"])
+
+    admin.post(f"{API}/folios/{folio_id}/charges",
+               json={"amount": 600, "description": "Dinner"})
+    admin.post(f"{API}/bookings/{booking_id}/entitlements/{inc['id']}/use",
+               params={"folio_entry_id": "line-x"})
+
+    r = admin.get(f"{API}/bookings/{booking_id}/timeline")
+    assert r.status_code == 200, r.text
+    events = r.json()["events"]
+    kinds = {e["kind"] for e in events}
+    assert "checked_in" in kinds
+    assert "misc_charge" in kinds or "outlet" in kinds
+    assert "included" in kinds
+    # Newest first, and every row is drawable.
+    assert events == sorted(events, key=lambda e: e["at"], reverse=True)
+    for e in events:
+        assert e["kind"] and e["at"] and e["description"]
+
+
+def test_the_timeline_keeps_a_voided_charge_where_the_bill_drops_it(admin, ep_plan):
+    """A bill shows what is owed; a history shows what happened. A charge keyed wrongly
+    and then voided IS what happened."""
+    booking_id, folio_id = _checked_in_folio(admin, ep_plan)
+    made = admin.post(f"{API}/folios/{folio_id}/charges",
+                      json={"amount": 999, "description": "Wrong charge"}).json()
+    entry_id = made.get("id") or made.get("entry", {}).get("id")
+    admin.post(f"{API}/folios/{folio_id}/entries/{entry_id}/void",
+               json={"reason": "keyed twice"})
+
+    events = admin.get(f"{API}/bookings/{booking_id}/timeline").json()["events"]
+    assert any("Wrong charge" in e["description"] for e in events)
+    assert any(e["kind"] == "void" for e in events)
+
+    # ...and the bill drawn from the same folio shows neither.
+    bill = admin.post(f"{API}/folios/{folio_id}/bill", json={}).json()
+    assert not any("Wrong charge" in l["description"] for l in bill["charges"])
+
+
+def test_a_timeline_for_a_booking_that_does_not_exist_is_a_404(admin):
+    r = admin.get(f"{API}/bookings/00000000-0000-0000-0000-000000000000/timeline")
+    assert r.status_code == 404

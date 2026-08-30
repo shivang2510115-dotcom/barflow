@@ -16,6 +16,7 @@ from models.hotel import (
     Booking, BookingIn, BookingUpdateIn, CancelIn, ExtendStayIn, RoomAssignmentIn)
 from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access
+from services.timeline import merge_events
 from services.availability import (
     CONSUMING_STATUSES, blocking_out_of_order, booking_holding_room, count_available)
 from services.pricing import (
@@ -637,3 +638,44 @@ async def extend_stay(booking_id: str, payload: ExtendStayIn,
     # `added` alongside the booking so the desk can quote the extension itself — "two
     # more nights, ₹13,440" — without subtracting one total from another on screen.
     return {**await db.bookings.find_one({"id": booking_id}, {"_id": 0}), "added": added}
+
+
+@router.get("/bookings/{booking_id}/timeline")
+async def booking_timeline(booking_id: str, user: dict = Depends(BOOK),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
+    """Everything that happened during this stay, newest first.
+
+    The question a receptionist is asked when something has gone wrong — "what actually
+    happened in 103?" — and it currently takes four screens to answer. Nothing here is
+    new data: the folio, the entitlement uses, the room's housekeeping log and the
+    booking's own arrival and departure, merged by services/timeline.py.
+
+    Housekeeping is bounded to the stay. A room's log runs for years, and every entry
+    from before this guest arrived is somebody else's stay.
+    """
+    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(404, "Booking not found")
+
+    folio = await db.folios.find_one({"booking_id": booking_id}, {"_id": 0}) or {}
+    entries = await db.folio_entries.find(
+        {"folio_id": folio.get("id")}, {"_id": 0}).to_list(5000) if folio else []
+    uses = await db.entitlement_uses.find(
+        {"booking_id": booking_id}, {"_id": 0}).to_list(5000)
+
+    housekeeping = []
+    room_id = booking.get("assigned_room_id")
+    if room_id:
+        arrived = booking.get("checked_in_at") or ""
+        left = booking.get("checked_out_at") or "9999"
+        rows = await db.housekeeping_events.find(
+            {"room_id": room_id}, {"_id": 0}).to_list(20000)
+        housekeeping = [
+            h for h in rows
+            if arrived <= (h.get("changed_at") or "") <= left
+        ]
+
+    return {
+        "booking_id": booking_id,
+        "events": merge_events(entries, uses, housekeeping, booking),
+    }
