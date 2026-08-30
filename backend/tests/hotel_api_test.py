@@ -2722,3 +2722,124 @@ def test_a_bill_never_shows_a_voided_charge(admin):
 
 def test_a_waiter_cannot_issue_or_list_bills(waiter):
     assert waiter.get(f"{API}/bills").status_code == 403
+
+
+
+def _booking_for_entitlements(admin, ep_plan):
+    """A booking of our own, so the entitlement tests never depend on seeded data.
+
+    They were skipping whenever the demo seed happened to have nobody in house, and a
+    skipped test proves nothing — least of all the double-consumption one, which is the
+    whole reason this feature has a deterministic id.
+    """
+    rt = _new_room_type(admin)
+    _add_rooms(admin, rt["id"], 1)
+    _add_default_rate(admin, rt["id"])
+    guest = _new_guest(admin)
+    made = admin.post(f"{API}/bookings", json={
+        "guest_id": guest["id"], "room_type_id": rt["id"],
+        "meal_plan_id": ep_plan["id"], "check_in": "2027-06-01",
+        "check_out": "2027-06-04", "adults": 2, "children": 0,
+    })
+    assert made.status_code == 200, made.text
+    return made.json()["id"]
+
+
+def _an_outlet(admin, kind="salon"):
+    made = admin.post(f"{API}/outlets", json={
+        "name": f"Pkg {kind} {uuid.uuid4().hex[:6]}", "kind": kind,
+        "charges_to_folio": True, "takes_direct_payment": True})
+    return made.json()
+
+
+def test_a_package_holds_inclusions_scoped_to_an_outlet(admin):
+    salon = _an_outlet(admin)
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Elite {uuid.uuid4().hex[:6]}"}).json()
+    r = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": salon["id"], "scope": "outlet", "quantity": 2,
+        "period": "per_stay"})
+    assert r.status_code == 200, r.text
+    assert r.json()["quantity"] == 2
+
+    listed = admin.get(f"{API}/packages").json()
+    mine = next(p for p in listed if p["id"] == pkg["id"])
+    assert len(mine["inclusions"]) == 1
+
+
+def test_an_inclusion_in_an_outlet_that_cannot_charge_a_room_is_refused(admin):
+    walkin = admin.post(f"{API}/outlets", json={
+        "name": f"Kiosk {uuid.uuid4().hex[:6]}", "kind": "other",
+        "charges_to_folio": False, "takes_direct_payment": True}).json()
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Odd {uuid.uuid4().hex[:6]}"}).json()
+    r = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": walkin["id"], "scope": "outlet", "quantity": 1,
+        "period": "per_stay"})
+    # An entitlement is spent by posting to a folio. An outlet with no route to one
+    # could never honour it, so this is refused where it is written rather than
+    # discovered at the counter with a guest waiting.
+    assert r.status_code == 400
+    assert "folio" in r.json()["detail"].lower()
+
+
+def test_an_unknown_period_or_scope_is_refused_and_named(admin):
+    salon = _an_outlet(admin)
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Bad {uuid.uuid4().hex[:6]}"}).json()
+    r = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": salon["id"], "scope": "outlet", "quantity": 1,
+        "period": "per_fortnight"})
+    assert r.status_code == 400
+    assert "per_fortnight" in r.json()["detail"]
+
+
+def test_a_booking_with_no_package_answers_empty_rather_than_404(admin, ep_plan):
+    booking_id = _booking_for_entitlements(admin, ep_plan)
+    r = admin.get(f"{API}/bookings/{booking_id}/entitlements")
+    assert r.status_code == 200, r.text
+    # Most stays have no package. A screen that had to tell "no package" apart from
+    # "booking not found" would treat the ordinary case as an error.
+    assert r.json()["package"] is None
+    assert r.json()["inclusions"] == []
+
+
+def test_consuming_the_same_allowance_twice_spends_it_once(admin, ep_plan):
+    """The room-night bug in a new costume: a double-tapped Save must not burn two."""
+    booking_id = _booking_for_entitlements(admin, ep_plan)
+
+    salon = _an_outlet(admin)
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"Spa {uuid.uuid4().hex[:6]}"}).json()
+    inc = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": salon["id"], "scope": "outlet", "quantity": 2,
+        "period": "per_stay"}).json()
+
+    first = admin.post(
+        f"{API}/bookings/{booking_id}/entitlements/{inc['id']}/use",
+        params={"folio_entry_id": "same-line"})
+    second = admin.post(
+        f"{API}/bookings/{booking_id}/entitlements/{inc['id']}/use",
+        params={"folio_entry_id": "same-line"})
+    assert first.status_code == 200 and second.status_code == 200
+    # Same id both times, so one row and one allowance spent.
+    assert first.json()["id"] == second.json()["id"]
+    assert second.json()["remaining"] == 1, "a repeated request must spend one, not two"
+
+
+def test_an_exhausted_allowance_is_refused_rather_than_going_negative(admin, ep_plan):
+    booking_id = _booking_for_entitlements(admin, ep_plan)
+
+    salon = _an_outlet(admin)
+    pkg = admin.post(f"{API}/packages",
+                     json={"name": f"One {uuid.uuid4().hex[:6]}"}).json()
+    inc = admin.post(f"{API}/packages/{pkg['id']}/inclusions", json={
+        "outlet_id": salon["id"], "scope": "outlet", "quantity": 1,
+        "period": "per_stay"}).json()
+
+    assert admin.post(f"{API}/bookings/{booking_id}/entitlements/{inc['id']}/use",
+                      params={"folio_entry_id": "line-1"}).status_code == 200
+    over = admin.post(f"{API}/bookings/{booking_id}/entitlements/{inc['id']}/use",
+                      params={"folio_entry_id": "line-2"})
+    # 409, so the POS can charge full price and say "beyond package" with a reason.
+    assert over.status_code == 409

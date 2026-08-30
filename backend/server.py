@@ -18,7 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from db import unscoped_db, client, check_connection, using_mock
 from security import hash_password
-from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices, messaging, housekeeping, expenses, planner, outlets, today, bills
+from routers import auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property as property_router, signup, platform, invoices, messaging, housekeeping, expenses, planner, outlets, today, bills, packages
 from routers.tables import Table
 from routers.menu import MenuItem
 from routers.inventory import InventoryItem
@@ -113,7 +113,7 @@ def cors_origins() -> list[str]:
 app = FastAPI(title="BarFlow API")
 api_router = APIRouter(prefix="/api")
 
-for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices, messaging, housekeeping, expenses, planner, outlets, today, bills):
+for module in (auth, staff, tables, menu, orders, inventory, reports, payments, guests, rooms, rates, bookings, frontdesk, folios, analytics, permissions, property_router, signup, platform, invoices, messaging, housekeeping, expenses, planner, outlets, today, bills, packages):
     api_router.include_router(module.router)
 
 
