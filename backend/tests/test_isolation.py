@@ -1048,6 +1048,11 @@ SCOPE_FREE = {
     # outside tenancy — what a business pays the platform is not the business's own data,
     # and the operator belongs to no property to be scoped to.
     ("PUT", "/api/platform/properties/{property_id}/subscription"): "the operator's price",
+    # The credentials a hotel messages its own customers from, written by the operator
+    # during onboarding. `properties` stands outside tenancy — it is the record every
+    # scope is resolved from — so this route reaches it by the id in its own path, and
+    # `platform_admin` is what gates it.
+    ("PUT", "/api/platform/properties/{property_id}/whatsapp"): "the operator's onboarding",
     ("POST", "/api/platform/properties/{property_id}/payments"): "the platform's ledger",
     ("GET", "/api/platform/properties/{property_id}/payments"): "the platform's ledger",
     ("POST", "/api/platform/properties/{property_id}/type"): "properties, and every user of one",

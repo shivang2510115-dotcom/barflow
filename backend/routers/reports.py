@@ -10,13 +10,15 @@ from pydantic import BaseModel
 
 from db import unscoped_db
 from scoped_db import PropertyScopedDatabase, tenant_db
-from security import require_access
+from security import require_access, resolve_property
 # Outlet sales analytics cover both the restaurant and the bar, so either domain grants
 # access. The hotel revenue report is a later sub-project and will declare "hotel".
 from services.access import LIVE, OUTLET
 # `settled_at` is stored in UTC; every report here is a report on the property's local
 # day. The same conversion the analytics endpoint uses, so the two screens can never
 # disagree about which day a bill belongs to. See services/clock.py.
+from services.crypto import decrypt_secret
+from services.whatsapp import credentials_for, missing_for
 from services.clock import local_date, now_local, today as local_today
 
 logger = logging.getLogger(__name__)
@@ -280,7 +282,34 @@ async def build_daily_brief(db, date: Optional[str] = None) -> dict:
     }
 
 
-def whatsapp_config_problem(need_owner_phone: bool = True) -> str:
+
+async def whatsapp_for(user: dict) -> tuple[dict | None, str | None, str | None]:
+    """This caller's property and the credentials it sends from.
+
+    The token is stored encrypted — `properties` stands outside tenancy so the scoped
+    handle's transparent decryption does not reach it — and is decrypted here, at the
+    one point of use. It is never returned by any route.
+    """
+    record = await resolve_property(user)
+    if not record:
+        return None, None, None
+    phone_id, token = whatsapp_credentials(record)
+    return record, phone_id, token
+
+
+def whatsapp_credentials(record: dict | None) -> tuple[str | None, str | None]:
+    """A property record's usable credentials, with the token decrypted.
+
+    Separate from `whatsapp_for` because the callers split two ways: a route has a user
+    and must look the property up, while the nightly brief already holds one for every
+    property it loops over and must not re-fetch it once per hotel.
+    """
+    phone_id, token = credentials_for(record)
+    return phone_id, (decrypt_secret(token) if token else None)
+
+
+def whatsapp_config_problem(property_record: dict | None,
+                            need_owner_phone: bool = True) -> str:
     """What is missing, in the words of the thing that has to be fixed, or "".
 
     Named individually rather than as one "not configured": each of these is a different
@@ -292,14 +321,13 @@ def whatsapp_config_problem(need_owner_phone: bool = True) -> str:
     OWNER_PHONE as the reason a customer could not be messaged sends whoever reads it to
     fix the wrong thing.
     """
-    missing = []
-    if not os.environ.get("WHATSAPP_TOKEN"):
-        missing.append("WHATSAPP_TOKEN (the provider's API token)")
-    if not os.environ.get("WHATSAPP_PHONE_ID"):
-        missing.append("WHATSAPP_PHONE_ID (the Phone number ID, not the phone number)")
-    if need_owner_phone and not (os.environ.get("OWNER_PHONE") or "").strip():
-        missing.append("OWNER_PHONE (recipient, with country code, digits only)")
-    return "Not configured: " + "; ".join(missing) if missing else ""
+    missing = missing_for(property_record, need_owner_phone=need_owner_phone)
+    if not missing:
+        return ""
+    # Named individually and in the hotel's own terms, because these are now fields on
+    # the operator's console rather than environment variables on a server the hotel has
+    # never seen.
+    return "Not configured: " + "; ".join(missing)
 
 
 # Meta returns these for the mistakes that actually happen, and the raw text of each is
@@ -324,7 +352,7 @@ _WHATSAPP_ERRORS = {
 }
 
 
-def _send_whatsapp(to: str, text: str) -> dict:
+def _send_whatsapp(phone_id: str, token: str, to: str, text: str) -> dict:
     """Send via Meta's WhatsApp Cloud API, and report exactly what happened.
 
     Never claims success it did not have. With no credentials this used to log at info
@@ -339,16 +367,15 @@ def _send_whatsapp(to: str, text: str) -> dict:
     outside that window and has to be an approved template: see `send_whatsapp_template`
     below, which is the same transport with a different body.
     """
-    problem = whatsapp_config_problem()
     if problem:
         logger.warning("WhatsApp not sent — %s", problem)
         return {"sent": False, "configured": False, "to": to, "error": problem,
                 "message": text}
-    return _post_whatsapp(to, {"type": "text", "text": {"body": text}})
+    return _post_whatsapp(phone_id, token, to, {"type": "text", "text": {"body": text}})
 
 
-def send_whatsapp_template(to: str, template: str, language: str,
-                           variables: list) -> dict:
+def send_whatsapp_template(phone_id: str, token: str, to: str, template: str,
+                           language: str, variables: list) -> dict:
     """Send an approved template, with its variables filled in, and say what happened.
 
     The only way to reach a customer outside the 24-hour window, and therefore the only
@@ -360,20 +387,22 @@ def send_whatsapp_template(to: str, template: str, language: str,
     Public, unlike `_send_whatsapp`, because `routers/messaging.py` is the caller and the
     import needs to read as the deliberate crossing that it is.
 
-    Two config checks, not one, and they refuse in different words on purpose.
-    `whatsapp_config_problem()` covers the credentials — the same three environment
-    variables, named individually, that the status endpoint already reports. Whether a
-    *template* exists is the property's own configuration and is checked before this is
-    ever called (services/messaging.py::template_problem), because it is fixed in a
-    different place by a different person. `OWNER_PHONE` being required by
-    `whatsapp_config_problem()` is a quirk this inherits: it is the brief's recipient and
-    has nothing to do with a customer's number, but a deployment missing it is one nobody
-    has finished setting up, so refusing is the honest answer either way.
+    Credentials arrive as arguments rather than being looked up here, and that is the
+    whole mechanism by which a message can only ever go from the sending property's own
+    number: there is no environment for a fallback to come from. The caller resolves
+    them and refuses in the property's own words if they are absent.
+
+    Whether a *template* exists is the property's own configuration and is checked before
+    this is ever called (services/messaging.py::template_problem), because it is fixed in
+    a different place by a different person.
     """
-    problem = whatsapp_config_problem()
-    if problem:
-        logger.warning("WhatsApp template %r not sent — %s", template, problem)
-        return {"sent": False, "configured": False, "to": to, "error": problem,
+    if not phone_id or not token:
+        # Defensive: every caller checks first. Reaching here means a caller forgot, and
+        # sending nothing is better than sending from whatever happened to be around.
+        logger.warning("WhatsApp template %r not sent — no credentials for this property",
+                       template)
+        return {"sent": False, "configured": False, "to": to,
+                "error": "This property has no WhatsApp credentials.",
                 "template": template}
 
     body = {
@@ -390,12 +419,12 @@ def send_whatsapp_template(to: str, template: str, language: str,
             }] if variables else [],
         },
     }
-    result = _post_whatsapp(to, body)
+    result = _post_whatsapp(phone_id, token, to, body)
     result["template"] = template
     return result
 
 
-def _post_whatsapp(to: str, message: dict) -> dict:
+def _post_whatsapp(phone_id: str, token: str, to: str, message: dict) -> dict:
     """The one HTTP call, and the one reading of what came back.
 
     Split out of `_send_whatsapp` when templates arrived rather than copied, because the
@@ -408,8 +437,6 @@ def _post_whatsapp(to: str, message: dict) -> dict:
     whatever body the caller wants merged with the envelope every send shares.
     """
     import json as _json, urllib.error, urllib.request
-    token = os.environ["WHATSAPP_TOKEN"]
-    phone_id = os.environ["WHATSAPP_PHONE_ID"]
     body = _json.dumps({
         "messaging_product": "whatsapp",
         "to": to,
@@ -459,8 +486,14 @@ class BriefSendIn(BaseModel):
 async def daily_brief_send(payload: BriefSendIn, user: dict = Depends(REPORTS),
                            db: PropertyScopedDatabase = Depends(tenant_db)):
     brief = await build_daily_brief(db, payload.date)
-    to = (payload.to or os.environ.get("OWNER_PHONE") or "").strip()
-    result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, brief["message"])
+    record, phone_id, token = await whatsapp_for(user)
+    problem = whatsapp_config_problem(record, need_owner_phone=not (payload.to or "").strip())
+    if problem:
+        return {"sent": False, "configured": False, "error": problem}
+    # The owner's own number, from their own property record — not one number shared
+    # across the platform, which is what an environment variable made it.
+    to = (payload.to or (record or {}).get("owner_phone") or "").strip()
+    result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, phone_id, token, to, brief["message"])
     return {"brief": brief, "delivery": result}
 
 
@@ -471,16 +504,17 @@ class WhatsAppTestIn(BaseModel):
 
 @router.get("/whatsapp/status")
 async def whatsapp_status(user: dict = Depends(require_access(OUTLET, "admin"))):
-    """Whether WhatsApp could send right now, and what is missing if it could not."""
-    problem = whatsapp_config_problem()
-    to = (os.environ.get("OWNER_PHONE") or "").strip()
+    """Whether this property could send right now, and what is missing if it could not."""
+    record, _phone_id, _token = await whatsapp_for(user)
+    problem = whatsapp_config_problem(record)
+    to = ((record or {}).get("owner_phone") or "").strip()
     return {
         "configured": not problem,
         "problem": problem,
         "recipient": to,
         # Never the token itself. Enough to tell a wrong one from a missing one.
-        "token_set": bool(os.environ.get("WHATSAPP_TOKEN")),
-        "phone_id_set": bool(os.environ.get("WHATSAPP_PHONE_ID")),
+        "token_set": bool(((record or {}).get("whatsapp_token") or "").strip()),
+        "phone_id_set": bool(((record or {}).get("whatsapp_phone_id") or "").strip()),
     }
 
 
@@ -493,10 +527,15 @@ async def whatsapp_test(payload: WhatsAppTestIn,
     misconfiguration, a refusal returns Meta's own code translated into what to do about
     it, and a success returns the message id you can find in their dashboard.
     """
-    to = (payload.to or os.environ.get("OWNER_PHONE") or "").strip()
+    record, phone_id, token = await whatsapp_for(user)
+    problem = whatsapp_config_problem(record, need_owner_phone=not (payload.to or "").strip())
+    if problem:
+        return {"sent": False, "configured": False, "error": problem}
+
+    to = (payload.to or (record or {}).get("owner_phone") or "").strip()
     text = payload.message or "BarFlow test message. If you are reading this, WhatsApp is working."
-    result = await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, text)
-    return result
+    return await asyncio.get_event_loop().run_in_executor(
+        None, _send_whatsapp, phone_id, token, to, text)
 
 
 _last_brief_sent = {"date": None}
@@ -529,13 +568,30 @@ async def send_daily_brief(day: Optional[str] = None) -> int:
     day = day or now_local().date().isoformat()
     properties = await unscoped_db.properties.find(
         {"status": LIVE}, {"_id": 0}).to_list(1000)
-    to = (os.environ.get("OWNER_PHONE") or "").strip()
+    sent = skipped = 0
     for record in properties:
+        # Each hotel's brief goes to its own owner, from its own number. This used to
+        # read one OWNER_PHONE for the whole platform, which is why the property name
+        # had to be prefixed to the message — every owner got everybody's briefs.
+        phone_id, token = whatsapp_credentials(record)
+        to = (record.get("owner_phone") or "").strip()
+        if not phone_id or not token or not to:
+            # Skipped with a reason, never aborting: one hotel that has not finished
+            # onboarding must not stop the brief going to the twenty that have.
+            logger.info("[daily-brief] %s skipped — %s", record.get("name"),
+                        "; ".join(missing_for(record, need_owner_phone=True)))
+            skipped += 1
+            continue
+
         brief = await build_daily_brief(PropertyScopedDatabase(record["id"]), day)
         text = f"{record.get('name') or 'Property'}\n{brief['message']}"
-        await asyncio.get_event_loop().run_in_executor(None, _send_whatsapp, to, text)
-    logger.info("[daily-brief] auto-sent for %s to %d propert(ies)", day, len(properties))
-    return len(properties)
+        await asyncio.get_event_loop().run_in_executor(
+            None, _send_whatsapp, phone_id, token, to, text)
+        sent += 1
+
+    logger.info("[daily-brief] %s: sent to %d propert(ies), %d skipped",
+                day, sent, skipped)
+    return sent
 
 
 def in_process_brief_enabled() -> bool:

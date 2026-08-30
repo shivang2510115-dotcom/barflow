@@ -25,6 +25,27 @@ def admin():
     return s
 
 
+
+@pytest.fixture(scope="module")
+def platform():
+    """The platform operator, who belongs to no hotel.
+
+    Seeded only when PLATFORM_ADMIN_EMAIL is set — see server.py — so these tests skip
+    rather than fail on a server started without one. A skip that says why is honest;
+    a failure would send somebody looking for a bug in the route.
+    """
+    email = os.environ.get("PLATFORM_ADMIN_EMAIL")
+    password = os.environ.get("PLATFORM_ADMIN_PASSWORD")
+    if not email or not password:
+        pytest.skip("PLATFORM_ADMIN_EMAIL/PASSWORD not set on this server")
+    s = requests.Session()
+    r = s.post(f"{API}/auth/login", json={"email": email, "password": password})
+    if r.status_code != 200:
+        pytest.skip("the platform operator is not seeded on this server")
+    s.headers.update({"Authorization": f"Bearer {r.json()['token']}"})
+    return s
+
+
 def test_front_desk_role_exists(admin):
     r = admin.post(f"{API}/staff", json={
         "name": "Desk Tester",
@@ -3080,3 +3101,66 @@ def test_the_timeline_keeps_a_voided_charge_where_the_bill_drops_it(admin, ep_pl
 def test_a_timeline_for_a_booking_that_does_not_exist_is_a_404(admin):
     r = admin.get(f"{API}/bookings/00000000-0000-0000-0000-000000000000/timeline")
     assert r.status_code == 404
+
+
+def test_the_operator_stores_a_hotels_whatsapp_credentials(platform):
+    props = platform.get(f"{API}/platform/properties").json()
+    pid = props[0]["id"]
+
+    r = platform.put(f"{API}/platform/properties/{pid}/whatsapp", json={
+        "phone_id": "123456789", "token": "EAAG-secret-token",
+        "display_name": "Anand Castle", "owner_phone": "919876543210"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["phone_id"] == "123456789"
+    assert body["configured"] is True
+    assert body["token_set"] is True
+    # The token is write-only. It must not come back from the route that set it...
+    assert "token" not in body or body.get("token") is None
+
+
+def test_no_route_ever_returns_a_stored_whatsapp_token(platform):
+    props = platform.get(f"{API}/platform/properties").json()
+    pid = props[0]["id"]
+    platform.put(f"{API}/platform/properties/{pid}/whatsapp",
+                 json={"phone_id": "111", "token": "EAAG-super-secret"})
+
+    # ...nor from the detail panel, nor from the list.
+    detail = platform.get(f"{API}/platform/properties/{pid}").text
+    assert "EAAG-super-secret" not in detail
+    assert platform.get(f"{API}/platform/properties/{pid}").json()["whatsapp"]["token_set"] is True
+    assert "EAAG-super-secret" not in platform.get(f"{API}/platform/properties").text
+
+
+def test_clearing_the_token_switches_a_hotels_messaging_off(platform):
+    props = platform.get(f"{API}/platform/properties").json()
+    pid = props[0]["id"]
+    platform.put(f"{API}/platform/properties/{pid}/whatsapp",
+                 json={"phone_id": "222", "token": "EAAG-x"})
+    off = platform.put(f"{API}/platform/properties/{pid}/whatsapp",
+                       json={"token": ""}).json()
+    assert off["configured"] is False
+    assert off["token_set"] is False
+    # The phone id survives: it will be needed again, and clearing the token is how a
+    # hotel is switched off without losing what the operator already typed.
+    assert off["phone_id"] == "222"
+
+
+def test_omitting_a_field_leaves_it_alone(platform):
+    props = platform.get(f"{API}/platform/properties").json()
+    pid = props[0]["id"]
+    platform.put(f"{API}/platform/properties/{pid}/whatsapp",
+                 json={"phone_id": "333", "token": "EAAG-y", "display_name": "Grand"})
+    # Correcting only the display name must not clear the credentials — an operator
+    # should not have to re-paste a secret to fix a typo.
+    after = platform.put(f"{API}/platform/properties/{pid}/whatsapp",
+                         json={"display_name": "The Grand"}).json()
+    assert after["display_name"] == "The Grand"
+    assert after["configured"] is True
+    assert after["phone_id"] == "333"
+
+
+def test_a_hotel_admin_cannot_set_its_own_whatsapp_credentials(admin):
+    r = admin.put(f"{API}/platform/properties/anything/whatsapp",
+                  json={"phone_id": "1", "token": "t"})
+    assert r.status_code == 403

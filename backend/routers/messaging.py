@@ -38,7 +38,10 @@ from db import unscoped_db
 from models.hotel import Guest
 from models.messaging import MessageLogEntry, MessagingSettings, MessagingSettingsIn
 from routers.guests import find_by_phone, record_occasion
-from routers.reports import send_whatsapp_template, whatsapp_config_problem
+from routers.reports import (
+    send_whatsapp_template, whatsapp_config_problem, whatsapp_credentials,
+    whatsapp_for)
+import db as _db_module
 from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access, resolve_property
 from services.access import LIVE, SHARED
@@ -200,6 +203,8 @@ async def occasions_today(user: dict = Depends(OPERATIONAL),
     send endpoint will consult. Two fields rather than one, so the screen can say "sent at
     10:14" and "cannot send" for different reasons without pretending they are the same.
     """
+    _wa_record, _, _ = await whatsapp_for(user)
+    _wa_problem = whatsapp_config_problem(_wa_record, need_owner_phone=False)
     day = local_today()
     settings = await _settings(db)
     rows = await db.occasions.find({"month_day": day[5:]}, {"_id": 0}).to_list(2000)
@@ -242,8 +247,8 @@ async def occasions_today(user: dict = Depends(OPERATIONAL),
         # each row's `problem`: it is the same answer for every row and it is fixed by a
         # different person in a different place. Same shape GET /whatsapp/status answers
         # in, so the screen can say the same thing the Notifications screen does.
-        "whatsapp": {"configured": not whatsapp_config_problem(need_owner_phone=False),
-                     "problem": whatsapp_config_problem(need_owner_phone=False)},
+        "whatsapp": {"configured": not _wa_problem,
+                     "problem": _wa_problem},
     }
 
 
@@ -381,6 +386,8 @@ async def follow_ups(user: dict = Depends(OPERATIONAL),
     this is the answer to "what is it going to do tonight", and GET /messaging/log is the
     answer to "what did it do".
     """
+    _wa_record, _, _ = await whatsapp_for(user)
+    _wa_problem = whatsapp_config_problem(_wa_record, need_owner_phone=False)
     settings = await _settings(db)
     if not follow_up_enabled(settings):
         return {"enabled": False, "days": follow_up_days(settings), "customers": [],
@@ -389,7 +396,7 @@ async def follow_ups(user: dict = Depends(OPERATIONAL),
         "enabled": True,
         "days": follow_up_days(settings),
         "customers": await _due_follow_ups(db, settings, local_today()),
-        "problem": template_problem(settings, FOLLOW_UP) or whatsapp_config_problem(need_owner_phone=False),
+        "problem": template_problem(settings, FOLLOW_UP) or _wa_problem,
     }
 
 
@@ -420,7 +427,8 @@ async def run_follow_ups(db: PropertyScopedDatabase, property_record: dict,
 
     if not follow_up_enabled(settings):
         return {**counts, "skipped": FOLLOW_UP_OFF}
-    blocked = template_problem(settings, FOLLOW_UP) or whatsapp_config_problem(need_owner_phone=False)
+    _wa_problem = whatsapp_config_problem(property_record, need_owner_phone=False)
+    blocked = template_problem(settings, FOLLOW_UP) or _wa_problem
     if blocked:
         logger.warning("[follow-ups] %s: nothing sent — %s",
                        property_record.get("name"), blocked)
@@ -542,12 +550,29 @@ async def _deliver(db: PropertyScopedDatabase, *, kind: str, guest: dict, settin
     into a 409, because the nightly job's answer to the same situation is to move on to
     the next customer rather than to abandon the run.
     """
+    # The number this message goes out from, resolved from the property it belongs to.
+    # There is no fallback: a property with no credentials of its own sends nothing,
+    # which is the decision stated in services/whatsapp.py.
+    _sender = await _db_module.unscoped_db.properties.find_one(
+        {"id": db.property_id}, {"_id": 0})
+    phone_id, token = whatsapp_credentials(_sender)
+
     # Consent, first and by name. `blocking_problem` checks it too — the same question
     # asked twice, on purpose, so that the one refusal carrying legal weight is visible in
     # this function rather than three call frames away. Unsolicited commercial messaging
     # is regulated in India and it is the property that carries the risk.
     denied = consent_problem(guest)
-    refusal = denied or blocking_problem(settings, guest, kind, label)
+    # Missing credentials join the same refusal path rather than returning early, so an
+    # unsendable message is logged with its reason exactly as every other refusal is. A
+    # staff member who pressed a button is owed the reason nothing went; returning
+    # silently was a regression this test caught.
+    #
+    # The nightly job does not reach here at all when credentials are absent — it stops
+    # at `run_follow_ups`, which is what keeps one missing setting from writing a failure
+    # row per customer per night.
+    no_credentials = (None if (phone_id and token)
+                      else whatsapp_config_problem(_sender, need_owner_phone=False))
+    refusal = denied or no_credentials or blocking_problem(settings, guest, kind, label)
     if refusal:
         row = await _log(db, kind=kind, status=REFUSED if denied else FAILED,
                          guest_id=guest["id"], guest_name=guest.get("name") or "",
@@ -570,7 +595,8 @@ async def _deliver(db: PropertyScopedDatabase, *, kind: str, guest: dict, settin
     # Off the event loop: it is a blocking urllib call, and the till is on the same
     # process. The lambda is what keeps the module-level name resolved at call time.
     result = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: send_whatsapp_template(to, template, language, variables))
+        None, lambda: send_whatsapp_template(phone_id, token, to, template, language,
+                                             variables))
 
     sent = bool(result.get("sent"))
     row = await _log(db, kind=kind, status=SENT if sent else FAILED,

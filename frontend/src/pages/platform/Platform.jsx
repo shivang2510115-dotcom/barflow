@@ -7,6 +7,7 @@ import { api, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { LIVE, PENDING, STATUSES, STATUS_BLURB, SUSPENDED } from "@/lib/tenancy";
 import SubscriptionPanel, { SubscriptionCell } from "@/pages/platform/SubscriptionPanel";
+import WhatsAppPanel from "@/pages/platform/WhatsAppPanel";
 import PlatformSettings from "@/pages/platform/PlatformSettings";
 
 /**
@@ -141,6 +142,17 @@ function Detail({ detail, payments, onChanged }) {
         payments={payments}
         onChanged={onChanged}
       />
+
+      {/* Keyed on the property for the same reason: a token half-pasted for one hotel
+          must never carry across to another. */}
+      <div className="mt-6">
+        <WhatsAppPanel
+          key={`wa-${detail.id}`}
+          propertyId={detail.id}
+          whatsapp={detail.whatsapp}
+          onSaved={onChanged}
+        />
+      </div>
 
       {/* The operator sees a hotel's size, never its guests: there is no route on the
           platform API that returns a booking, a folio or an identity document, and this

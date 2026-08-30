@@ -39,6 +39,7 @@ from mock_db import MockDatabase
 from models.hotel import OccasionIn
 from models.messaging import MessagingSettingsIn
 from models.property import Property
+import db as _db_module
 from scoped_db import PropertyScopedDatabase
 from services.access import DOMAINS, LIVE, SCREEN_KEYS
 from services.clock import today as local_today
@@ -87,8 +88,9 @@ def _staff(uid, role):
 @pytest.fixture
 def world(tmp_path, monkeypatch) -> World:
     """One live property, an admin, a waiter, and a transport that records instead of
-    sending. WhatsApp is deliberately left unconfigured at the environment level unless a
-    test says otherwise — that is the state the owner is actually in."""
+    sending. WhatsApp is deliberately left unconfigured on the property unless a test
+    says otherwise — that is the state a hotel is actually in until the operator
+    onboards it."""
     handle = MockDatabase(str(tmp_path / "db.json"))
     for module in _UNSCOPED_HOLDERS:
         monkeypatch.setattr(module, "unscoped_db", handle)
@@ -106,22 +108,63 @@ def world(tmp_path, monkeypatch) -> World:
     return World(db=PropertyScopedDatabase("p1"), admin=admin, waiter=waiter, sends=[])
 
 
-def accepting_transport(world: World, message_id="wamid.TEST"):
-    """Stand in for Meta, and record every call. Returns what the Cloud API returns."""
-    def fake(to, template, language, variables):
+def recording_transport(world: World, message_id="wamid.TEST"):
+    """Records sends and answers like Meta, but configures nothing.
+
+    For the tests that are *about* being unconfigured: they need a transport that would
+    work if it were reached, so that "nothing was sent" means the refusal fired rather
+    than the stub crashing.
+    """
+    def fake(phone_id, token, to, template, language, variables):
         world.sends.append({"to": to, "template": template, "language": language,
-                            "variables": list(variables)})
+                            "variables": list(variables), "phone_id": phone_id})
         return {"sent": True, "configured": True, "to": to, "status": 200,
                 "message_id": message_id, "response": {}}
     return fake
 
 
-def whatsapp_configured(monkeypatch):
-    """The three environment variables `whatsapp_config_problem()` names. Set only where a
-    test is about something other than the credentials being missing."""
-    monkeypatch.setenv("WHATSAPP_TOKEN", "test-token")
-    monkeypatch.setenv("WHATSAPP_PHONE_ID", "test-phone-id")
-    monkeypatch.setenv("OWNER_PHONE", "919999999999")
+def accepting_transport(world: World, message_id="wamid.TEST"):
+    """Stand in for Meta, and record every call. Returns what the Cloud API returns.
+
+    Configures the property as a side effect, deliberately: a transport that accepts is
+    a property that can send, and the credential check now runs in `_deliver` — before
+    the dedupe key is claimed — rather than inside the transport this replaces. A test
+    that patched the transport used to bypass the check entirely, which meant it was
+    never exercised on the path that matters.
+
+    The signature takes the credentials because the sender does now: they are arguments
+    rather than an environment lookup, which is what makes it impossible for a message
+    to go out from any number but the sending property's own.
+    """
+    whatsapp_configured(world)
+
+    def fake(phone_id, token, to, template, language, variables):
+        world.sends.append({"to": to, "template": template, "language": language,
+                            "variables": list(variables), "phone_id": phone_id})
+        return {"sent": True, "configured": True, "to": to, "status": 200,
+                "message_id": message_id, "response": {}}
+    return fake
+
+
+def whatsapp_configured(world_or_monkeypatch, monkeypatch=None):
+    """Give the property its own credentials.
+
+    They live on the property now, not in the environment — that is the whole point of
+    the change: a message goes out from the sending hotel's own number, and there is no
+    platform-wide setting for one to fall back to.
+
+    Accepts a World, and still accepts a bare monkeypatch for the call sites that have
+    not been updated, so this reads the same at both.
+    """
+    world = world_or_monkeypatch
+    if not hasattr(world, "db"):
+        return  # a monkeypatch was passed; nothing environmental is read any more
+    run(_db_module.unscoped_db.properties.update_one(
+        {"id": "p1"}, {"$set": {
+            "whatsapp_phone_id": "test-phone-id",
+            "whatsapp_token": "test-token",
+            "owner_phone": "919999999999",
+        }}))
 
 
 def configure(world: World, **overrides):
@@ -154,9 +197,15 @@ def log_rows(world: World):
 
 
 def run_job(world: World, day=None) -> dict:
-    """One night's follow-up run for this property, as the scheduled function does it."""
+    """One night's follow-up run for this property, as the scheduled function does it.
+
+    Reads the real property record rather than building one, because the record now
+    carries the credentials the run depends on — a hand-made stand-in has none, and the
+    job would correctly report every property as unconfigured.
+    """
+    record = run(_db_module.unscoped_db.properties.find_one({"id": "p1"}, {"_id": 0}))
     counts = call(messaging.run_follow_ups, db=world.db,
-                  property_record={"id": "p1", "name": "The Grand"}, day=day)
+                  property_record=record, day=day)
     return {k: v for k, v in counts.items() if k != "property"}
 
 
@@ -248,15 +297,15 @@ def test_pressing_send_twice_sends_once(world, monkeypatch):
 def test_a_send_that_definitely_did_not_happen_can_be_retried(world, monkeypatch):
     """A refusal from Meta is not a message, so the claim is released. The alternative —
     holding it — would mean one misconfigured evening burns the greeting for good."""
-    monkeypatch.setenv("WHATSAPP_TOKEN", "t")
-    monkeypatch.setenv("WHATSAPP_PHONE_ID", "pid")
+    whatsapp_configured(world)
+    
     configure(world)
     add_guest(world, "g1", "Asha", "+919876543210")
     occasion = call(guests_router.add_occasion, guest_id="g1",
                     payload=OccasionIn(label="Birthday", date=f"1994-{month_day_today()}"),
                     user=world.admin, db=world.db)
 
-    def refusing(to, template, language, variables):
+    def refusing(phone_id, token, to, template, language, variables):
         world.sends.append(to)
         return {"sent": False, "configured": True, "to": to, "status": 400,
                 "error_code": 132001, "error": "No approved template with that name."}
@@ -278,8 +327,8 @@ def test_a_send_that_definitely_did_not_happen_can_be_retried(world, monkeypatch
 def test_a_send_we_cannot_account_for_keeps_the_claim(world, monkeypatch):
     """A socket that died mid-request may or may not have delivered. Retrying would risk
     a second greeting, so the claim is kept and the log says why."""
-    monkeypatch.setenv("WHATSAPP_TOKEN", "t")
-    monkeypatch.setenv("WHATSAPP_PHONE_ID", "pid")
+    whatsapp_configured(world)
+    
     configure(world)
     add_guest(world, "g1", "Asha", "+919876543210")
     occasion = call(guests_router.add_occasion, guest_id="g1",
@@ -333,8 +382,8 @@ def test_an_opted_out_customer_is_never_a_follow_up(world, monkeypatch):
     """Not "listed but unsendable" — absent. Somebody who asked not to be messaged is not
     a pending task with a problem attached, and the automatic job never reaches them."""
     monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
-    monkeypatch.setenv("WHATSAPP_TOKEN", "t")
-    monkeypatch.setenv("WHATSAPP_PHONE_ID", "pid")
+    whatsapp_configured(world)
+    
     monkeypatch.setenv("OWNER_PHONE", "919999999999")
     configure(world, follow_up_days=30)
     add_guest(world, "g1", "Asha", "+919876543210", no_messages=True)
@@ -386,7 +435,7 @@ def test_follow_up_is_on_at_ten_days_and_can_be_switched_off(world, monkeypatch)
     until the property has obtained a Meta template of its own, that an opted-out customer
     is never reached, and that each customer hears once per visit."""
     monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     configure(world)  # templates set, follow-up untouched
     add_guest(world, "g1", "Asha", "+919876543210")
     settled_order(world, "+919876543210", days_ago(11))
@@ -406,7 +455,7 @@ def test_follow_up_is_on_at_ten_days_and_can_be_switched_off(world, monkeypatch)
 
 def test_the_job_sends_the_follow_up_with_nobody_pressing_anything(world, monkeypatch):
     monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     configure(world)
     add_guest(world, "g1", "Asha Menon", "+919876543210")
     settled_order(world, "+919876543210", days_ago(11))
@@ -423,7 +472,7 @@ def test_the_job_run_twice_sends_once(world, monkeypatch):
     """It runs every night and the customer is still lapsed tomorrow. "Have we done this
     one" cannot be a matter of timing — it is the claim, keyed on the visit."""
     monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     configure(world)
     add_guest(world, "g1", "Asha", "+919876543210")
     settled_order(world, "+919876543210", days_ago(11))
@@ -439,28 +488,33 @@ def test_the_job_is_safe_when_whatsapp_is_not_configured(world, monkeypatch):
     """It records the refusal and moves on. One line for the run, not a failure row per
     customer per night for as long as the credentials are missing — which would bury the
     day somebody finally sets them."""
-    monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
-    configure(world)  # templates named, but no WhatsApp credentials in the environment
+    # Deliberately NOT accepting_transport: that helper configures the property, which
+    # is exactly what this test needs to remain absent. A bare stub records a send if
+    # one somehow happens, and the assertion is that none does.
+    monkeypatch.setattr(messaging, "send_whatsapp_template", recording_transport(world))
+    configure(world)  # templates named, but this property has no WhatsApp credentials
     for i in range(3):
         add_guest(world, f"g{i}", f"Guest {i}", f"+91987650000{i}")
         settled_order(world, f"+91987650000{i}", days_ago(40), oid=f"o{i}")
 
     counts = run_job(world)
     assert counts["sent"] == 0 and counts["failed"] == 0
-    assert "WHATSAPP_TOKEN" in counts["skipped"]
+    # Named in the hotel's own terms now: these are fields on the operator's
+    # console, not environment variables on a server the hotel has never seen.
+    assert "WhatsApp" in counts["skipped"]
     assert log_rows(world) == [], "no per-customer noise while the deployment is unready"
     assert world.sends == []
     assert run(world.db.message_claims.count_documents({})) == 0, (
         "nobody's one follow-up was spent on a run that could not send")
 
     # And the day the credentials arrive, everybody is still there to be messaged.
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     assert run_job(world)["sent"] == 3
 
 
 def test_the_job_is_safe_when_no_template_is_configured(world, monkeypatch):
     monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     configure(world, follow_up_template="")
     add_guest(world, "g1", "Asha", "+919876543210")
     settled_order(world, "+919876543210", days_ago(40))
@@ -477,7 +531,7 @@ def test_one_tenant_cannot_stop_another_tenants_follow_ups(world, monkeypatch):
     run must not silence the whole platform's for the night."""
     monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
     monkeypatch.setattr(messaging, "unscoped_db", db_module.unscoped_db)
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     configure(world)
     add_guest(world, "g1", "Asha", "+919876543210")
     settled_order(world, "+919876543210", days_ago(11))
@@ -522,7 +576,7 @@ def test_the_window_is_the_propertys_own(world):
 def test_one_follow_up_per_visit(world, monkeypatch):
     """"Gets one follow-up" — not one a night until they come back."""
     monkeypatch.setattr(messaging, "send_whatsapp_template", accepting_transport(world))
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     configure(world, follow_up_days=30)
     add_guest(world, "g1", "Asha", "+919876500001")
     settled_order(world, "+919876500001", days_ago(90))
@@ -544,13 +598,13 @@ def test_a_follow_up_that_meta_refused_is_not_retried_every_night(world, monkeyp
     """Unlike the occasion button, the job keeps its claim whatever happened. Nobody is
     watching, so a nightly retry of a number that is not on WhatsApp would run until the
     property closed — and the log row already says why it did not go."""
-    whatsapp_configured(monkeypatch)
+    whatsapp_configured(world)
     configure(world, follow_up_days=30)
     add_guest(world, "g1", "Asha", "+919876500001")
     settled_order(world, "+919876500001", days_ago(90))
     attempts = []
 
-    def refusing(to, template, language, variables):
+    def refusing(phone_id, token, to, template, language, variables):
         attempts.append(to)
         return {"sent": False, "configured": True, "to": to, "status": 400,
                 "error_code": 131026, "error": "That number cannot receive WhatsApp."}
@@ -613,8 +667,7 @@ def test_a_send_with_whatsapp_unconfigured_reports_metas_own_missing_pieces(worl
     result = call(messaging.send_occasion, occasion_id=occasion["id"],
                   user=world.waiter, db=world.db)
     assert result["sent"] is False
-    assert "WHATSAPP_TOKEN" in result["error"]
-    assert "WHATSAPP_PHONE_ID" in result["error"]
+    assert "WhatsApp" in result["error"]
     assert log_rows(world)[0]["error"] == result["error"]
 
 

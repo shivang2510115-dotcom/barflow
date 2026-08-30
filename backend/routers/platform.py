@@ -37,6 +37,8 @@ from security import get_current_user
 from services.access import (
     LIVE, PENDING, PLATFORM_ADMIN, PROPERTY_TYPES, SUSPENDED,
     domains_for_property_type, narrow_to_domains)
+from services.crypto import encrypt_secret, encryption_configured
+from services.whatsapp import can_send, missing_for
 from services.clock import today
 from services.subscription import (
     METHOD_LABELS, SubscriptionError, advance_paid_until, normalise_method,
@@ -96,6 +98,24 @@ class PaymentIn(BaseModel):
 
 class PropertyTypeIn(BaseModel):
     property_type: str
+
+
+class WhatsAppIn(BaseModel):
+    """The credentials a hotel messages its own customers from.
+
+    Entered by the operator during onboarding, which is the same choice the Razorpay
+    design made and for the same reason: the operator is the one on the call, and a
+    token is a credential the hotel should not have to handle twice.
+
+    `token` is optional so the operator can correct a phone id or a display name without
+    re-pasting a secret they may not have to hand. Sending an empty string clears it,
+    which is how a hotel is switched off; omitting the field leaves it alone. Those are
+    different intentions and the API distinguishes them.
+    """
+    phone_id: Optional[str] = None
+    token: Optional[str] = None
+    display_name: Optional[str] = None
+    owner_phone: Optional[str] = None
 
 
 def _summary(record: dict, day: str) -> dict:
@@ -170,6 +190,17 @@ async def property_detail(property_id: str, user: dict = Depends(platform_admin)
         # _summary — it belongs on the one property they opened, not beside every name
         # in the list.
         "payment_note": record.get("payment_note") or "",
+        # What this hotel can message from. The token is deliberately absent and there
+        # is no route anywhere that returns it: it is write-only, like a password. What
+        # the operator needs to see is whether one is set, which `configured` answers.
+        "whatsapp": {
+            "phone_id": record.get("whatsapp_phone_id") or "",
+            "display_name": record.get("whatsapp_display_name") or "",
+            "owner_phone": record.get("owner_phone") or "",
+            "token_set": bool((record.get("whatsapp_token") or "").strip()),
+            "configured": can_send(record),
+            "missing": missing_for(record, need_owner_phone=True),
+        },
         "counts": {"rooms": rooms, "room_types": room_types, "rates": rates,
                    "menu_items": menu, "tables": tables, "staff": staff},
         # What the operator actually wants to know before approving: has this hotel done
@@ -359,3 +390,49 @@ async def set_property_type(property_id: str, payload: PropertyTypeIn,
     return {**_summary(await _record_or_404(property_id), today()),
             "staff": {"narrowed": narrowed, "deactivated": deactivated},
             "unreachable": lost}
+
+
+@router.put("/platform/properties/{property_id}/whatsapp")
+async def set_whatsapp(property_id: str, payload: WhatsAppIn,
+                       user: dict = Depends(platform_admin)):
+    """Give a hotel the credentials it messages its own customers from.
+
+    The token is encrypted at rest with the same mechanism that protects guests'
+    identity documents, and is never returned by this route or any other. The response
+    says whether one is set, which is the only thing the console needs to draw.
+
+    An omitted field is left alone; an empty string clears it. A half-configured
+    property cannot send — see services/whatsapp.py — so clearing the token switches a
+    hotel's messaging off without disturbing the phone id it will need again.
+    """
+    record = await _record_or_404(property_id)
+
+    changes: dict = {}
+    if payload.phone_id is not None:
+        changes["whatsapp_phone_id"] = payload.phone_id.strip()
+    if payload.display_name is not None:
+        changes["whatsapp_display_name"] = payload.display_name.strip()
+    if payload.owner_phone is not None:
+        changes["owner_phone"] = payload.owner_phone.strip()
+    if payload.token is not None:
+        token = payload.token.strip()
+        # Encrypted here rather than by the scoped handle: `properties` stands outside
+        # tenancy, so ENCRYPTED_FIELDS does not reach it.
+        changes["whatsapp_token"] = encrypt_secret(token) if token else ""
+        if token and not encryption_configured():
+            raise HTTPException(
+                500, "GUEST_ID_ENCRYPTION_KEY is not set, so a token cannot be stored "
+                     "safely. Set it before entering WhatsApp credentials.")
+
+    if changes:
+        await unscoped_db.properties.update_one({"id": property_id}, {"$set": changes})
+
+    merged = {**record, **changes}
+    return {
+        "phone_id": merged.get("whatsapp_phone_id") or "",
+        "display_name": merged.get("whatsapp_display_name") or "",
+        "owner_phone": merged.get("owner_phone") or "",
+        "token_set": bool((merged.get("whatsapp_token") or "").strip()),
+        "configured": can_send(merged),
+        "missing": missing_for(merged, need_owner_phone=True),
+    }
