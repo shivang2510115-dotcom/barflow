@@ -2647,3 +2647,78 @@ def test_the_board_never_leaks_a_guests_contact_details(waiter):
     for row in b["arrivals"] + b["departures"]:
         assert set(row) == {"booking_id", "guest_name", "room_number",
                             "check_in", "check_out", "status"}, row
+
+
+def _folio_with_charges(admin):
+    """A checked-in booking with a room night and an extra on its folio."""
+    fd = admin.get(f"{API}/front-desk").json()
+    for row in fd["in_house"]:
+        f = admin.get(f"{API}/folios", params={"booking_id": row["id"]}).json()
+        if f:
+            return f[0]["id"] if isinstance(f, list) else f["id"]
+    return None
+
+
+def test_a_bill_is_drawn_from_the_folio_and_carries_a_number(admin):
+    folio_id = _folio_with_charges(admin)
+    if not folio_id:
+        import pytest
+        pytest.skip("no in-house folio in the seeded data")
+    r = admin.post(f"{API}/folios/{folio_id}/bill", json={})
+    assert r.status_code == 200, r.text
+    b = r.json()
+    assert b["number"], "a bill must carry a number"
+    assert "/" in b["number"], "the number names its financial year"
+    assert b["guest_name"]
+    assert "charges" in b and "payments" in b
+    assert b["balance"] == round(b["charges_total"] - b["paid_total"], 2)
+
+
+def test_two_bills_from_one_folio_take_consecutive_numbers(admin):
+    folio_id = _folio_with_charges(admin)
+    if not folio_id:
+        import pytest
+        pytest.skip("no in-house folio in the seeded data")
+    first = admin.post(f"{API}/folios/{folio_id}/bill", json={}).json()
+    second = admin.post(f"{API}/folios/{folio_id}/bill", json={}).json()
+    year, a = first["number"].split("/")
+    year2, b = second["number"].split("/")
+    assert year == year2
+    assert int(b) == int(a) + 1, "the sequence must be gapless"
+
+
+def test_a_bill_does_not_change_when_the_folio_does(admin):
+    """The snapshot rule: a late charge produces a second bill, never an edited one."""
+    folio_id = _folio_with_charges(admin)
+    if not folio_id:
+        import pytest
+        pytest.skip("no in-house folio in the seeded data")
+    before = admin.post(f"{API}/folios/{folio_id}/bill", json={}).json()
+    admin.post(f"{API}/folios/{folio_id}/charges",
+               json={"amount": 250, "description": "Late bar tab"})
+    again = admin.get(f"{API}/bills/{before['id']}").json()
+    assert again["charges_total"] == before["charges_total"], \
+        "the issued bill must not move when the folio does"
+    assert len(again["charges"]) == len(before["charges"])
+
+
+def test_a_bill_never_shows_a_voided_charge(admin):
+    folio_id = _folio_with_charges(admin)
+    if not folio_id:
+        import pytest
+        pytest.skip("no in-house folio in the seeded data")
+    made = admin.post(f"{API}/folios/{folio_id}/charges",
+                      json={"amount": 999, "description": "Wrong charge"}).json()
+    entry_id = made.get("id") or made.get("entry", {}).get("id")
+    if entry_id:
+        admin.post(f"{API}/folios/{folio_id}/entries/{entry_id}/void",
+                   json={"reason": "keyed twice"})
+    b = admin.post(f"{API}/folios/{folio_id}/bill", json={}).json()
+    # Neither the charge nor its void appears — a guest reads what they owe, not the
+    # hotel's correction history.
+    assert not any("Wrong charge" in l["description"] for l in b["charges"])
+    assert not any("Void" in l["description"] for l in b["charges"] + b["payments"])
+
+
+def test_a_waiter_cannot_issue_or_list_bills(waiter):
+    assert waiter.get(f"{API}/bills").status_code == 403
