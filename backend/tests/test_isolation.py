@@ -508,8 +508,11 @@ def test_the_pos_in_house_search_holds_none_of_bs_guests(world):
     for hotel in (a, b):
         run(hotel.db.bookings.update_one({"id": f"{hotel.tag}-booking"},
                                          {"$set": {"status": "checked_in"}}))
-    rows = call(frontdesk.in_house, q="", user=a.admin, db=a.db)
-    assert [r["booking"]["id"] for r in rows] == ["a-booking"]
+    body = call(frontdesk.in_house, q="", user=a.admin, db=a.db)
+    assert [r["booking"]["id"] for r in body["in_house"]] == ["a-booking"]
+    # And the new half carries no cross-tenant leak either: an empty search returns no
+    # expected arrivals at all, so there is nothing of B's to leak through it.
+    assert body["expected"] == []
 
 
 # ---------------------------------- orders ----------------------------------
