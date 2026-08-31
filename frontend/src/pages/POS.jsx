@@ -50,6 +50,9 @@ export default function POS() {
   // charge-to-room, because that is the only moment it can matter: a walk-in paying
   // cash has no package, and asking for one would be a request per sale for nothing.
   const [included, setIncluded] = useState(null);
+  // Guests with a booking today who have not checked in yet. Not chargeable —
+  // shown so a waiter knows the answer is the front desk, not a missing record.
+  const [expected, setExpected] = useState([]);
   // line id -> inclusion id, for the lines a waiter has marked as covered. Cleared
   // whenever the guest changes, because an allowance belongs to one booking.
   const [comped, setComped] = useState({});
@@ -84,7 +87,13 @@ export default function POS() {
     const controller = new AbortController();
     api
       .get("/in-house", { params: { q: debouncedRoomQuery }, signal: controller.signal })
-      .then((r) => setInHouse(r.data))
+      .then((r) => {
+        // The endpoint answers both: who can be charged, and who is merely booked. The
+        // second list only arrives when the first is empty, so it never competes with a
+        // usable answer.
+        setInHouse(r.data.in_house || []);
+        setExpected(r.data.expected || []);
+      })
       .catch((e) => {
         if (axios.isCancel(e) || e.code === "ERR_CANCELED") return;
         toast.error(formatApiErrorDetail(e.response?.data?.detail));
@@ -624,11 +633,30 @@ export default function POS() {
                     />
                   </div>
                   <ul className="mt-2 max-h-40 overflow-y-auto divide-y divide-hairline">
-                    {inHouse.length === 0 && (
+                    {inHouse.length === 0 && expected.length === 0 && (
                       <li className="py-2 text-xs text-faint font-mono uppercase tracking-widest">
                         No in-house guest matches.
                       </li>
                     )}
+                    {/* Booked, but not checked in — so there is no folio to charge. Named
+                        rather than hidden: the guest is standing right there, and the
+                        answer is the front desk rather than a missing record. */}
+                    {inHouse.length === 0 && expected.map((e, i) => (
+                      <li key={`exp-${i}`} className="py-2">
+                        <div className="text-sm text-ink">
+                          {e.guest_name}
+                          {e.room_number && (
+                            <span className="ml-2 font-mono text-[12px] text-muted2">
+                              {e.room_number}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-state-dirty mt-0.5">
+                          Booked, not checked in — check them in at the front desk to
+                          charge to their room.
+                        </div>
+                      </li>
+                    ))}
                     {inHouse.map((x) => (
                       <li key={x.folio.id}>
                         <button

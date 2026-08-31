@@ -747,13 +747,13 @@ def test_check_in_refuses_a_room_of_the_wrong_type(admin):
 def test_in_house_lists_checked_in_guests_only(admin):
     s = _stay(admin, "2029-05-05", "2029-05-08")
     before = admin.get(f"{API}/in-house").json()
-    assert all(x["booking"]["id"] != s["booking"]["id"] for x in before)
+    assert all(x["booking"]["id"] != s["booking"]["id"] for x in before["in_house"])
 
     admin.post(f"{API}/bookings/{s['booking']['id']}/check-in", json={
         "room_id": s["room"]["id"], "id_proof_type": "Aadhaar",
         "id_proof_number": "7777-8888-9999"})
     after = admin.get(f"{API}/in-house").json()
-    assert any(x["booking"]["id"] == s["booking"]["id"] for x in after)
+    assert any(x["booking"]["id"] == s["booking"]["id"] for x in after["in_house"])
 
 
 def test_front_desk_groups_arrivals_departures_and_in_house(admin):
@@ -1068,7 +1068,7 @@ def test_waiter_can_look_up_in_house_guests_but_not_the_front_desk_board(admin, 
     s = _checked_in(admin, "2032-01-05", "2032-01-08")
     lookup = waiter.get(f"{API}/in-house")
     assert lookup.status_code == 200, lookup.text
-    assert any(x["booking"]["id"] == s["booking"]["id"] for x in lookup.json())
+    assert any(x["booking"]["id"] == s["booking"]["id"] for x in lookup.json()["in_house"])
 
     board = waiter.get(f"{API}/front-desk")
     assert board.status_code == 403, board.text
@@ -1082,7 +1082,8 @@ def test_in_house_guest_is_projected_to_only_name_and_phone(admin, waiter):
     lookup = waiter.get(f"{API}/in-house")
     assert lookup.status_code == 200, lookup.text
 
-    row = next(x for x in lookup.json() if x["booking"]["id"] == s["booking"]["id"])
+    row = next(x for x in lookup.json()["in_house"]
+               if x["booking"]["id"] == s["booking"]["id"])
     guest = row["guest"]
     assert set(guest.keys()) == {"id", "name", "phone"}
     assert guest["id"] == s["guest"]["id"]
@@ -1436,7 +1437,7 @@ def test_bar_waiter_reaches_in_house_and_sees_only_pos_fields(admin):
     s = _staff_session(admin, email, "bw12345678", "waiter", ["bar"])
     r = s.get(f"{API}/in-house")
     assert r.status_code == 200, r.text
-    rows = r.json()
+    rows = r.json()["in_house"]
 
     # Assert the exact key sets, not merely that today's sensitive keys are absent: a
     # negative-only assertion goes quiet the day a new field joins the record.
@@ -3432,3 +3433,32 @@ def test_a_manager_cannot_run_payroll(admin):
     s = _staff_session(admin, email, "payroll12345", "manager", ["hotel"])
     assert s.post(f"{API}/payroll/runs", json={"month": _a_month()}).status_code == 403
     assert s.get(f"{API}/advances").status_code == 403
+
+
+def test_a_guest_booked_but_not_checked_in_is_named_rather_than_missing(admin):
+    """The dead end this replaced.
+
+    A guest standing in the restaurant with a booking they have not checked into cannot
+    be charged — there is no folio. But "no in-house guest matches" sent a waiter looking
+    for a bug; naming them turns the refusal into the next step.
+    """
+    s = _stay(admin, "2033-04-05", "2033-04-08")
+    name = s["guest"]["name"]
+
+    # Searched by phone, which is unique to this guest — a generated name can collide
+    # with somebody else's in the shared demo property and make the assertion lie.
+    r = admin.get(f"{API}/in-house", params={"q": s["guest"]["phone"]})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["in_house"] == [], "not chargeable until checked in"
+    assert any(e["guest_name"] == name for e in body["expected"]), \
+        "but the guest is named, so the waiter knows to check them in"
+
+
+def test_expected_arrivals_are_only_offered_when_nothing_matched(admin):
+    # A search that found a chargeable guest must not also list people who are merely
+    # booked — the answer is the folio, and a second list is noise beside it.
+    s = _checked_in(admin, "2033-05-05", "2033-05-08")
+    body = admin.get(f"{API}/in-house", params={"q": s["guest"]["phone"]}).json()
+    assert len(body["in_house"]) >= 1
+    assert body["expected"] == []

@@ -137,7 +137,31 @@ async def in_house(q: str = "", user: dict = Depends(IN_HOUSE_LOOKUP),
         r["guest"] = _pos_guest(r["guest"])
         r["booking"] = _pos_booking(r["booking"])
         r["folio"] = _pos_folio(r["folio"])
-    return rows
+
+    # Somebody who is booked but not yet checked in cannot be charged — there is no
+    # folio to charge. But "no in-house guest matches" is a dead end where it should be
+    # an instruction: the guest IS in the building, standing at the restaurant, and the
+    # answer is to check them in first. Naming them turns a refusal into the next step.
+    #
+    # Only when the search found nothing, and only names and rooms — the same fields
+    # `_pos_guest` already lets a waiter see for an in-house guest, and nothing more.
+    expected = []
+    if q and not rows:
+        needle = q.lower()
+        for b in await db.bookings.find(
+                {"status": {"$in": ["tentative", "confirmed"]}}, {"_id": 0}).to_list(20000):
+            guest = guests.get(b.get("guest_id")) or {}
+            room = rooms.get(b.get("assigned_room_id")) or {}
+            if (needle in (guest.get("name") or "").lower()
+                    or needle in (room.get("number") or "").lower()
+                    or needle in (guest.get("phone") or "")):
+                expected.append({
+                    "guest_name": guest.get("name") or "Guest",
+                    "room_number": room.get("number"),
+                    "check_in": b.get("check_in"),
+                })
+
+    return {"in_house": rows, "expected": expected[:5]}
 
 
 @router.post("/bookings/{booking_id}/check-in")
