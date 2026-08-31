@@ -3462,3 +3462,87 @@ def test_expected_arrivals_are_only_offered_when_nothing_matched(admin):
     body = admin.get(f"{API}/in-house", params={"q": s["guest"]["phone"]}).json()
     assert len(body["in_house"]) >= 1
     assert body["expected"] == []
+
+
+def test_counting_trial_data_deletes_nothing(admin, ep_plan):
+    """The default mode, and the one a nervous owner runs first."""
+    booking_id = _booking_for_entitlements(admin, ep_plan)
+    before = admin.get(f"{API}/bookings/{booking_id}")
+    assert before.status_code == 200
+
+    r = admin.post(f"{API}/property/reset-trial-data", json={"confirm": ""})
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] is False
+    assert r.json()["counts"]["bookings"] >= 1
+
+    # Still there. Counting is not a dry run of deleting — it is not deleting.
+    assert admin.get(f"{API}/bookings/{booking_id}").status_code == 200
+
+
+def test_anything_but_the_word_delete_only_counts(admin, ep_plan):
+    booking_id = _booking_for_entitlements(admin, ep_plan)
+    for wrong in ("delete", "DELETE ", "true", "yes", "Delete"):
+        r = admin.post(f"{API}/property/reset-trial-data", json={"confirm": wrong})
+        assert r.status_code == 200, r.text
+        assert r.json()["deleted"] is False, f"{wrong!r} must not delete"
+    assert admin.get(f"{API}/bookings/{booking_id}").status_code == 200
+
+
+def test_deleting_clears_transactions_and_keeps_the_setup(platform):
+    """What the whole route is for: a hotel that has finished testing, not started over.
+
+    Signs up its own property rather than using the shared demo one. This test really
+    deletes, and running it against the property every other test shares wiped their
+    attendance and their bookings out from under them — which is the same class of
+    accident the route itself is built to make impossible for a real hotel.
+    """
+    tag = uuid.uuid4().hex[:8]
+    made = requests.post(f"{API}/signup", json={
+        "hotel_name": f"Reset Test {tag}", "city": "Testville",
+        "property_type": "both", "admin_name": "Owner",
+        "admin_email": f"reset-{tag}@barflow.io",
+        "admin_password": "Wildflower-7731"})
+    assert made.status_code == 200, made.text
+
+    # Approved before use. A pending property is refused the guest routes, and a hotel
+    # clearing its trial data is a live one — testing against a pending property would
+    # be testing a state this never happens in.
+    platform.post(f"{API}/platform/properties/{made.json()['property_id']}/status",
+                  json={"status": "live"})
+
+    s = requests.Session()
+    tok = s.post(f"{API}/auth/login", json={
+        "email": f"reset-{tag}@barflow.io", "password": "Wildflower-7731"}).json()["token"]
+    s.headers.update({"Authorization": f"Bearer {tok}"})
+
+    # A little setup to prove it survives, and one transaction to prove it does not.
+    rt = s.post(f"{API}/room-types", json={
+        "name": "Standard", "code": f"S{tag[:4].upper()}",
+        "base_occupancy": 2, "max_occupancy": 3}).json()
+    s.post(f"{API}/rooms", json={"number": "101", "room_type_id": rt["id"]})
+    s.post(f"{API}/tables", json={"label": "T1", "capacity": 4, "zone": "Main"})
+    guest = s.post(f"{API}/guests", json={
+        "name": "Trial Guest", "phone": f"98{uuid.uuid4().int % 100000000:08d}"}).json()
+
+    rooms_before = len(s.get(f"{API}/rooms").json())
+    tables_before = len(s.get(f"{API}/tables").json())
+    assert rooms_before and tables_before
+    assert len(s.get(f"{API}/guests").json()) >= 1
+
+    r = s.post(f"{API}/property/reset-trial-data", json={"confirm": "DELETE"})
+    assert r.status_code == 200, r.text
+    assert r.json()["deleted"] is True
+
+    assert s.get(f"{API}/guests").json() == [], "the trial's guests are gone"
+
+    # The setup survives — tables especially, because printed QR cards encode their ids
+    # and deleting the rows would kill every one of them.
+    assert len(s.get(f"{API}/rooms").json()) == rooms_before
+    assert len(s.get(f"{API}/tables").json()) == tables_before
+
+
+def test_a_manager_cannot_wipe_a_propertys_history(admin):
+    email = f"wipe-{uuid.uuid4().hex[:6]}@barflow.io"
+    s = _staff_session(admin, email, "wipe12345678", "manager", ["hotel"])
+    r = s.post(f"{API}/property/reset-trial-data", json={"confirm": "DELETE"})
+    assert r.status_code == 403

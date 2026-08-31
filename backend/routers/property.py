@@ -8,10 +8,14 @@ Approval, suspension and the list of every hotel are not here. They belong to th
 platform operator, who reaches them through `/api/platform/*` and is refused everything
 in this file.
 """
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from db import unscoped_db
 from models.property import PropertyFields
+from scoped_db import PropertyScopedDatabase, tenant_db
 from security import require_access, resolve_property
 from services.access import SHARED
 from services.clock import today
@@ -21,6 +25,7 @@ from services.registration import (
 )
 from services.tax import TaxRateError, normalise_rate
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Read by anyone signed in, in any part of the business: the property's name, address and
@@ -118,3 +123,66 @@ async def update_property(payload: PropertyFields, user: dict = Depends(WRITE)):
     # The same shape GET answers in, so a settings form that saves and re-renders from
     # the response cannot lose the subscription block and show a business as unpriced.
     return _visible(await unscoped_db.properties.find_one({"id": record["id"]}, {"_id": 0}))
+
+
+# What a trial records, and what a trial configures. The split is the whole point of the
+# route below: a hotel that has finished testing wants the first gone and the second kept.
+#
+# `tables` is deliberately on neither list here — it is kept, and it is worth saying why:
+# twenty printed QR cards encode table ids, and deleting the rows would turn every one of
+# them into a dead link on a Monday morning.
+TRIAL_COLLECTIONS = (
+    "bookings", "guests", "folios", "folio_entries", "bills",
+    "orders", "housekeeping_jobs", "housekeeping_events",
+    "attendance", "salary_runs", "payslips", "advances",
+    "entitlement_uses", "message_log", "message_claims",
+    "reservations", "expenses",
+)
+
+
+class ResetIn(BaseModel):
+    """`confirm` must be the literal string DELETE.
+
+    Not a boolean. A boolean is one mistyped JSON field away from being true, and this
+    route empties a hotel's transaction history. Anything else counts and deletes nothing,
+    which is what the script's default mode relies on.
+    """
+    confirm: str = ""
+
+
+@router.post("/property/reset-trial-data")
+async def reset_trial_data(payload: ResetIn, user: dict = Depends(WRITE),
+                           db: PropertyScopedDatabase = Depends(tenant_db)):
+    """Count, or clear, everything this property recorded while it was being tested.
+
+    Admin only, and scoped by the bound handle — there is no property id in the request,
+    so this cannot reach another hotel's rows even if somebody wanted it to.
+
+    **Counting is what happens unless `confirm` is exactly "DELETE".** A destructive route
+    whose safe mode needs a flag is one keystroke from being the wrong route.
+
+    What it keeps is as deliberate as what it removes: rooms, room types, rates, the menu,
+    tables, packages, outlets, reference data and staff logins all survive. A hotel doing
+    this has finished testing, not started over.
+    """
+    deleting = payload.confirm == "DELETE"
+
+    counts: dict[str, int] = {}
+    for name in TRIAL_COLLECTIONS:
+        collection = getattr(db, name)
+        rows = await collection.find({}, {"_id": 0, "id": 1}).to_list(100000)
+        counts[name] = len(rows)
+        if not deleting:
+            continue
+        # One at a time, by id, through the scoped handle. A bulk delete would be faster
+        # and would also be the one call in this file able to reach past the property it
+        # is bound to.
+        for row in rows:
+            if row.get("id"):
+                await collection.delete_one({"id": row["id"]})
+
+    logger.info("Trial data %s for %s: %s",
+                "deleted" if deleting else "counted", db.property_id,
+                {k: v for k, v in counts.items() if v})
+
+    return {"deleted": deleting, "counts": counts}

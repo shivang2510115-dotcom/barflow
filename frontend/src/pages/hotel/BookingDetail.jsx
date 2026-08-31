@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { api, currency, formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import CheckOutPanel from "@/components/app/CheckOutPanel";
 import { toast } from "sonner";
 
 const STATUS_STYLE = {
@@ -132,24 +133,20 @@ export default function BookingDetail() {
     }
   };
 
-  const checkOut = async () => {
+  // Pressing Check out opens the bill rather than checking out immediately: the guest
+  // is standing there, and what they owe — with the chance to take a line off or knock
+  // something off — is the conversation that happens before they leave.
+  const [settling, setSettling] = useState(false);
+
+  const checkOutDirect = async () => {
     setCheckingOut(true);
     try {
       await api.post(`/bookings/${id}/check-out`, {});
-      // The bill is drawn immediately after, in the same action, because a checkout
-      // without a document is the half of the job the guest actually walks away with.
-      // It is a separate request rather than part of check-out: a bill that failed to
-      // write must not roll back a checkout that succeeded, and a guest already at the
-      // door is better served by "checked out, bill did not print" than by neither.
-      let billed = null;
-      if (folioId) {
-        try {
-          billed = await api.post(`/folios/${folioId}/bill`, {}).then((r) => r.data);
-        } catch {
-          toast.error("Checked out, but the bill could not be drawn. Open Bills to retry.");
-        }
-      }
-      toast.success(billed ? `Checked out — bill ${billed.number}` : "Checked out");
+      // No bill is drawn here, and there is nothing to draw one from: this path only
+      // runs for a booking with no folio. Everything with a folio goes through
+      // CheckOutPanel, which shows what is owed, allows a line to come off, and draws
+      // the bill as part of settling.
+      toast.success("Checked out");
       load();
     } catch (e) {
       const detail = e.response?.data?.detail;
@@ -163,6 +160,11 @@ export default function BookingDetail() {
     } finally {
       setCheckingOut(false);
     }
+  };
+
+  const checkOut = () => {
+    if (!folioId) { checkOutDirect(); return; }
+    setSettling(true);
   };
 
   const startForceCheckOut = () => {
@@ -643,6 +645,19 @@ export default function BookingDetail() {
             </button>
           </div>
         </div>
+      )}
+
+      {settling && folioId && (
+        <CheckOutPanel
+          bookingId={id}
+          folioId={folioId}
+          onClose={() => setSettling(false)}
+          onDone={(bill) => {
+            setSettling(false);
+            toast.success(`Checked out — bill ${bill.number}`);
+            load();
+          }}
+        />
       )}
 
       {b.status === "cancelled" && b.cancellation_reason && (
